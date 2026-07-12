@@ -99,5 +99,8 @@ auth on the workspace (claim-a-name).
 - **Agent invited but never comes online in the workspace** — the tunnel needs the
   Network voucher; check daemon logs for `tunnel` lines. Vouchers expire after 24h —
   if it's been longer since the invite, re-invite (known PoC limitation).
-- **No GPU stats on the Overview page** — CPU-mode is expected on machines without
-  `nvidia-smi`; on the 3080 rig make sure the stack was started with the GPU override.
+- **No GPU stats on the Overview page** — the host image ships `nvidia-smi`, so stats
+  appear whenever the stack is started with the GPU override (which grants the GPU and
+  lets the NVIDIA runtime inject its driver library). On the 3080 rig, confirm the
+  override was applied. Machines with no NVIDIA GPU run in CPU mode and show no GPU
+  stats by design.

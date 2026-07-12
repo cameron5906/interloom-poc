@@ -29,12 +29,23 @@ RUN pnpm --filter @interloom/protocol build && \
     pnpm --filter @interloom/agent-host-portal build && \
     pnpm --filter @interloom/agent-host build
 
-# ── Stage 4: runtime ──────────────────────────────────────────────────────────
-# glibc base (not alpine): the NVIDIA container runtime injects a glibc-linked
-# nvidia-smi for GPU telemetry, which cannot run on musl.
+# ── Stage 4: nvidia-smi provider ──────────────────────────────────────────────
+# node:22-slim ships no nvidia-smi. The NVIDIA container runtime injects the
+# driver libraries (libnvidia-ml) at container start but not the binary itself,
+# so /api/system would report no GPUs. Grab a glibc-linked nvidia-smi from the
+# CUDA base image; it loads the injected driver library at runtime, staying
+# agnostic to the host driver version.
+FROM nvidia/cuda:12.4.1-base-ubuntu22.04 AS nvidia-smi
+
+# ── Stage 5: runtime ──────────────────────────────────────────────────────────
+# glibc base (not alpine): GPU telemetry needs a glibc-linked nvidia-smi and the
+# NVIDIA runtime's injected driver libraries, neither of which runs on musl.
 FROM node:22-slim AS runner
 RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
 WORKDIR /repo
+
+# nvidia-smi binary for GPU telemetry; the driver library is injected at runtime.
+COPY --from=nvidia-smi /usr/bin/nvidia-smi /usr/bin/nvidia-smi
 
 # Manifests needed for workspace-layout install
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
