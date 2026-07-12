@@ -38,7 +38,30 @@ export function MarketplacePreview({
         <p className="il-mktcard__blurb">
           {draft.capabilityBlurb || "Add a one-line capability blurb to describe your agent."}
         </p>
+        {draft.model ? (
+          <div className="il-mktcard__model">
+            <span className="il-mktcard__model-chip">
+              <ModelIcon />
+              {draft.model.filename}
+              {draft.model.quant ? ` · ${draft.model.quant}` : ""}
+            </span>
+          </div>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function ModelIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 15 15" fill="none" aria-hidden style={{ flexShrink: 0 }}>
+      <path
+        d="M7.5 1.5 13 4.3v6.4L7.5 13.5 2 10.7V4.3L7.5 1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M2 4.3 7.5 7l5.5-2.7M7.5 7v6.5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
   );
 }

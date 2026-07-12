@@ -7,6 +7,8 @@ import { getKeypair } from "../keys.js";
 import { networkRegisterAgent } from "../network/client.js";
 import { addRequestLogEntry } from "../telemetry/collector.js";
 import { resolvePreviewOptions, type PreviewBody } from "./preview.js";
+import { getActiveModel, findLocalModelPath } from "../models/active.js";
+import { enqueueInference } from "../inference/gate.js";
 import {
   listAgents,
   getAgent,
@@ -16,7 +18,15 @@ import {
   type Agent,
 } from "./store.js";
 
+/** Clamp max_tokens to a safe value that won't exceed the context window. */
+function clampMaxTokens(requested?: number): number {
+  return Math.min(1024, requested ?? 512);
+}
+
 async function registerAgentOnNetwork(agent: Agent): Promise<void> {
+  if (!agent.model) {
+    throw new Error("agent has no model — cannot register");
+  }
   const keypair = getKeypair();
   const manifest: AgentManifest = {
     agentId: agent.agentId,
@@ -28,6 +38,7 @@ async function registerAgentOnNetwork(agent: Agent): Promise<void> {
     availability: "always",
     contract: { kind: "free" },
     params: agent.params,
+    model: agent.model,
   };
   const envelope = signEnvelope(manifest, keypair.privateKey, keypair.publicKey);
   await networkRegisterAgent(envelope);
@@ -93,6 +104,18 @@ export function registerAgentRoutes(app: FastifyInstance): void {
       const agent = getAgent(req.params.id);
       if (!agent) return reply.status(404).send({ error: "not found" });
 
+      // model_required: agent must have a model assigned
+      if (!agent.model) {
+        return reply.status(400).send({ error: "model_required" });
+      }
+
+      // model_not_active: the agent's model must be the currently loaded model
+      const active = await getActiveModel();
+      if (!active || active.filename !== agent.model.filename) {
+        const localPath = agent.model.filename ? findLocalModelPath(agent.model.filename) : null;
+        return reply.status(409).send({ error: "model_not_active", model: agent.model, path: localPath });
+      }
+
       const { persona, temperature } = resolvePreviewOptions(req.body, agent);
       const messages = [
         { role: "system", content: persona },
@@ -110,73 +133,80 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         aborted = true;
       });
 
-      let inferenceRes: Response;
-      try {
-        inferenceRes = await fetch(`${INFERENCE_URL}/v1/chat/completions`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            messages,
-            stream: true,
-            temperature,
-            max_tokens: agent.params.contextLength,
-          }),
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        reply.raw.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
-        reply.raw.end();
-        return reply;
-      }
-
-      if (!inferenceRes.ok || !inferenceRes.body) {
-        reply.raw.write(`data: ${JSON.stringify({ error: "inference unavailable" })}\n\n`);
-        reply.raw.end();
-        return reply;
-      }
-
-      const reader = inferenceRes.body.getReader();
-      const decoder = new TextDecoder();
       let promptTokens = 0;
       let completionTokens = 0;
       let tokensPerSec = 0;
-      let buffer = "";
 
       try {
-        while (!aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") continue;
-            try {
-              const chunk = JSON.parse(data) as {
-                choices?: Array<{ delta?: { content?: string }; finish_reason?: string }>;
-                usage?: { prompt_tokens?: number; completion_tokens?: number };
-                timings?: { predicted_per_second?: number };
-              };
-              const delta = chunk.choices?.[0]?.delta?.content;
-              if (delta) {
-                reply.raw.write(`data: ${JSON.stringify({ delta })}\n\n`);
-              }
-              if (chunk.usage) {
-                promptTokens = chunk.usage.prompt_tokens ?? 0;
-                completionTokens = chunk.usage.completion_tokens ?? 0;
-              }
-              if (chunk.timings?.predicted_per_second) {
-                tokensPerSec = chunk.timings.predicted_per_second;
-              }
-            } catch {
-              // skip malformed SSE lines
-            }
+        await enqueueInference("preview", async () => {
+          let inferenceRes: Response;
+          try {
+            inferenceRes = await fetch(`${INFERENCE_URL}/v1/chat/completions`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                messages,
+                stream: true,
+                temperature,
+                max_tokens: clampMaxTokens(),
+              }),
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            reply.raw.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+            return;
           }
-        }
-      } finally {
-        reader.cancel().catch(() => undefined);
+
+          if (!inferenceRes.ok || !inferenceRes.body) {
+            reply.raw.write(`data: ${JSON.stringify({ error: "inference unavailable" })}\n\n`);
+            return;
+          }
+
+          const reader = inferenceRes.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          try {
+            while (!aborted) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                const data = line.slice(6).trim();
+                if (data === "[DONE]") continue;
+                try {
+                  const chunk = JSON.parse(data) as {
+                    choices?: Array<{ delta?: { content?: string }; finish_reason?: string }>;
+                    usage?: { prompt_tokens?: number; completion_tokens?: number };
+                    timings?: { predicted_per_second?: number };
+                  };
+                  const delta = chunk.choices?.[0]?.delta?.content;
+                  if (delta) {
+                    reply.raw.write(`data: ${JSON.stringify({ delta })}\n\n`);
+                  }
+                  if (chunk.usage?.prompt_tokens !== undefined) {
+                    promptTokens = chunk.usage.prompt_tokens;
+                  }
+                  if (chunk.usage?.completion_tokens !== undefined) {
+                    completionTokens = chunk.usage.completion_tokens;
+                  }
+                  if (chunk.timings?.predicted_per_second !== undefined) {
+                    tokensPerSec = chunk.timings.predicted_per_second;
+                  }
+                } catch {
+                  // skip malformed SSE lines
+                }
+              }
+            }
+          } finally {
+            reader.cancel().catch(() => undefined);
+          }
+        });
+      } catch {
+        // gate error — response stream already started, just end it
       }
 
       if (!aborted) {
@@ -201,6 +231,11 @@ export function registerAgentRoutes(app: FastifyInstance): void {
   app.post<{ Params: { id: string } }>("/api/agents/:id/register", async (req, reply) => {
     const agent = getAgent(req.params.id);
     if (!agent) return reply.status(404).send({ error: "not found" });
+
+    // model_required: cannot publish without a model
+    if (!agent.model) {
+      return reply.status(400).send({ error: "model_required" });
+    }
 
     try {
       await registerAgentOnNetwork(agent);

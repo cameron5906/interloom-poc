@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ModelRef } from "./model.js";
 
 /** A chat message (CONTRACTS §5). `mentions` holds member ids. */
 export const ChatMessage = z.object({
@@ -18,6 +19,8 @@ export const Channel = z.object({
   id: z.string(),
   name: z.string(),
   kind: z.enum(["channel", "dm"]),
+  /** For DMs: the two participant member ids — clients resolve the partner by id, never by name. */
+  memberIds: z.array(z.string()).optional(),
 });
 export type Channel = z.infer<typeof Channel>;
 
@@ -41,6 +44,8 @@ export const Member = z.object({
   syncedAt: z.number().optional(),
   /** Unix ms when the member joined the workspace. */
   joinedAt: z.number().optional(),
+  /** The model this agent runs on (from its manifest); agent members only. */
+  model: ModelRef.optional(),
 });
 export type Member = z.infer<typeof Member>;
 

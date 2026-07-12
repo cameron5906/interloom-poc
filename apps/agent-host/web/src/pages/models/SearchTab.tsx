@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Badge, Button, EmptyState, Input, Spinner } from "@interloom/ui";
-import type { HfSearchResult, HfSearchFile } from "../../api/types.js";
+import type { DownloadJob, LocalModel } from "@interloom/protocol";
+import type { HfSearchResult, HfSearchFile, ActiveModel } from "../../api/types.js";
 import { models as modelsApi } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
 import { useDebounced } from "../../hooks/useDebounced.js";
@@ -8,8 +9,18 @@ import { useToasts } from "../../components/Toasts.js";
 import { LoadError } from "../../components/States.js";
 import { bytesToGB, compactNumber } from "../../lib/format.js";
 import { ApiError } from "../../api/client.js";
+import { deriveModelState } from "../../hooks/useModelState.js";
+import { RemoveModelModal } from "./RemoveModelModal.js";
+import type { LocalModel as LocalModelType } from "@interloom/protocol";
 
-export function SearchTab({ onDownloadStarted }: { onDownloadStarted: () => void }) {
+interface SearchTabProps {
+  downloads: DownloadJob[];
+  localModels: LocalModel[];
+  activeModel: ActiveModel | null;
+  onRefresh: () => void;
+}
+
+export function SearchTab({ downloads, localModels, activeModel, onRefresh }: SearchTabProps) {
   const [query, setQuery] = useState("");
   const debounced = useDebounced(query.trim(), 400);
 
@@ -47,12 +58,19 @@ export function SearchTab({ onDownloadStarted }: { onDownloadStarted: () => void
       ) : (results.data ?? []).length === 0 ? (
         <EmptyState
           title={`No GGUF results for "${debounced}"`}
-          hint="Try a different model name, e.g. “llama”, “qwen”, or “mistral”."
+          hint='Try a different model name, e.g. "llama", "qwen", or "mistral".'
         />
       ) : (
         <ul className="il-search__list">
           {(results.data ?? []).map((r) => (
-            <SearchRow key={r.repoId} result={r} onDownloadStarted={onDownloadStarted} />
+            <SearchRow
+              key={r.repoId}
+              result={r}
+              downloads={downloads}
+              localModels={localModels}
+              activeModel={activeModel}
+              onRefresh={onRefresh}
+            />
           ))}
         </ul>
       )}
@@ -62,10 +80,16 @@ export function SearchTab({ onDownloadStarted }: { onDownloadStarted: () => void
 
 function SearchRow({
   result,
-  onDownloadStarted,
+  downloads,
+  localModels,
+  activeModel,
+  onRefresh,
 }: {
   result: HfSearchResult;
-  onDownloadStarted: () => void;
+  downloads: DownloadJob[];
+  localModels: LocalModel[];
+  activeModel: ActiveModel | null;
+  onRefresh: () => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -93,7 +117,10 @@ function SearchRow({
               key={f.filename}
               file={f}
               repoId={result.repoId}
-              onDownloadStarted={onDownloadStarted}
+              downloads={downloads}
+              localModels={localModels}
+              activeModel={activeModel}
+              onRefresh={onRefresh}
             />
           ))}
         </ul>
@@ -105,21 +132,32 @@ function SearchRow({
 function FileRow({
   file,
   repoId,
-  onDownloadStarted,
+  downloads,
+  localModels,
+  activeModel,
+  onRefresh,
 }: {
   file: HfSearchFile;
   repoId: string;
-  onDownloadStarted: () => void;
+  downloads: DownloadJob[];
+  localModels: LocalModel[];
+  activeModel: ActiveModel | null;
+  onRefresh: () => void;
 }) {
   const toasts = useToasts();
   const [busy, setBusy] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<LocalModelType | null>(null);
+
+  const ms = deriveModelState(repoId, file.filename, downloads, localModels, activeModel);
+  const job = ms.job;
+  const pct = job && job.bytesTotal > 0 ? Math.round((job.bytesDone / job.bytesTotal) * 100) : 0;
 
   const download = async () => {
     setBusy(true);
     try {
       await modelsApi.download(repoId, file.filename);
       toasts.success(`Downloading ${file.filename}`);
-      onDownloadStarted();
+      onRefresh();
     } catch (err) {
       toasts.error(
         err instanceof ApiError && err.isOffline
@@ -132,18 +170,55 @@ function FileRow({
   };
 
   return (
-    <li className="il-search__file">
-      <div className="il-search__file-main">
-        <span className="il-mono il-search__filename">{file.filename}</span>
-        <span className="il-search__file-meta">
-          {file.quant ? <Badge variant="neutral">{file.quant}</Badge> : null}
-          <span className="il-meta">{bytesToGB(file.sizeBytes)} GB</span>
-        </span>
-      </div>
-      <Button size="sm" variant="secondary" onClick={download} disabled={busy}>
-        {busy ? "Starting…" : "Download"}
-      </Button>
-    </li>
+    <>
+      <li className="il-search__file">
+        <div className="il-search__file-main">
+          <span className="il-mono il-search__filename">{file.filename}</span>
+          <span className="il-search__file-meta">
+            {file.quant ? <Badge variant="neutral">{file.quant}</Badge> : null}
+            <span className="il-meta">{bytesToGB(file.sizeBytes)} GB</span>
+          </span>
+        </div>
+
+        {ms.state === "active" ? (
+          <Badge variant="success">Active ✓</Badge>
+        ) : ms.state === "installed" ? (
+          <div className="il-search__file-actions">
+            <Badge variant="success">Installed ✓</Badge>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setRemoveTarget(ms.localModel!)}
+            >
+              Remove
+            </Button>
+          </div>
+        ) : ms.state === "queued" || ms.state === "downloading" ? (
+          <div className="il-model-card__progress-row">
+            <Spinner size="sm" />
+            <span className="il-meta">
+              {ms.state === "queued" ? "Queued" : `${pct}%`}
+            </span>
+          </div>
+        ) : (
+          <Button size="sm" variant="secondary" onClick={download} disabled={busy}>
+            {busy ? "Starting…" : "Download"}
+          </Button>
+        )}
+      </li>
+
+      {removeTarget ? (
+        <RemoveModelModal
+          model={removeTarget}
+          activeModel={activeModel}
+          onClose={() => setRemoveTarget(null)}
+          onRemoved={() => {
+            setRemoveTarget(null);
+            onRefresh();
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

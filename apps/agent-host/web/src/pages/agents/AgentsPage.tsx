@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Avatar, Badge, Button, StatusPill } from "@interloom/ui";
 import type { HostAgent } from "@interloom/protocol";
 import { agents as agentsApi, models as modelsApi } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
+import { usePoll } from "../../hooks/usePoll.js";
 import { LoadError, Skeleton } from "../../components/States.js";
 import { relativeTime } from "../../lib/format.js";
 import { AgentEditor } from "./AgentEditor.js";
 import { PreviewChat } from "./PreviewChat.js";
 import type { AgentDraft } from "../../api/types.js";
+import type { ActiveModel } from "../../api/types.js";
 import "./agents.css";
 
 const NEW_DRAFT: AgentDraft = {
@@ -20,12 +23,13 @@ const NEW_DRAFT: AgentDraft = {
 
 export function AgentsPage() {
   const list = useAsync((s) => agentsApi.list(s), []);
-  const localModels = useAsync((s) => modelsApi.local(s), []);
+  const activePoll = usePoll<ActiveModel | null>((s) => modelsApi.active(s), 3000, true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
   const [liveDraft, setLiveDraft] = useState<AgentDraft>(NEW_DRAFT);
 
   const agents = list.data ?? [];
+  const activeModel = activePoll.data ?? null;
 
   // Auto-select the first agent once loaded (unless the user is creating one).
   useEffect(() => {
@@ -39,11 +43,7 @@ export function AgentsPage() {
       ? null
       : (agents.find((a) => a.agentId === selectedId) ?? null);
 
-  // A model counts as "active" for preview if any local model exists AND is the
-  // loaded one. The daemon owns activation state; the presence of local models
-  // plus a served agent is our signal. We treat "has local models" as the gate
-  // and let the daemon reject if none is loaded.
-  const modelActive = (localModels.data ?? []).length > 0;
+  const modelActive = activeModel !== null;
 
   const handleSaved = useCallback(
     (saved: HostAgent) => {
@@ -117,31 +117,54 @@ export function AgentsPage() {
                 </button>
               </li>
             ) : null}
-            {agents.map((a) => (
-              <li key={a.agentId}>
-                <button
-                  className={`il-agents__row${
-                    !creatingNew && a.agentId === selectedId ? " il-agents__row--active" : ""
-                  }`}
-                  onClick={() => {
-                    setCreatingNew(false);
-                    setSelectedId(a.agentId);
-                  }}
-                >
-                  <Avatar name={a.name} isAgent emoji={a.avatar.emoji} bg={a.avatar.bg} size="md" />
-                  <div className="il-agents__row-main">
-                    <span className="il-agents__row-name">
-                      <span className="il-agents__row-name-text">{a.name}</span>
-                      <Badge variant="agent">AGENT</Badge>
-                    </span>
-                    <span className="il-meta">
-                      {a.registered ? `synced ${relativeTime(a.syncedAt)}` : "unregistered"}
-                    </span>
-                  </div>
-                  {a.registered ? <StatusPill tone="success" live /> : null}
-                </button>
-              </li>
-            ))}
+            {agents.map((a) => {
+              const isOnline = !!(a.model && activeModel?.filename === a.model.filename);
+              return (
+                <li key={a.agentId}>
+                  <button
+                    className={`il-agents__row${
+                      !creatingNew && a.agentId === selectedId ? " il-agents__row--active" : ""
+                    }`}
+                    onClick={() => {
+                      setCreatingNew(false);
+                      setSelectedId(a.agentId);
+                    }}
+                  >
+                    <Avatar
+                      name={a.name}
+                      isAgent
+                      emoji={a.avatar.emoji}
+                      bg={a.avatar.bg}
+                      size="md"
+                      presence={a.model ? (isOnline ? "online" : "offline") : undefined}
+                    />
+                    <div className="il-agents__row-main">
+                      <span className="il-agents__row-name">
+                        <span className="il-agents__row-name-text">{a.name}</span>
+                        <Badge variant="agent">AGENT</Badge>
+                      </span>
+                      <span className="il-meta">
+                        {a.registered ? `synced ${relativeTime(a.syncedAt)}` : "unregistered"}
+                      </span>
+                      {a.model && !isOnline ? (
+                        <span className="il-agents__offline-hint">
+                          <Link to="/models" className="il-agents__offline-link">
+                            Activate {a.model.filename}
+                          </Link>{" "}
+                          to bring online
+                        </span>
+                      ) : null}
+                    </div>
+                    <StatusPill
+                      tone={isOnline ? "success" : a.model ? "neutral" : "neutral"}
+                      live={isOnline}
+                    >
+                      {isOnline ? "online" : a.model ? "offline" : "no model"}
+                    </StatusPill>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </aside>
@@ -149,6 +172,7 @@ export function AgentsPage() {
       <AgentEditor
         key={creatingNew ? "new" : (selectedId ?? "none")}
         agent={selected}
+        activeModel={activeModel}
         onSaved={handleSaved}
         onDeleted={handleDeleted}
         onDraftChange={setLiveDraft}
@@ -158,6 +182,7 @@ export function AgentsPage() {
         agentId={selected?.agentId ?? null}
         draft={liveDraft}
         modelActive={modelActive}
+        activeModel={activeModel}
       />
     </div>
   );

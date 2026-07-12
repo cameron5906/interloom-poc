@@ -82,6 +82,7 @@ describe("AgentManifest schema", () => {
       availability: "always",
       contract: { kind: "free" },
       params: { temperature: 0.7, contextLength: 4096 },
+      model: { filename: "qwen2.5-7b-q4.gguf", displayName: "Qwen 2.5 7B" },
     });
     expect(result.success).toBe(true);
   });
@@ -97,6 +98,7 @@ describe("AgentManifest schema", () => {
       availability: "sometimes",
       contract: { kind: "free" },
       params: { temperature: 0.7, contextLength: 4096 },
+      model: { filename: "qwen2.5-7b-q4.gguf", displayName: "Qwen 2.5 7B" },
     });
     expect(result.success).toBe(false);
   });
@@ -144,6 +146,7 @@ describe("WebhookEvent discriminated union", () => {
         availability: "always",
         contract: { kind: "free" },
         params: { temperature: 0.7, contextLength: 4096 },
+      model: { filename: "qwen2.5-7b-q4.gguf", displayName: "Qwen 2.5 7B" },
       },
       ts: 5,
     });
@@ -244,6 +247,56 @@ describe("TelemetryFrame schema", () => {
       ],
       tunnels: [{ instanceName: "demo", instanceUrl: "u", agentName: "Ada", status: "connected" }],
       agents: [{ agentId: "a1", name: "Ada", status: "idle", registered: true }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts agent status 'offline' for model-not-loaded agents", () => {
+    const result = TelemetryFrame.safeParse({
+      ts: 1,
+      gpus: [],
+      tokensPerSec: 0,
+      requestLog: [],
+      tunnels: [],
+      agents: [{ agentId: "a1", name: "Ada", status: "offline", registered: true }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts optional inference field with active model and queue depth", () => {
+    const result = TelemetryFrame.safeParse({
+      ts: 1,
+      gpus: [],
+      tokensPerSec: 0,
+      requestLog: [],
+      tunnels: [],
+      agents: [],
+      inference: { activeModel: { filename: "qwen.gguf", displayName: "Qwen" }, queueDepth: 2 },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts inference field with null activeModel", () => {
+    const result = TelemetryFrame.safeParse({
+      ts: 1,
+      gpus: [],
+      tokensPerSec: 0,
+      requestLog: [],
+      tunnels: [],
+      agents: [],
+      inference: { activeModel: null, queueDepth: 0 },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts telemetry frame without inference field (backwards compat)", () => {
+    const result = TelemetryFrame.safeParse({
+      ts: 1,
+      gpus: [],
+      tokensPerSec: 0,
+      requestLog: [],
+      tunnels: [],
+      agents: [],
     });
     expect(result.success).toBe(true);
   });

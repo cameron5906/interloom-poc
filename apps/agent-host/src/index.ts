@@ -9,7 +9,7 @@ import { registerModelsRoutes } from "./models/routes.js";
 import { registerAgentRoutes } from "./agents/routes.js";
 import { registerTelemetryWs } from "./telemetry/ws.js";
 import { registerStatic } from "./static.js";
-import { startHeartbeatLoop } from "./heartbeat.js";
+import { startHeartbeatLoop, triggerHeartbeat } from "./heartbeat.js";
 import { TunnelManager } from "./tunnel/manager.js";
 import { signEnvelope } from "@interloom/keys";
 import { getLastPlacements } from "./heartbeat.js";
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   registerSystemRoutes(app);
   registerKeysRoutes(app);
   registerNetworkSessionRoutes(app);
-  registerModelsRoutes(app, getSystemInfo);
+  registerModelsRoutes(app, getSystemInfo, triggerHeartbeat);
   registerAgentRoutes(app);
 
   app.get("/api/placements", async (_req, reply) => {

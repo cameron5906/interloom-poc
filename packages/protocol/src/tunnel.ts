@@ -65,8 +65,19 @@ export const AuthIdentifyParams = z.object({
     sig: z.string(),
   }),
   sig: z.string(),
+  /** Loaded model context window (tokens). The host sends this so the instance
+   *  can cap prompt assembly to fit (chars/4 heuristic, reserving reply budget). */
+  ctx: z.number().optional(),
 });
 export type AuthIdentifyParams = z.infer<typeof AuthIdentifyParams>;
+
+/** Auth success result. `ctx` advertises the loaded model's context window so
+ *  workspaces can size prompt assembly to fit (shared across all agents on the model). */
+export const AuthOkResult = z.object({
+  ok: z.literal(true),
+  ctx: z.number().optional(),
+});
+export type AuthOkResult = z.infer<typeof AuthOkResult>;
 
 // --- Inference methods (§3) ---
 
@@ -79,6 +90,8 @@ export type InferenceMessage = z.infer<typeof InferenceMessage>;
 export const InferenceParams = z.object({
   temperature: z.number().optional(),
   maxTokens: z.number().optional(),
+  /** Traffic class on the shared model: interactive replies outrank maintenance (compaction etc.). */
+  priority: z.enum(["interactive", "maintenance"]).optional(),
 });
 export type InferenceParams = z.infer<typeof InferenceParams>;
 

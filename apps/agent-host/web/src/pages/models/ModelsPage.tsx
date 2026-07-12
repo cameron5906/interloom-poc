@@ -1,6 +1,8 @@
 import { useState } from "react";
+import type { LocalModel } from "@interloom/protocol";
 import { models as modelsApi } from "../../api/endpoints.js";
 import { usePoll } from "../../hooks/usePoll.js";
+import type { ActiveModel } from "../../api/types.js";
 import { RecommendedTab } from "./RecommendedTab.js";
 import { SearchTab } from "./SearchTab.js";
 import { InstalledTab } from "./InstalledTab.js";
@@ -11,11 +13,22 @@ type Tab = "recommended" | "search" | "installed";
 
 export function ModelsPage() {
   const [tab, setTab] = useState<Tab>("recommended");
-  // Poll downloads once we know there's activity; the drawer hides itself when
-  // nothing is in flight. We poll continuously at 1 Hz — it's a cheap endpoint
-  // and keeps the drawer responsive the moment a download starts.
+
+  // Poll downloads + local models at 1 Hz so tile states flip automatically
+  // when a download completes, without any manual reload.
   const downloads = usePoll((s) => modelsApi.downloads(s), 1000, true);
+  const localPoll = usePoll<LocalModel[]>((s) => modelsApi.local(s), 1500, true);
+  const activePoll = usePoll<ActiveModel | null>((s) => modelsApi.active(s), 2000, true);
+
   const jobs = downloads.data ?? [];
+  const localModels = localPoll.data ?? [];
+  const activeModel = activePoll.data ?? null;
+
+  const refresh = () => {
+    downloads.refresh();
+    localPoll.refresh();
+    activePoll.refresh();
+  };
 
   return (
     <div className="il-page-scroll il-scroll-fade">
@@ -41,11 +54,28 @@ export function ModelsPage() {
 
         <div className="il-models-body">
           {tab === "recommended" && (
-            <RecommendedTab onDownloadStarted={downloads.refresh} />
+            <RecommendedTab
+              downloads={jobs}
+              localModels={localModels}
+              activeModel={activeModel}
+              onRefresh={refresh}
+            />
           )}
-          {tab === "search" && <SearchTab onDownloadStarted={downloads.refresh} />}
+          {tab === "search" && (
+            <SearchTab
+              downloads={jobs}
+              localModels={localModels}
+              activeModel={activeModel}
+              onRefresh={refresh}
+            />
+          )}
           {tab === "installed" && (
-            <InstalledTab onGoToRecommended={() => setTab("recommended")} />
+            <InstalledTab
+              localModels={localModels}
+              activeModel={activeModel}
+              onGoToRecommended={() => setTab("recommended")}
+              onRefresh={refresh}
+            />
           )}
         </div>
       </div>

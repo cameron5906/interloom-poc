@@ -158,6 +158,29 @@
   margin-top: 5px;
 }
 
+/* Model card install state actions */
+.il-model-card__installed-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.il-model-card__remove {
+  font-size: 11.5px;
+}
+.il-model-card__progress-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* Search file install actions */
+.il-search__file-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
 /* ---- Installed ---- */
 .il-installed {
   display: flex;
@@ -243,6 +266,19 @@
     }
   }
 }
+.il-installed__row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.il-installed__agents-online {
+  margin-top: 3px;
+  color: var(--il-success);
+}
+.il-installed__remove-btn {
+  font-size: 11.5px;
+}
 .il-installed__serving {
   font-family: var(--il-font-mono);
   font-size: 11px;
@@ -251,17 +287,223 @@
   letter-spacing: 0.05em;
 }
 
+/* ---- Activation impact modal ---- */
+.il-impact-modal__body {
+  min-width: 360px;
+}
+.il-impact-modal__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.il-impact-modal__section--spaced {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--il-border-soft);
+}
+.il-impact-modal__label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.il-impact-modal__label--online {
+  color: var(--il-success-deep);
+}
+.il-impact-modal__label--offline {
+  color: var(--il-danger-deep);
+}
+.il-impact-modal__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.il-impact-modal__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.il-impact-modal__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.il-impact-modal__dot--on {
+  background: var(--il-success);
+}
+.il-impact-modal__dot--off {
+  background: var(--il-danger);
+}
+.il-impact-modal__note {
+  font-size: 12px;
+  color: var(--il-text-muted);
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+.il-impact-modal__none {
+  margin: 0;
+}
+.il-impact-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ---- Active model ctx suffix ---- */
+.il-installed__ctx-suffix {
+  color: var(--il-text-faint);
+  font-size: 11px;
+}
+
+/* ---- Context size picker (inside activation modal) ---- */
+.il-ctx-picker__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.il-ctx-picker__trained-max {
+  font-size: 11px;
+  color: var(--il-text-faint);
+}
+.il-ctx-picker__estimated {
+  font-size: 11px;
+  color: var(--il-text-faint);
+  margin: 0 0 8px;
+  letter-spacing: 0;
+}
+.il-ctx-picker__unavailable {
+  color: var(--il-text-muted);
+  margin: 0 0 8px;
+}
+.il-ctx-picker__loading {
+  color: var(--il-text-muted);
+  padding: 8px 0;
+}
+.il-ctx-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.il-ctx-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-sm);
+  background: var(--il-bg-card);
+  font: inherit;
+  font-size: 13px;
+  color: var(--il-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 110ms ease, background 110ms ease;
+  flex-wrap: wrap;
+}
+.il-ctx-picker__row:hover:not(:disabled) {
+  border-color: var(--il-border-card-hover);
+  background: var(--il-bg-system);
+}
+.il-ctx-picker__row--sel {
+  border-color: var(--il-accent);
+  background: linear-gradient(0deg, var(--il-accent-tint), var(--il-accent-tint)), var(--il-bg-card);
+}
+.il-ctx-picker__row--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.il-ctx-picker__ctx-label {
+  font-weight: 600;
+  min-width: 36px;
+}
+.il-ctx-picker__kv {
+  color: var(--il-text-muted);
+  font-size: 11.5px;
+}
+.il-ctx-picker__fit-wrap {
+  margin-left: auto;
+  flex: none;
+}
+.il-ctx-picker__spill-note {
+  width: 100%;
+  font-size: 11px;
+  color: var(--il-warning-deep);
+  background: var(--il-warning-tint);
+  border-radius: var(--il-radius-sm);
+  padding: 4px 8px;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+/* Fit badges */
+.il-ctx-fit {
+  font-family: var(--il-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: var(--il-radius-pill);
+}
+.il-ctx-fit--fast {
+  background: var(--il-success-tint);
+  color: var(--il-success-deep);
+}
+.il-ctx-fit--spill {
+  background: var(--il-warning-tint);
+  color: var(--il-warning-deep);
+}
+.il-ctx-fit--no {
+  background: var(--il-bg-system);
+  color: var(--il-text-faint);
+}
+
+/* ---- Remove modal ---- */
+.il-remove-modal__warn {
+  color: var(--il-warning-deep);
+  background: var(--il-warning-tint);
+  border: 1px solid #f0e2c0;
+  border-radius: var(--il-radius-sm);
+  padding: 10px 13px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+.il-remove-modal__body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--il-text-primary);
+  margin: 0;
+}
+.il-remove-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* ---- Downloads drawer ---- */
+/*
+ * Fixed to the viewport bottom, offset by the nav rail width (232px from
+ * .il-app grid-template-columns) so the drawer spans only the content area.
+ * This ensures the drawer is correctly positioned regardless of which tab is
+ * active — the sticky approach broke on the Search tab because the containing
+ * scroll root changed.
+ */
 .il-dl {
-  position: sticky;
+  position: fixed;
   bottom: 0;
-  left: 0;
+  left: 232px;
   right: 0;
-  margin-top: auto;
   background: var(--il-bg-card);
   border-top: 1px solid var(--il-border-strong);
   box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.05);
-  z-index: 20;
+  z-index: 40;
 }
 .il-dl__head {
   width: 100%;

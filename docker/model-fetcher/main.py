@@ -3,8 +3,12 @@ Interloom model-fetcher service.
 
 Manages downloads from Hugging Face Hub into MODELS_DIR.
 Endpoints (CONTRACTS §7):
-  POST /downloads  {repoId, filename, revision?}  -> {id}
-  GET  /downloads                                  -> [{id, repoId, filename, status, bytesDone, bytesTotal, speedBps, error?}]
+  POST /downloads  {repoId, filename, revision?, hfToken?}  -> {id}
+  GET  /downloads                                            -> [{id, repoId, filename, status, bytesDone, bytesTotal, speedBps, error?}]
+
+hfToken is used as a per-download Bearer (grants gated-model access and
+authenticated bandwidth). Falls back to the HF_TOKEN env var. Tokens never
+appear in GET responses or logs.
 """
 
 from __future__ import annotations
@@ -38,11 +42,12 @@ class DownloadStatus(str, Enum):
 
 
 class DownloadState:
-    def __init__(self, id_: str, repo_id: str, filename: str, revision: Optional[str]):
+    def __init__(self, id_: str, repo_id: str, filename: str, revision: Optional[str], hf_token: Optional[str] = None):
         self.id = id_
         self.repo_id = repo_id
         self.filename = filename
         self.revision = revision
+        self._hf_token = hf_token  # never exposed in responses or logs
         self.status = DownloadStatus.queued
         self.bytes_done: int = 0
         self.bytes_total: int = 0
@@ -96,9 +101,11 @@ def _run_download(state: DownloadState) -> None:
         url = _resolve_url(state.repo_id, state.filename, state.revision)
 
         # Resolve redirect to get the real URL (handles HF CDN redirects)
+        # Per-download token takes priority over the env-var token.
+        effective_token = state._hf_token or HF_TOKEN
         headers: dict[str, str] = {}
-        if HF_TOKEN:
-            headers["Authorization"] = f"Bearer {HF_TOKEN}"
+        if effective_token:
+            headers["Authorization"] = f"Bearer {effective_token}"
 
         # Resume from existing .part file
         resume_from = part.stat().st_size if part.exists() else 0
@@ -175,6 +182,7 @@ class DownloadRequest(BaseModel):
     repoId: str
     filename: str
     revision: Optional[str] = None
+    hfToken: Optional[str] = None
 
 
 @app.post("/downloads", status_code=202)
@@ -194,7 +202,8 @@ def start_download(req: DownloadRequest) -> dict:
             del _downloads[existing_id]
 
         dl_id = str(uuid.uuid4())
-        state = DownloadState(dl_id, req.repoId, req.filename, req.revision)
+        # hfToken is stored on the state but never returned in responses or logged
+        state = DownloadState(dl_id, req.repoId, req.filename, req.revision, req.hfToken)
         _downloads[dl_id] = state
         _key_to_id[key] = dl_id
 

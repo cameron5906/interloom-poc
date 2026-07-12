@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  AuthIdentifyParams,
+  AuthOkResult,
   makeErr,
   makeEvt,
   makeReq,
@@ -86,6 +88,46 @@ describe("parseTunnelFrame version rejection", () => {
     } catch (err) {
       expect((err as TunnelFrameError).code).toBe("E_INTERNAL");
     }
+  });
+});
+
+describe("AuthIdentifyParams ctx field (additive, optional)", () => {
+  const base = {
+    agentId: "agent-1",
+    agentPubKey: "pk",
+    voucher: { payload: {}, key: "k", sig: "s" },
+    sig: "nonce-sig",
+  };
+
+  it("parses without ctx (ctx absent → undefined)", () => {
+    const result = AuthIdentifyParams.safeParse(base);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.ctx).toBeUndefined();
+  });
+
+  it("parses with ctx present", () => {
+    const result = AuthIdentifyParams.safeParse({ ...base, ctx: 8192 });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.ctx).toBe(8192);
+  });
+
+  it("rejects non-numeric ctx", () => {
+    const result = AuthIdentifyParams.safeParse({ ...base, ctx: "8192" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("AuthOkResult ctx field", () => {
+  it("parses without ctx", () => {
+    const result = AuthOkResult.safeParse({ ok: true });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.ctx).toBeUndefined();
+  });
+
+  it("parses with ctx", () => {
+    const result = AuthOkResult.safeParse({ ok: true, ctx: 4096 });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.ctx).toBe(4096);
   });
 });
 

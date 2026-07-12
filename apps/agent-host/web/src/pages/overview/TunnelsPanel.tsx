@@ -51,9 +51,29 @@ export function TunnelsPanel({ agents, tunnels, connected }: TunnelsPanelProps) 
 
 function AgentRow({ agent, connected }: { agent: TelemetryAgent; connected: boolean }) {
   const serving = agent.status === "serving";
+  const offline = agent.status === "offline";
+
+  let pillTone: "active" | "neutral" | "warning" = "neutral";
+  let pillLive = false;
+  let pillLabel = "idle";
+
+  if (serving) {
+    pillTone = "active";
+    pillLive = true;
+    pillLabel = "serving";
+  } else if (offline) {
+    pillTone = "warning";
+    pillLabel = "offline";
+  }
+
   return (
-    <li className="il-tunnels__row">
-      <Avatar name={agent.name} isAgent size="md" presence={connected ? "online" : "offline"} />
+    <li className={`il-tunnels__row${offline ? " il-tunnels__row--offline" : ""}`}>
+      <Avatar
+        name={agent.name}
+        isAgent
+        size="md"
+        presence={connected && !offline ? "online" : "offline"}
+      />
       <div className="il-tunnels__row-main">
         <div className="il-tunnels__row-title">
           <span className="il-tunnels__name">{agent.name}</span>
@@ -67,8 +87,8 @@ function AgentRow({ agent, connected }: { agent: TelemetryAgent; connected: bool
           )}
         </div>
       </div>
-      <StatusPill tone={serving ? "active" : "neutral"} live={serving}>
-        {serving ? "serving" : "idle"}
+      <StatusPill tone={pillTone} live={pillLive}>
+        {pillLabel}
       </StatusPill>
     </li>
   );

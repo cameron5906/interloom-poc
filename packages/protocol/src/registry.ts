@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { signedEnvelope } from "./envelope.js";
+import { ModelRef } from "./model.js";
 
 /** Agent avatar descriptor (CONTRACTS §4). */
 export const AgentAvatar = z.object({
@@ -24,6 +25,8 @@ export const AgentManifest = z.object({
     temperature: z.number(),
     contextLength: z.number(),
   }),
+  /** Published agents always declare the model they run on. */
+  model: ModelRef,
 });
 export type AgentManifest = z.infer<typeof AgentManifest>;
 
@@ -74,6 +77,7 @@ export const MarketplaceAgent = z.object({
   persona: z.string(),
   live: z.boolean(),
   ownerEmail: z.string(),
+  model: ModelRef.optional(),
 });
 export type MarketplaceAgent = z.infer<typeof MarketplaceAgent>;
 

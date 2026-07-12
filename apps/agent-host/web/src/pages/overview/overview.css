@@ -73,6 +73,15 @@
   color: var(--il-text-faint);
   margin-top: 4px;
 }
+.il-tile__value--sm {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--il-font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0;
+}
 
 .il-utilbar {
   height: 5px;
@@ -277,6 +286,9 @@
   color: var(--il-text-muted);
   line-height: 1.5;
   padding: 4px 8px;
+}
+.il-tunnels__row--offline {
+  opacity: 0.7;
 }
 
 /* Status dot for tunnel rows */

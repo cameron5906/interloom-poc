@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, StatusPill, TextArea } from "@interloom/ui";
-import type { HostAgent } from "@interloom/protocol";
-import type { AgentDraft } from "../../api/types.js";
-import { agents as agentsApi } from "../../api/endpoints.js";
+import type { HostAgent, LocalModel } from "@interloom/protocol";
+import type { AgentDraft, ActiveModel } from "../../api/types.js";
+import { agents as agentsApi, models as modelsApi } from "../../api/endpoints.js";
+import { useAsync } from "../../hooks/useAsync.js";
 import { useToasts } from "../../components/Toasts.js";
 import { AvatarPicker } from "./AvatarPicker.js";
 import { MarketplacePreview } from "./MarketplacePreview.js";
-import { CONTEXT_OPTIONS } from "../../lib/constants.js";
-import { relativeTime } from "../../lib/format.js";
+import { CONTEXT_PRESETS } from "../../lib/constants.js";
+import { relativeTime, bytesToGB } from "../../lib/format.js";
 import { ApiError } from "../../api/client.js";
 
 interface AgentEditorProps {
-  agent: HostAgent | null; // null = brand-new (unsaved) agent
+  agent: HostAgent | null;
+  activeModel: ActiveModel | null;
   onSaved: (saved: HostAgent) => void;
   onDeleted: (id: string) => void;
   onDraftChange: (draft: AgentDraft) => void;
@@ -35,16 +37,19 @@ function toDraft(agent: HostAgent | null): AgentDraft {
     persona: agent.persona,
     capabilityBlurb: agent.capabilityBlurb,
     params: agent.params,
+    model: agent.model,
   };
 }
 
-export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentEditorProps) {
+export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftChange }: AgentEditorProps) {
   const toasts = useToasts();
   const [draft, setDraft] = useState<AgentDraft>(() => toDraft(agent));
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [registering, setRegistering] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const localModels = useAsync((s) => modelsApi.local(s), []);
 
   // Reset the form whenever the selected agent changes.
   useEffect(() => {
@@ -67,6 +72,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentE
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(toDraft(agent)), [draft, agent]);
   const registered = agent?.registered ?? false;
   const canSave = draft.name.trim().length > 0;
+  const hasModel = !!draft.model;
 
   const patch = (partial: Partial<AgentDraft>) => setDraft((d) => ({ ...d, ...partial }));
 
@@ -82,7 +88,6 @@ export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentE
     try {
       let saved: HostAgent;
       if (agent) {
-        // PATCH of a registered agent auto re-registers (persona sync).
         if (registered) setSyncState("syncing");
         saved = await agentsApi.update(agent.agentId, draft);
       } else {
@@ -101,10 +106,13 @@ export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentE
   };
 
   const publish = async () => {
+    if (!canSave) return;
+    if (!hasModel) {
+      toasts.error("Assign a model before publishing.");
+      return;
+    }
+    setRegistering(true);
     if (!agent) {
-      // Save first, then register.
-      if (!canSave) return;
-      setRegistering(true);
       try {
         const created = await agentsApi.create(draft);
         const registeredAgent = await agentsApi.register(created.agentId);
@@ -121,10 +129,8 @@ export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentE
       return;
     }
 
-    setRegistering(true);
     setSyncState("syncing");
     try {
-      // Persist any pending edits, then register.
       if (dirty) await agentsApi.update(agent.agentId, draft);
       const registeredAgent = await agentsApi.register(agent.agentId);
       onSaved(registeredAgent);
@@ -200,7 +206,7 @@ export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentE
           <TextArea
             className="il-editor__persona"
             rows={7}
-            placeholder="You are a meticulous code reviewer who explains the “why” behind every suggestion…"
+            placeholder='You are a meticulous code reviewer who explains the "why" behind every suggestion…'
             value={draft.persona}
             onChange={(e) => patch({ persona: e.target.value })}
           />
@@ -213,6 +219,31 @@ export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentE
             value={draft.capabilityBlurb}
             onChange={(e) => patch({ capabilityBlurb: e.target.value })}
           />
+        </Field>
+
+        <Field
+          label="Model"
+          hint="Required to preview and publish. Drafting without a model is fine."
+          htmlFor="ag-model"
+        >
+          <ModelPicker
+            selected={draft.model?.filename ?? null}
+            localModels={localModels.data ?? []}
+            activeModel={activeModel}
+            loading={localModels.loading && localModels.initialLoad}
+            onChange={(m) =>
+              patch({
+                model: m
+                  ? { filename: m.filename, displayName: m.filename, sizeBytes: m.sizeBytes }
+                  : undefined,
+              })
+            }
+          />
+          {!hasModel ? (
+            <div className="il-field__note">
+              Preview and Publish to Network are locked until a model is selected.
+            </div>
+          ) : null}
         </Field>
 
         <div className="il-editor__params">
@@ -234,23 +265,12 @@ export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentE
             </div>
           </Field>
 
-          <Field label="Context length">
-            <div className="il-segmented" role="group" aria-label="Context length">
-              {CONTEXT_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className={`il-segmented__btn${
-                    draft.params.contextLength === opt.value ? " il-segmented__btn--sel" : ""
-                  }`}
-                  onClick={() => patch({ params: { ...draft.params, contextLength: opt.value } })}
-                  aria-pressed={draft.params.contextLength === opt.value}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </Field>
+          <ContextBudgetField
+            draft={draft}
+            activeModel={activeModel}
+            agentModelFilename={draft.model?.filename ?? null}
+            patch={patch}
+          />
         </div>
 
         <MarketplacePreview draft={draft} live={registered} />
@@ -263,7 +283,12 @@ export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentE
               </Button>
             ) : (
               <>
-                <Button variant="accent" onClick={publish} disabled={!canSave || registering}>
+                <Button
+                  variant="accent"
+                  onClick={publish}
+                  disabled={!canSave || !hasModel || registering}
+                  title={!hasModel ? "Select a model to publish" : undefined}
+                >
                   {registering ? "Publishing…" : "Publish to Network"}
                 </Button>
                 {agent ? (
@@ -287,6 +312,115 @@ export function AgentEditor({ agent, onSaved, onDeleted, onDraftChange }: AgentE
       </div>
     </div>
   );
+}
+
+function ModelPicker({
+  selected,
+  localModels,
+  activeModel,
+  loading,
+  onChange,
+}: {
+  selected: string | null;
+  localModels: LocalModel[];
+  activeModel: ActiveModel | null;
+  loading: boolean;
+  onChange: (model: LocalModel | null) => void;
+}) {
+  if (loading) {
+    return <div className="il-model-picker il-meta">Loading installed models…</div>;
+  }
+  if (localModels.length === 0) {
+    return (
+      <div className="il-model-picker il-model-picker--empty">
+        No models installed yet.{" "}
+        <a href="/models" className="il-model-picker__link">
+          Install a model
+        </a>{" "}
+        to enable preview and publish.
+      </div>
+    );
+  }
+  return (
+    <div className="il-model-picker">
+      <select
+        id="ag-model"
+        className="il-model-picker__select"
+        value={selected ?? ""}
+        onChange={(e) => {
+          const m = localModels.find((lm) => lm.filename === e.target.value) ?? null;
+          onChange(m);
+        }}
+      >
+        <option value="">— Select a model —</option>
+        {localModels.map((m) => (
+          <option key={m.path} value={m.filename}>
+            {m.filename} · {bytesToGB(m.sizeBytes)} GB
+            {activeModel?.filename === m.filename ? " · active" : ""}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function ContextBudgetField({
+  draft,
+  activeModel,
+  agentModelFilename,
+  patch,
+}: {
+  draft: AgentDraft;
+  activeModel: ActiveModel | null;
+  agentModelFilename: string | null;
+  patch: (p: Partial<AgentDraft>) => void;
+}) {
+  const agentModelIsActive =
+    agentModelFilename != null && activeModel?.filename === agentModelFilename;
+  const loadedCtx = agentModelIsActive ? (activeModel?.ctx ?? null) : null;
+
+  const presets = CONTEXT_PRESETS.filter((p) => loadedCtx == null || p.value <= loadedCtx);
+
+  const ctxLabel = loadedCtx != null ? fmtCtxLabel(loadedCtx) : null;
+
+  const fieldLabel = ctxLabel
+    ? `Prompt budget (within the model's ${ctxLabel} window)`
+    : "Prompt budget (within the model's context window)";
+
+  const cappedValue = loadedCtx != null
+    ? Math.min(draft.params.contextLength, loadedCtx)
+    : draft.params.contextLength;
+
+  return (
+    <Field label={fieldLabel}>
+      <div className="il-segmented" role="group" aria-label="Prompt budget">
+        {presets.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            className={`il-segmented__btn${
+              cappedValue === opt.value ? " il-segmented__btn--sel" : ""
+            }`}
+            onClick={() => patch({ params: { ...draft.params, contextLength: opt.value } })}
+            aria-pressed={cappedValue === opt.value}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {!agentModelIsActive ? (
+        <div className="il-field__hint" style={{ marginTop: 6 }}>
+          Capped by the context size chosen at activation.
+        </div>
+      ) : null}
+    </Field>
+  );
+}
+
+function fmtCtxLabel(ctx: number): string {
+  if (ctx >= 1024 && ctx % 1024 === 0) return `${ctx / 1024}k`;
+  if (ctx >= 1000) return `${Math.round(ctx / 1000)}k`;
+  return String(ctx);
 }
 
 function Field({

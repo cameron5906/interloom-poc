@@ -2,20 +2,24 @@ import type { TelemetryFrame } from "@interloom/protocol";
 import { ProgressBar } from "@interloom/ui";
 import { Sparkline } from "../../components/Sparkline.js";
 import { mbToGB } from "../../lib/format.js";
+import type { ActiveModel } from "../../api/types.js";
 
 interface StatTilesProps {
   frame: TelemetryFrame | undefined;
   tokensHistory: number[];
   connected: boolean;
+  /** Polled from /api/models/active — carries the optional ctx field. */
+  activeModel?: ActiveModel | null;
 }
 
-export function StatTiles({ frame, tokensHistory, connected }: StatTilesProps) {
+export function StatTiles({ frame, tokensHistory, connected, activeModel }: StatTilesProps) {
   const gpu = frame?.gpus[0];
   const hasGpu = !!gpu;
   const util = gpu ? Math.round(gpu.utilPct) : 0;
   const vramFrac = gpu && gpu.vramTotalMB > 0 ? gpu.vramUsedMB / gpu.vramTotalMB : 0;
   const tps = frame ? Math.round(frame.tokensPerSec) : 0;
   const tunnelCount = frame ? frame.tunnels.filter((t) => t.status === "connected").length : 0;
+  const inference = frame?.inference;
 
   return (
     <div className="il-tiles">
@@ -73,6 +77,39 @@ export function StatTiles({ frame, tokensHistory, connected }: StatTilesProps) {
             : "telemetry offline"}
         </div>
       </Tile>
+
+      {connected && inference ? (
+        <>
+          <Tile label="Active model">
+            {inference.activeModel ? (
+              <>
+                <div className="il-tile__value il-tile__value--sm">
+                  {inference.activeModel.filename}
+                </div>
+                <div className="il-tile__spark il-tile__spark--muted">
+                  {inference.activeModel.quant ? inference.activeModel.quant : null}
+                  {activeModel?.ctx ? (
+                    <span className="il-mono">
+                      {inference.activeModel.quant ? " · " : ""}@ {fmtCtx(activeModel.ctx)} ctx
+                    </span>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="il-tile__empty">no model loaded</div>
+            )}
+          </Tile>
+
+          <Tile label="Queue depth">
+            <div className="il-tile__value">{inference.queueDepth}</div>
+            <div className="il-tile__spark il-tile__spark--muted">
+              {inference.queueDepth === 0
+                ? "inference idle"
+                : `${inference.queueDepth} request${inference.queueDepth === 1 ? "" : "s"} queued`}
+            </div>
+          </Tile>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -86,7 +123,6 @@ function Tile({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-/** Slim inline util bar with a subtle track (distinct from ProgressBar tone use). */
 function UtilBar({ value }: { value: number }) {
   const pct = Math.max(0, Math.min(1, value)) * 100;
   return (
@@ -94,4 +130,10 @@ function UtilBar({ value }: { value: number }) {
       <div className="il-utilbar__fill" style={{ width: `${pct}%` }} />
     </div>
   );
+}
+
+function fmtCtx(ctx: number): string {
+  if (ctx >= 1024 && ctx % 1024 === 0) return `${ctx / 1024}k`;
+  if (ctx >= 1000) return `${Math.round(ctx / 1000)}k`;
+  return String(ctx);
 }

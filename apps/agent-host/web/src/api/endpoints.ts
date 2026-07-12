@@ -17,6 +17,10 @@ import type {
   FitAnnotatedModel,
   HfSearchResult,
   ActivateResult,
+  ActiveModel,
+  ContextOptions,
+  HfSettings,
+  HfTokenResult,
   AgentDraft,
 } from "./types.js";
 
@@ -42,8 +46,12 @@ export const models = {
   downloads: (signal?: AbortSignal) => api.get<DownloadJob[]>("/api/models/downloads", signal),
   download: (repoId: string, filename: string) =>
     api.post<{ id: string }>("/api/models/download", { repoId, filename }),
+  contextOptions: (path: string, signal?: AbortSignal) =>
+    api.get<ContextOptions>(`/api/models/context-options?path=${encodeURIComponent(path)}`, signal),
   activate: (path: string, ctx?: number) =>
-    api.post<ActivateResult>("/api/models/activate", { path, ctx }),
+    api.post<ActivateResult>("/api/models/activate", ctx != null ? { path, ctx } : { path }),
+  active: (signal?: AbortSignal) => api.get<ActiveModel | null>("/api/models/active", signal),
+  removeLocal: (path: string) => api.del<void>("/api/models/local", { path }),
 };
 
 export const agents = {
@@ -58,4 +66,10 @@ export const agents = {
 export const placements = {
   list: (signal?: AbortSignal) => api.get<PlacementStatus[]>("/api/placements", signal),
   revoke: (id: string) => api.del<void>(`/api/placements/${id}`),
+};
+
+export const settings = {
+  hf: (signal?: AbortSignal) => api.get<HfSettings>("/api/settings/hf", signal),
+  setHfToken: (token: string) => api.post<HfTokenResult>("/api/settings/hf-token", { token }),
+  deleteHfToken: () => api.del<void>("/api/settings/hf-token"),
 };

@@ -10,6 +10,7 @@ import { OverviewPage } from "./pages/overview/OverviewPage.js";
 import { ModelsPage } from "./pages/models/ModelsPage.js";
 import { AgentsPage } from "./pages/agents/AgentsPage.js";
 import { PlacementsPage } from "./pages/placements/PlacementsPage.js";
+import { SettingsPage } from "./pages/settings/SettingsPage.js";
 
 export function App() {
   const location = useLocation();
@@ -50,6 +51,7 @@ export function App() {
             <Route path="/models" element={<ModelsPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/placements" element={<PlacementsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </OnboardingGate>

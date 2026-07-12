@@ -22,12 +22,29 @@ export const AVATAR_BG = [
   "linear-gradient(135deg,#94918a,#57554c)",
 ] as const;
 
-/** Context-length options for agents (CONTRACTS: 2k/4k/8k). */
-export const CONTEXT_OPTIONS = [
-  { label: "2k tokens", value: 2048 },
-  { label: "4k tokens", value: 4096 },
-  { label: "8k tokens", value: 8192 },
+/** Full preset list for agent prompt-budget picker (2k–32k, per CONTRACTS §6). */
+export const CONTEXT_PRESETS = [
+  { label: "2k", value: 2048 },
+  { label: "4k", value: 4096 },
+  { label: "8k", value: 8192 },
+  { label: "16k", value: 16384 },
+  { label: "32k", value: 32768 },
 ] as const;
+
+/**
+ * Fallback context options shown when `/api/models/context-options` is
+ * unavailable (daemon mid-deploy). No fit metadata.
+ */
+export const CONTEXT_FALLBACK_OPTIONS = [
+  { label: "4k", value: 4096 },
+  { label: "8k", value: 8192 },
+] as const;
+
+/**
+ * @deprecated Use CONTEXT_PRESETS — kept only to avoid breaking any
+ * remaining references during the R2b transition.
+ */
+export const CONTEXT_OPTIONS = CONTEXT_PRESETS;
 
 /** Human-facing tier labels for curated models. */
 export const TIER_LABEL: Record<string, string> = {

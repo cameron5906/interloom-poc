@@ -57,6 +57,44 @@ export interface ActivateResult {
   error?: string;
 }
 
+/** `GET /api/models/active` — currently loaded model or null (CONTRACTS §6). */
+export interface ActiveModel {
+  path: string;
+  filename: string;
+  /** Context window the model was loaded with (added by daemon post-R2b). */
+  ctx?: number;
+}
+
+/** One candidate context-size entry from `GET /api/models/context-options`. */
+export interface ContextOption {
+  ctx: number;
+  kvBytes: number;
+  fit: "fast" | "spill" | "no";
+}
+
+/**
+ * `GET /api/models/context-options?path=` — CONTRACTS §6 "Context sizing".
+ * `exact:false` means the daemon couldn't parse GGUF metadata and used
+ * heuristics; the UI must show an "estimated" note.
+ */
+export interface ContextOptions {
+  trainedMax: number;
+  options: ContextOption[];
+  recommendedCtx: number;
+  exact: boolean;
+}
+
+/** `GET /api/settings/hf` — HF account connection status (CONTRACTS §6). */
+export interface HfSettings {
+  connected: boolean;
+  username?: string;
+}
+
+/** `POST /api/settings/hf-token` — HF token validation result (CONTRACTS §6). */
+export interface HfTokenResult {
+  username: string;
+}
+
 /** Local agent as returned by the daemon store (CONTRACTS §6). */
 export interface AgentDraft {
   name: string;
@@ -64,4 +102,5 @@ export interface AgentDraft {
   persona: string;
   capabilityBlurb: string;
   params: { temperature: number; contextLength: number };
+  model?: import("@interloom/protocol").ModelRef;
 }

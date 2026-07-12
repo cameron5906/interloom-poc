@@ -4,6 +4,7 @@ import { HeartbeatResponse as HeartbeatResponseSchema } from "@interloom/protoco
 import { getKeypair } from "./keys.js";
 import { listAgents } from "./agents/store.js";
 import { networkHeartbeat } from "./network/client.js";
+import { getConfiguredModelFilename } from "./models/active.js";
 import type { TunnelManager } from "./tunnel/manager.js";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -16,10 +17,32 @@ export function getLastPlacements(): Placement[] {
   return currentPlacements;
 }
 
+let heartbeatRunFn: (() => Promise<void>) | null = null;
+
+/** Trigger an immediate heartbeat cycle (e.g. after model activation). */
+export function triggerHeartbeat(): void {
+  if (heartbeatRunFn) {
+    void heartbeatRunFn();
+  }
+}
+
 export function startHeartbeatLoop(tunnelManager: TunnelManager): void {
   const run = async (): Promise<void> => {
-    const agents = listAgents().filter((a) => a.registered);
-    if (agents.length === 0) return;
+    const activeModelFilename = getConfiguredModelFilename();
+
+    // Only heartbeat registered agents whose model matches the active model
+    const agents = listAgents().filter(
+      (a) =>
+        a.registered &&
+        a.model !== undefined &&
+        (activeModelFilename === null || a.model.filename === activeModelFilename),
+    );
+
+    if (agents.length === 0) {
+      // Still apply placements diff to close any stale tunnels
+      tunnelManager.applyPlacements([], activeModelFilename);
+      return;
+    }
 
     const keypair = getKeypair();
     const allPlacements: Placement[] = [];
@@ -48,9 +71,10 @@ export function startHeartbeatLoop(tunnelManager: TunnelManager): void {
     }
 
     currentPlacements = allPlacements;
-    tunnelManager.applyPlacements(allPlacements);
+    tunnelManager.applyPlacements(allPlacements, activeModelFilename);
   };
 
+  heartbeatRunFn = run;
   void run();
   heartbeatTimer = setInterval(() => void run(), HEARTBEAT_INTERVAL_MS);
 }
@@ -60,4 +84,5 @@ export function stopHeartbeatLoop(): void {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
   }
+  heartbeatRunFn = null;
 }

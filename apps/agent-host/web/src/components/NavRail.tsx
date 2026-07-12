@@ -16,6 +16,7 @@ const NAV = [
   { to: "/models", label: "Models", end: false, icon: ModelsIcon },
   { to: "/agents", label: "Agents", end: false, icon: AgentsIcon },
   { to: "/placements", label: "Placements", end: false, icon: PlacementsIcon },
+  { to: "/settings", label: "Settings", end: false, icon: SettingsIcon },
 ];
 
 export function NavRail({ session, hostKeys, daemonOnline }: NavRailProps) {
@@ -136,6 +137,20 @@ function PlacementsIcon() {
         strokeLinejoin="round"
       />
       <circle cx="7.5" cy="6" r="1.6" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+      <circle cx="7.5" cy="7.5" r="1.8" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M7.5 1v1.4M7.5 12.6V14M1 7.5h1.4M12.6 7.5H14M2.9 2.9l1 1M11.1 11.1l1 1M2.9 12.1l1-1M11.1 3.9l1-1"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
