@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { diffPlacements } from "../tunnel/manager.js";
-import type { TunnelClient } from "../tunnel/client.js";
+import type { LiveTunnel } from "../tunnel/manager.js";
 import type { Placement } from "@interloom/protocol";
 
-function makeVoucher(agentId: string, instanceUrl: string, placementId: string) {
+function makeVoucher(agentId: string, instanceUrl: string, placementId: string, sig = "sig") {
   return {
     payload: {
       v: 1 as const,
@@ -17,22 +17,26 @@ function makeVoucher(agentId: string, instanceUrl: string, placementId: string) 
       nonce: "nonce",
     },
     key: "networkpubkey",
-    sig: "sig",
+    sig,
   };
 }
 
-function makePlacement(id: string, revoked = false): Placement {
+function makePlacement(id: string, revoked = false, sig = "sig"): Placement {
   return {
     placementId: id,
     instanceUrl: `http://instance-${id}.example.com`,
     instanceName: `instance-${id}`,
-    voucher: makeVoucher("agent1", `http://instance-${id}.example.com`, id),
+    voucher: makeVoucher("agent1", `http://instance-${id}.example.com`, id, sig),
     revoked,
   };
 }
 
-function makeClientMap(ids: string[]): Map<string, TunnelClient> {
-  return new Map(ids.map((id) => [id, {} as TunnelClient]));
+function makeLiveTunnel(voucherSig = "sig", authFailed = false): LiveTunnel {
+  return { voucherSig, authFailed };
+}
+
+function makeClientMap(ids: string[]): Map<string, LiveTunnel> {
+  return new Map(ids.map((id) => [id, makeLiveTunnel()]));
 }
 
 describe("diffPlacements", () => {
@@ -91,5 +95,29 @@ describe("diffPlacements", () => {
     expect(toClose).toContain("p3");
     expect(toClose).not.toContain("p1");
     expect(toClose).not.toContain("p4");
+  });
+
+  it("replaces a placement when the incoming voucher sig differs (voucher refresh)", () => {
+    const current = new Map([["p1", makeLiveTunnel("old", false)]]);
+    const incoming = [makePlacement("p1", false, "new")];
+    const { toOpen, toClose } = diffPlacements(current, incoming);
+    expect(toClose).toContain("p1");
+    expect(toOpen.map((p) => p.placementId)).toContain("p1");
+  });
+
+  it("replaces a placement when the client is auth-failed, even with the same voucher sig", () => {
+    const current = new Map([["p1", makeLiveTunnel("sig", true)]]);
+    const incoming = [makePlacement("p1", false, "sig")];
+    const { toOpen, toClose } = diffPlacements(current, incoming);
+    expect(toClose).toContain("p1");
+    expect(toOpen.map((p) => p.placementId)).toContain("p1");
+  });
+
+  it("steady state: same sig, authFailed=false — placement in neither list", () => {
+    const current = new Map([["p1", makeLiveTunnel("sig", false)]]);
+    const incoming = [makePlacement("p1", false, "sig")];
+    const { toOpen, toClose } = diffPlacements(current, incoming);
+    expect(toClose).not.toContain("p1");
+    expect(toOpen.map((p) => p.placementId)).not.toContain("p1");
   });
 });

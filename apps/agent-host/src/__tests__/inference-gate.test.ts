@@ -9,13 +9,13 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { enqueueInference, getServingLane, getQueueDepth, drainLane } from "../inference/gate.js";
-
-// Reset gate state between tests by re-importing a fresh module each time
-// isn't necessary since gate uses module-level state that is async-safe
-// within a single test. We ensure each test completes fully before the next.
+import { enqueueInference, getServingLane, getQueueDepth, drainLane, resetGateForTests } from "../inference/gate.js";
 
 describe("inference gate", () => {
+  beforeEach(() => {
+    resetGateForTests();
+  });
+
   it("runs one request at a time — second starts only after first finishes", async () => {
     const order: string[] = [];
     let firstRunning = false;
@@ -121,5 +121,92 @@ describe("inference gate", () => {
     await enqueueInference("preview", async () => { completed.push("preview"); });
 
     expect(completed).toEqual(["agent", "preview"]);
+  });
+
+  it("RR fairness: with gate busy, A1+A2 (lane A) then B1 (lane B) → completion order A1, B1, A2", async () => {
+    let unblockBlocker!: () => void;
+    const blockerHeld = new Promise<void>((r) => { unblockBlocker = r; });
+
+    let releaseA1!: () => void;
+    const a1Gate = new Promise<void>((r) => { releaseA1 = r; });
+    let releaseB1!: () => void;
+    const b1Gate = new Promise<void>((r) => { releaseB1 = r; });
+
+    const completed: string[] = [];
+
+    // Hold the gate with a blocker so we can queue A1, A2, B1 before any runs
+    const blocker = enqueueInference("blocker", async () => {
+      await blockerHeld;
+    });
+
+    // Enqueue A1, A2 on lane A and B1 on lane B while blocker holds the gate
+    const a1 = enqueueInference("A", async () => {
+      await a1Gate;
+      completed.push("A1");
+    });
+    const a2 = enqueueInference("A", async () => {
+      completed.push("A2");
+    });
+    const b1 = enqueueInference("B", async () => {
+      await b1Gate;
+      completed.push("B1");
+    });
+
+    // Release blocker — RR should now pick A1 (next from A), then B1 (next from B), then A2
+    unblockBlocker();
+    await blocker;
+
+    // A1 is now running; release it
+    releaseA1();
+    await a1;
+
+    // B1 should now be running; release it
+    releaseB1();
+    await b1;
+    await a2;
+
+    expect(completed).toEqual(["A1", "B1", "A2"]);
+  });
+
+  it("watchdog: enqueueInference with short timeout rejects with /timeout/ and gate serves next entry", async () => {
+    const completed: string[] = [];
+
+    // A hung run that never resolves within the timeout
+    const hung = enqueueInference("A", () => new Promise<void>(() => { /* never */ }), "interactive", 50);
+
+    // Queue a second entry that should run after the watchdog fires
+    const next = enqueueInference("B", async () => {
+      completed.push("B");
+    });
+
+    await expect(hung).rejects.toThrow(/timeout/);
+    await next;
+
+    expect(completed).toEqual(["B"]);
+  });
+
+  it("drainLane with per-lane queues: A1+A2+B1 queued while busy; drainLane(A) rejects A1+A2; B1 still runs", async () => {
+    let unblock!: () => void;
+    const held = new Promise<void>((r) => { unblock = r; });
+
+    const blocker = enqueueInference("blocker", async () => {
+      await held;
+    });
+
+    const completed: string[] = [];
+
+    const a1 = enqueueInference("A", async () => { completed.push("A1"); });
+    const a2 = enqueueInference("A", async () => { completed.push("A2"); });
+    const b1 = enqueueInference("B", async () => { completed.push("B1"); });
+
+    drainLane("A");
+    unblock();
+
+    await expect(a1).rejects.toThrow(/lane closed/);
+    await expect(a2).rejects.toThrow(/lane closed/);
+    await blocker;
+    await b1;
+
+    expect(completed).toEqual(["B1"]);
   });
 });

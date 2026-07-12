@@ -5,10 +5,14 @@
  * Starvation of maintenance by interactive work is acceptable and expected.
  */
 
-import { describe, it, expect } from "vitest";
-import { enqueueInference, getQueueDepth } from "../inference/gate.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { enqueueInference, getQueueDepth, resetGateForTests } from "../inference/gate.js";
 
 describe("inference gate — priority classes", () => {
+  beforeEach(() => {
+    resetGateForTests();
+  });
+
   it("maintenance waits for all interactive requests to complete first", async () => {
     const order: string[] = [];
 
@@ -147,5 +151,25 @@ describe("inference gate — priority classes", () => {
     await new Promise<void>((r) => setTimeout(r, 5));
     unblock();
     await blocker;
+  });
+
+  it("priority preserved under RR: queue A(maintenance) then B(interactive) while busy — B runs first", async () => {
+    const order: string[] = [];
+    let unblock!: () => void;
+    const held = new Promise<void>((r) => { unblock = r; });
+
+    const blocker = enqueueInference("blocker", async () => {
+      await held;
+    }, "interactive");
+
+    await new Promise<void>((r) => setTimeout(r, 5));
+
+    const aMaint = enqueueInference("A", async () => { order.push("A-maintenance"); }, "maintenance");
+    const bInteractive = enqueueInference("B", async () => { order.push("B-interactive"); }, "interactive");
+
+    unblock();
+    await Promise.all([blocker, aMaint, bInteractive]);
+
+    expect(order.indexOf("B-interactive")).toBeLessThan(order.indexOf("A-maintenance"));
   });
 });

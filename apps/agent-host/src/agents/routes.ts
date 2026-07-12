@@ -10,6 +10,7 @@ import { normalizeMessages } from "../inference/normalize.js";
 import { resolvePreviewOptions, type PreviewBody } from "./preview.js";
 import { getActiveModel, findLocalModelPath } from "../models/active.js";
 import { enqueueInference } from "../inference/gate.js";
+import { clampMaxTokens } from "../inference/limits.js";
 import {
   listAgents,
   getAgent,
@@ -18,11 +19,6 @@ import {
   deleteAgent,
   type Agent,
 } from "./store.js";
-
-/** Clamp max_tokens to a safe value that won't exceed the context window. */
-function clampMaxTokens(requested?: number): number {
-  return Math.min(1024, requested ?? 512);
-}
 
 async function registerAgentOnNetwork(agent: Agent): Promise<void> {
   if (!agent.model) {
@@ -149,7 +145,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
                 messages: normalizeMessages(messages),
                 stream: true,
                 temperature,
-                max_tokens: clampMaxTokens(),
+                max_tokens: clampMaxTokens(undefined, active.ctx),
               }),
             });
           } catch (err) {

@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { diffPlacements } from "../tunnel/manager.js";
-import type { TunnelClient } from "../tunnel/client.js";
+import type { LiveTunnel } from "../tunnel/manager.js";
 import type { Placement } from "@interloom/protocol";
 
 vi.mock("../config.js", () => ({
@@ -53,8 +53,8 @@ function makePlacement(id: string, agentId: string, revoked = false): Placement 
   };
 }
 
-function makeClientMap(ids: string[]): Map<string, TunnelClient> {
-  return new Map(ids.map((id) => [id, {} as TunnelClient]));
+function makeClientMap(ids: string[]): Map<string, LiveTunnel> {
+  return new Map(ids.map((id) => [id, { voucherSig: "sig", authFailed: false }]));
 }
 
 describe("activation-transition: diffPlacements with active model filter", () => {

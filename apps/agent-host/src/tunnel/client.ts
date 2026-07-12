@@ -13,6 +13,7 @@ import { addRequestLogEntry, recordTokensPerSec } from "../telemetry/collector.j
 import { normalizeMessages } from "../inference/normalize.js";
 import { enqueueInference } from "../inference/gate.js";
 import { readInferenceCtx } from "../models/active.js";
+import { clampMaxTokens } from "../inference/limits.js";
 
 type TunnelStatus = "connecting" | "connected" | "down";
 
@@ -37,11 +38,6 @@ function buildTunnelUrl(instanceUrl: string): string {
     .replace(/\/$/, "") + "/tunnel";
 }
 
-/** Clamp max_tokens to a safe value that won't exceed the context window. */
-function clampMaxTokens(requested?: number): number {
-  return Math.min(1024, requested ?? 512);
-}
-
 export class TunnelClient {
   private ws: WebSocket | null = null;
   private status: TunnelStatus = "connecting";
@@ -51,6 +47,7 @@ export class TunnelClient {
   private streamListeners = new Map<string, (frame: TunnelFrame) => void>();
   private inflight = new Map<string, AbortController>();
   private authReqId: string | null = null;
+  private _authFailed = false;
 
   constructor(
     private readonly placement: Placement,
@@ -68,6 +65,14 @@ export class TunnelClient {
       agentId: this.placement.voucher.payload.agentId,
       status: this.status,
     };
+  }
+
+  get authFailed(): boolean {
+    return this._authFailed;
+  }
+
+  get voucherSig(): string {
+    return this.placement.voucher.sig;
   }
 
   start(): void {
@@ -108,6 +113,11 @@ export class TunnelClient {
         ac.abort();
       }
       this.inflight.clear();
+      for (const pending of this.pendingRequests.values()) {
+        pending.reject(new Error("tunnel closed"));
+      }
+      this.pendingRequests.clear();
+      this.streamListeners.clear();
       if (!this.destroyed) {
         this.status = "down";
         this.scheduleReconnect();
@@ -145,9 +155,20 @@ export class TunnelClient {
       return;
     }
 
+    if (frame.kind === "err" && this.authReqId && frame.id === this.authReqId) {
+      this.authReqId = null;
+      this._authFailed = true;
+      this.backoffMs = 30_000;
+      this.status = "down";
+      this.ws?.close();
+      return;
+    }
+
     if (frame.kind === "res" && this.authReqId && frame.id === this.authReqId) {
       const result = frame.result as { ok?: boolean } | undefined;
       if (result?.ok === true) {
+        this._authFailed = false;
+        this.backoffMs = 1000;
         this.status = "connected";
       }
       this.authReqId = null;
@@ -177,7 +198,14 @@ export class TunnelClient {
     }
 
     if (frame.kind === "req") {
-      void this.handleRequest(frame);
+      this.handleRequest(frame).catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        try {
+          this.send(makeErr(frame.id, "E_INTERNAL", msg));
+        } catch {
+          // socket may already be gone — swallow
+        }
+      });
     }
   }
 
@@ -252,8 +280,9 @@ export class TunnelClient {
             messages: normalizeMessages(params.messages ?? []),
             stream: false,
             temperature: params.params?.temperature,
-            max_tokens: clampMaxTokens(params.params?.maxTokens),
+            max_tokens: clampMaxTokens(params.params?.maxTokens, readInferenceCtx()),
           }),
+          signal: AbortSignal.timeout(120_000),
         });
 
         if (!res.ok) {
@@ -318,7 +347,7 @@ export class TunnelClient {
             messages: normalizeMessages(params.messages ?? []),
             stream: true,
             temperature: params.params?.temperature,
-            max_tokens: clampMaxTokens(params.params?.maxTokens),
+            max_tokens: clampMaxTokens(params.params?.maxTokens, readInferenceCtx()),
           }),
           signal: ac.signal,
         });
