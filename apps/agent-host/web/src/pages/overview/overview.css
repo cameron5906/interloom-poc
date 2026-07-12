@@ -1,0 +1,311 @@
+/* ---- Telemetry reconnect banner (amber) ---- */
+.il-telemetry-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px;
+  margin-bottom: 18px;
+  background: var(--il-warning-tint);
+  border: 1px solid #f0e2c0;
+  border-radius: var(--il-radius-md);
+  color: var(--il-warning-deep);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.il-telemetry-banner__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--il-warning);
+  animation: il-pulse 1.3s ease-in-out infinite;
+}
+
+/* ---- Stat tiles ---- */
+.il-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.il-tile {
+  background: var(--il-bg-card);
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  padding: 15px 16px 16px;
+  box-shadow: var(--il-shadow-card);
+  min-height: 108px;
+  display: flex;
+  flex-direction: column;
+}
+.il-tile__label {
+  font-family: var(--il-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--il-text-muted);
+  margin-bottom: 10px;
+}
+.il-tile__value {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--il-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.il-tile__unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--il-text-muted);
+  letter-spacing: 0;
+}
+.il-tile__spark {
+  margin-top: auto;
+  padding-top: 12px;
+}
+.il-tile__spark--muted {
+  font-family: var(--il-font-mono);
+  font-size: 11px;
+  color: var(--il-text-faint);
+}
+.il-tile__empty {
+  font-size: 13px;
+  color: var(--il-text-faint);
+  margin-top: 4px;
+}
+
+.il-utilbar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--il-bg-active);
+  overflow: hidden;
+}
+.il-utilbar__fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--il-accent-gradient);
+  transition: width 400ms ease;
+}
+
+/* ---- Two-panel grid ---- */
+.il-overview-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.il-panel {
+  background: var(--il-bg-card);
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  box-shadow: var(--il-shadow-card);
+  display: flex;
+  flex-direction: column;
+  min-height: 380px;
+  overflow: hidden;
+}
+.il-panel__head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--il-border-soft);
+}
+.il-panel__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--il-text-primary);
+}
+
+/* ---- Request log (dark) ---- */
+.il-reqlog {
+  background: #1c1b18;
+  border-color: #2a2925;
+}
+.il-reqlog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 15px;
+  border-bottom: 1px solid #2a2925;
+}
+.il-reqlog__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #e8e6df;
+}
+.il-reqlog__meta {
+  font-family: var(--il-font-mono);
+  font-size: 10.5px;
+}
+.il-reqlog__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #7fcf9f;
+}
+.il-reqlog__live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7fcf9f;
+  animation: il-pulse 1.2s ease-in-out infinite;
+}
+.il-reqlog__paused {
+  color: #d9b96b;
+}
+.il-reqlog__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 6px 10px;
+  font-family: var(--il-font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #e8e6df;
+}
+.il-reqlog__body.il-scroll-fade {
+  scrollbar-color: #45433d transparent;
+}
+.il-reqlog__body.il-scroll-fade::-webkit-scrollbar-thumb {
+  background: #45433d;
+}
+.il-reqlog__empty {
+  padding: 24px 14px;
+  color: #8b887e;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.il-reqlog__row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 2px 10px;
+  white-space: nowrap;
+  border-radius: 4px;
+}
+.il-reqlog__row:hover {
+  background: #262520;
+}
+.il-reqlog__ts {
+  color: #6f6d64;
+}
+.il-reqlog__src {
+  color: #9d8dff;
+  font-weight: 500;
+}
+.il-reqlog__src--preview {
+  color: #d9b96b;
+}
+.il-reqlog__agent {
+  color: #e8e6df;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+.il-reqlog__tok {
+  color: #8b887e;
+  margin-left: auto;
+}
+.il-reqlog__tps {
+  color: #7fcf9f;
+  min-width: 68px;
+  text-align: right;
+}
+
+/* ---- Tunnels & agents panel ---- */
+.il-tunnels__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+}
+.il-tunnels__group-label {
+  font-family: var(--il-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--il-text-faint);
+  margin-bottom: 8px;
+}
+.il-tunnels__group-label--spaced {
+  margin-top: 18px;
+}
+.il-tunnels__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.il-tunnels__row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 8px;
+  border-radius: 8px;
+  transition: background 110ms ease;
+}
+.il-tunnels__row:hover {
+  background: var(--il-bg-system);
+}
+.il-tunnels__row-main {
+  flex: 1;
+  min-width: 0;
+}
+.il-tunnels__row-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.il-tunnels__name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--il-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.il-tunnels__row-main .il-meta {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.il-tunnels__status {
+  text-transform: capitalize;
+}
+.il-tunnels__hint {
+  font-size: 12px;
+  color: var(--il-text-muted);
+  line-height: 1.5;
+  padding: 4px 8px;
+}
+
+/* Status dot for tunnel rows */
+.il-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--il-text-faint);
+}
+.il-dot--connected {
+  background: var(--il-success);
+  box-shadow: 0 0 0 3px var(--il-success-tint);
+}
+.il-dot--connecting {
+  background: var(--il-warning);
+  box-shadow: 0 0 0 3px var(--il-warning-tint);
+  animation: il-pulse 1.2s ease-in-out infinite;
+}
+.il-dot--down {
+  background: var(--il-danger);
+  box-shadow: 0 0 0 3px var(--il-danger-tint);
+}
+
+@media (max-width: 1080px) {
+  .il-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .il-overview-grid {
+    grid-template-columns: 1fr;
+  }
+}

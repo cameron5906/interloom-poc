@@ -1,0 +1,276 @@
+/* Portal-global styles. Tokens come from @interloom/ui — never fork values. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--il-font-ui);
+  background: var(--il-bg-page);
+  color: var(--il-text-primary);
+  font-size: 13.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--il-accent);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--il-accent-hover);
+}
+
+/* Visible keyboard focus everywhere (DESIGN_NOTES: 2px accent outline). */
+:focus-visible {
+  outline: 2px solid var(--il-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--il-accent-tint);
+}
+
+.il-mono {
+  font-family: var(--il-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- App frame: nav rail + content ---- */
+
+.il-app {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+
+.il-content {
+  overflow-y: auto;
+  height: 100%;
+  position: relative;
+}
+
+/* Wraps the offline banner + routed page so the banner pins above scroll. */
+.il-content-outer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  min-width: 0;
+}
+.il-content-outer > .il-content,
+.il-content-outer > .il-page-scroll {
+  flex: 1;
+  min-height: 0;
+}
+.il-page-scroll {
+  overflow-y: auto;
+}
+
+.il-content--split {
+  display: grid;
+  grid-template-columns: 1fr 376px;
+  overflow: hidden;
+}
+
+/* Page scaffold */
+.il-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 32px 64px;
+}
+
+.il-page__head {
+  margin-bottom: 22px;
+}
+.il-page__head--row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.il-page__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.il-loading-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: var(--il-text-muted);
+  font-size: 13px;
+  justify-content: center;
+}
+.il-error--compact {
+  padding: 12px 14px;
+  font-size: 12.5px;
+}
+
+.il-page__title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.il-page__sub {
+  color: var(--il-text-muted);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.il-section-label {
+  font-family: var(--il-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--il-text-muted);
+  margin: 0 0 10px;
+}
+
+/* Daemon-down banner */
+.il-offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  background: var(--il-warning-tint);
+  border-bottom: 1px solid #f0e2c0;
+  color: var(--il-warning-deep);
+  font-size: 12.5px;
+}
+.il-offline-banner__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--il-warning);
+  animation: il-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes il-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Skeleton shimmer */
+.il-skel {
+  border-radius: 8px;
+  background: linear-gradient(
+    100deg,
+    #efeee9 30%,
+    #f7f6f2 50%,
+    #efeee9 70%
+  );
+  background-size: 200% 100%;
+  animation: il-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes il-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Inline error card, retriable */
+.il-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 18px;
+  background: var(--il-danger-tint);
+  border: 1px solid #f2d5d1;
+  border-radius: var(--il-radius-md);
+  color: var(--il-danger-deep);
+  font-size: 13px;
+}
+.il-error__msg {
+  line-height: 1.45;
+}
+
+/* Generic tab strip */
+.il-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--il-bg-rail);
+  border: 1px solid var(--il-border-soft);
+  border-radius: var(--il-radius-md);
+  margin-bottom: 22px;
+}
+.il-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--il-text-secondary);
+  padding: 6px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.il-tab:hover {
+  color: var(--il-text-primary);
+}
+.il-tab--active {
+  background: var(--il-bg-card);
+  color: var(--il-text-primary);
+  box-shadow: var(--il-shadow-card);
+}
+.il-tab__count {
+  font-family: var(--il-font-mono);
+  font-size: 10px;
+  color: var(--il-text-faint);
+  margin-left: 6px;
+}
+
+/* Meta text rows (mono, muted) */
+.il-meta {
+  font-family: var(--il-font-mono);
+  font-size: 11px;
+  color: var(--il-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.il-scroll-fade {
+  scrollbar-width: thin;
+  scrollbar-color: #d8d6cd transparent;
+}
+.il-scroll-fade::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.il-scroll-fade::-webkit-scrollbar-thumb {
+  background: #d8d6cd;
+  border-radius: 8px;
+}
+.il-scroll-fade::-webkit-scrollbar-track {
+  background: transparent;
+}

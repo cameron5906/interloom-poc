@@ -1,0 +1,44 @@
+name: Build & Push Images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Push images to Docker Hub"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  bake:
+    name: Build images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build (and push if credentials present)
+        uses: docker/bake-action@v5
+        with:
+          files: docker/docker-bake.hcl
+          push: ${{ secrets.DOCKERHUB_USERNAME != '' && (github.event_name != 'workflow_dispatch' || inputs.push) }}
+        env:
+          DOCKER_ORG: ${{ vars.DOCKER_ORG || 'cameron5906' }}
+          TAG: latest

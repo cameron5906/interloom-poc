@@ -1,0 +1,33 @@
+/**
+ * Single stylesheet entry for consumers: `import '@interloom/ui/styles.css'`.
+ * Pulls in Geist fonts, design tokens, and every component's CSS.
+ * Resolved through a bundler (Vite) that understands package-relative @import.
+ */
+
+/* Geist Sans (UI + body) */
+@import "@fontsource/geist-sans/400.css";
+@import "@fontsource/geist-sans/500.css";
+@import "@fontsource/geist-sans/600.css";
+@import "@fontsource/geist-sans/700.css";
+
+/* Geist Mono (data, IDs, timestamps, badges) */
+@import "@fontsource/geist-mono/400.css";
+@import "@fontsource/geist-mono/500.css";
+@import "@fontsource/geist-mono/600.css";
+
+/* Tokens */
+@import "./tokens.css";
+
+/* Components */
+@import "./components/Button.css";
+@import "./components/Card.css";
+@import "./components/Badge.css";
+@import "./components/Avatar.css";
+@import "./components/StatusPill.css";
+@import "./components/ProgressBar.css";
+@import "./components/Input.css";
+@import "./components/TextArea.css";
+@import "./components/Modal.css";
+@import "./components/Spinner.css";
+@import "./components/EmptyState.css";
+@import "./components/TypingDots.css";

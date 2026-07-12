@@ -1,0 +1,32 @@
+.il-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 40px 24px;
+  font-family: var(--il-font-ui);
+}
+
+.il-empty__icon {
+  font-size: 28px;
+  line-height: 1;
+  color: var(--il-text-muted);
+}
+
+.il-empty__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--il-text-secondary);
+}
+
+.il-empty__hint {
+  font-size: 12.5px;
+  color: var(--il-text-muted);
+  max-width: 320px;
+}
+
+.il-empty__action {
+  margin-top: 6px;
+}

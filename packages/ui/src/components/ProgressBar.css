@@ -1,0 +1,47 @@
+.il-progress {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--il-radius-pill);
+  overflow: hidden;
+}
+
+.il-progress__fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.2s ease;
+}
+
+.il-progress--accent {
+  background: var(--il-accent-tint);
+}
+.il-progress--accent .il-progress__fill {
+  background: var(--il-accent);
+}
+
+.il-progress--success {
+  background: var(--il-success-tint);
+}
+.il-progress--success .il-progress__fill {
+  background: var(--il-success);
+}
+
+.il-progress--warning {
+  background: var(--il-warning-tint);
+}
+.il-progress--warning .il-progress__fill {
+  background: var(--il-warning);
+}
+
+.il-progress--danger {
+  background: var(--il-danger-tint);
+}
+.il-progress--danger .il-progress__fill {
+  background: var(--il-danger);
+}
+
+.il-progress--active {
+  background: var(--il-active-tint);
+}
+.il-progress--active .il-progress__fill {
+  background: var(--il-active);
+}

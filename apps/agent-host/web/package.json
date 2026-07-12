@@ -1,0 +1,27 @@
+{
+  "name": "@interloom/agent-host-portal",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo typecheck-only",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@interloom/protocol": "workspace:*",
+    "@interloom/ui": "workspace:*",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-router-dom": "^6"
+  },
+  "devDependencies": {
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^4",
+    "typescript": "^5.5",
+    "vite": "^6"
+  }
+}

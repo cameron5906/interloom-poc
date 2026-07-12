@@ -1,0 +1,66 @@
+# Interloom host-owner compose file.
+# Ships to agent-host owners. Pull-only (no build keys).
+# Usage: docker compose -f host-owner.yml up -d
+# GPU: docker compose -f host-owner.yml -f host-owner.gpu.yml up -d
+
+name: interloom-host
+
+x-defaults:
+  DOCKER_ORG: &docker_org ${DOCKER_ORG:-cameron5906}
+  TAG: &tag ${TAG:-latest}
+
+services:
+  agent-host:
+    image: ${DOCKER_ORG:-cameron5906}/interloom-agent-host:${TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7420:7420"
+    environment:
+      PORT: "7420"
+      DATA_DIR: /data
+      MODELS_DIR: /models
+      NETWORK_URL: ${NETWORK_URL:-https://interloom-net.tryeris.com}
+      INFERENCE_URL: http://inference:8080
+      FETCHER_URL: http://model-fetcher:7423
+    volumes:
+      - il_data:/data
+      - il_models:/models
+    depends_on:
+      inference:
+        condition: service_started
+      model-fetcher:
+        condition: service_started
+
+  inference:
+    image: ${DOCKER_ORG:-cameron5906}/interloom-inference:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      MODELS_DIR: /models
+    volumes:
+      - il_models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  model-fetcher:
+    image: ${DOCKER_ORG:-cameron5906}/interloom-model-fetcher:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      MODELS_DIR: /models
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - il_models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7423/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  il_data:
+    name: interloom-data
+  il_models:
+    name: interloom-models

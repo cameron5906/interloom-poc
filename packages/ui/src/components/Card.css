@@ -1,0 +1,18 @@
+.il-card {
+  background: var(--il-bg-card);
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  box-shadow: var(--il-shadow-card);
+  padding: 16px;
+}
+
+.il-card--interactive {
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+  cursor: pointer;
+}
+.il-card--interactive:hover {
+  border-color: var(--il-border-card-hover);
+  box-shadow: var(--il-shadow-hover);
+}

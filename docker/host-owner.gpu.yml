@@ -1,0 +1,28 @@
+# GPU override for host-owner compose.
+# Extends host-owner.yml with NVIDIA GPU support.
+# Usage: docker compose -f host-owner.yml -f host-owner.gpu.yml up -d
+
+name: interloom-host
+
+services:
+  agent-host:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  inference:
+    image: ${DOCKER_ORG:-cameron5906}/interloom-inference:${TAG:-latest}-cuda
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -1,0 +1,14 @@
+.il-spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border: 2px solid var(--il-border-strong);
+  border-top-color: var(--il-accent);
+  animation: il-spin 0.7s linear infinite;
+  box-sizing: border-box;
+}
+
+@keyframes il-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

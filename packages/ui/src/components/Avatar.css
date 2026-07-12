@@ -1,0 +1,49 @@
+.il-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  font-family: var(--il-font-ui);
+  font-weight: 600;
+  color: var(--il-text-primary);
+  user-select: none;
+}
+
+/* Human avatars are circles with pastel fills + initials. */
+.il-avatar--human {
+  border-radius: 50%;
+}
+
+/* Agent avatars are rounded-squares with gradient / bg + emoji. */
+.il-avatar--agent {
+  border-radius: 9px;
+  color: #fff;
+}
+
+.il-avatar__inner {
+  line-height: 1;
+}
+
+.il-avatar__dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 30%;
+  height: 30%;
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--il-bg-card);
+  box-sizing: border-box;
+}
+
+.il-avatar__dot--online {
+  background: var(--il-presence-online);
+}
+.il-avatar__dot--away {
+  background: var(--il-presence-away);
+}
+.il-avatar__dot--offline {
+  background: var(--il-presence-offline);
+}

@@ -1,0 +1,69 @@
+.il-btn {
+  font-family: var(--il-font-ui);
+  font-weight: 500;
+  border-radius: var(--il-radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  line-height: 1;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.il-btn:focus-visible {
+  outline: 2px solid var(--il-accent);
+  outline-offset: 2px;
+}
+
+.il-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.il-btn--sm {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+.il-btn--md {
+  font-size: 13px;
+  padding: 8px 14px;
+}
+
+.il-btn--primary {
+  background: var(--il-btn-primary-bg);
+  color: #fff;
+}
+.il-btn--primary:hover:not(:disabled) {
+  background: var(--il-btn-primary-bg-hover);
+}
+
+.il-btn--secondary {
+  background: var(--il-bg-card);
+  color: var(--il-text-primary);
+  border-color: var(--il-border-input);
+}
+.il-btn--secondary:hover:not(:disabled) {
+  background: var(--il-bg-active);
+}
+
+.il-btn--accent {
+  background: var(--il-accent);
+  color: #fff;
+}
+.il-btn--accent:hover:not(:disabled) {
+  background: var(--il-accent-hover);
+}
+
+.il-btn--danger {
+  background: var(--il-danger);
+  color: #fff;
+}
+.il-btn--danger:hover:not(:disabled) {
+  background: var(--il-danger-deep);
+}

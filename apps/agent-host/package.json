@@ -1,0 +1,31 @@
+{
+  "name": "@interloom/agent-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^10",
+    "@fastify/static": "^8",
+    "@fastify/websocket": "^11",
+    "@interloom/keys": "workspace:*",
+    "@interloom/protocol": "workspace:*",
+    "fastify": "^5",
+    "ws": "^8",
+    "zod": "^3.23"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/ws": "^8",
+    "tsx": "^4",
+    "typescript": "^5.5",
+    "vitest": "^3"
+  }
+}

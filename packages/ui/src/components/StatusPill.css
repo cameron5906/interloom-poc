@@ -1,0 +1,61 @@
+.il-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--il-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 3px 9px;
+  border-radius: var(--il-radius-pill);
+  line-height: 1.4;
+}
+
+.il-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.il-pill__dot--live {
+  animation: il-pill-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes il-pill-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.75);
+  }
+}
+
+.il-pill--neutral {
+  color: var(--il-text-secondary);
+  background: var(--il-bg-active);
+}
+.il-pill--success {
+  color: var(--il-success-deep);
+  background: var(--il-success-tint);
+}
+.il-pill--warning {
+  color: var(--il-warning-deep);
+  background: var(--il-warning-tint);
+}
+.il-pill--danger {
+  color: var(--il-danger-deep);
+  background: var(--il-danger-tint);
+}
+.il-pill--accent {
+  color: var(--il-accent);
+  background: var(--il-accent-tint);
+}
+.il-pill--active {
+  color: var(--il-active);
+  background: var(--il-active-tint);
+}

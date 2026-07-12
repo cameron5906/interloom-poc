@@ -1,0 +1,73 @@
+/**
+ * Interloom design tokens (DESIGN_NOTES.md).
+ * All surfaces consume these via the `--il-*` custom properties.
+ */
+:root {
+  /* Surfaces */
+  --il-bg-page: #fbfbf9;
+  --il-bg-rail: #f4f3ef;
+  --il-bg-card: #ffffff;
+  --il-bg-active: #eceae3;
+  --il-bg-system: #f7f6f2;
+
+  /* Borders */
+  --il-border-strong: #e7e5dd;
+  --il-border-soft: #eeece4;
+  --il-border-hairline: #f0eee6;
+  --il-border-input: #e0ddd4;
+  --il-border-card-hover: #cfc9dd;
+
+  /* Text */
+  --il-text-primary: #1c1b18;
+  --il-text-secondary: #57554c;
+  --il-text-muted: #8f8c82;
+  --il-text-faint: #a5a299;
+  --il-text-on-dark: #e8e6df;
+
+  /* Accent (brand) */
+  --il-accent: #6a5acd;
+  --il-accent-hover: #5a49bd;
+  --il-accent-tint: #efeafc;
+  --il-accent-gradient: linear-gradient(135deg, #8b76ee, #6a5acd);
+
+  /* Success */
+  --il-success: #3f9e69;
+  --il-success-deep: #2f6b47;
+  --il-success-tint: #e7f2ea;
+
+  /* Warning */
+  --il-warning: #d69a2e;
+  --il-warning-deep: #b58a2e;
+  --il-warning-tint: #faf1dc;
+
+  /* Danger */
+  --il-danger: #cf5b52;
+  --il-danger-deep: #b8443b;
+  --il-danger-tint: #faeae8;
+
+  /* Active / teal */
+  --il-active: #3a9d95;
+  --il-active-tint: #e5f2f0;
+
+  /* Presence dots */
+  --il-presence-online: #3f9e69;
+  --il-presence-away: #d69a2e;
+  --il-presence-offline: #a5a299;
+
+  /* Button fills */
+  --il-btn-primary-bg: #1c1b18;
+  --il-btn-primary-bg-hover: #333029;
+
+  /* Radii */
+  --il-radius-sm: 7px;
+  --il-radius-md: 10px;
+  --il-radius-pill: 20px;
+
+  /* Shadows */
+  --il-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --il-shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+  /* Fonts */
+  --il-font-ui: "Geist Sans", "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --il-font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
+}

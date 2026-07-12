@@ -1,0 +1,40 @@
+.il-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--il-font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+/* AGENT badge: Geist Mono 9px uppercase, accent on accent-tint. */
+.il-badge--agent {
+  font-family: var(--il-font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--il-accent);
+  background: var(--il-accent-tint);
+}
+
+.il-badge--neutral {
+  color: var(--il-text-secondary);
+  background: var(--il-bg-active);
+}
+
+.il-badge--success {
+  color: var(--il-success-deep);
+  background: var(--il-success-tint);
+}
+
+.il-badge--warning {
+  color: var(--il-warning-deep);
+  background: var(--il-warning-tint);
+}
+
+.il-badge--danger {
+  color: var(--il-danger-deep);
+  background: var(--il-danger-tint);
+}

@@ -1,0 +1,56 @@
+.il-placements {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.il-placement-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--il-bg-card);
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  padding: 16px 17px;
+  box-shadow: var(--il-shadow-card);
+  transition: border-color 130ms ease, box-shadow 130ms ease;
+}
+.il-placement-card:hover {
+  border-color: var(--il-border-card-hover);
+  box-shadow: var(--il-shadow-hover);
+}
+.il-placement-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.il-placement-card__pill {
+  flex: none;
+  white-space: nowrap;
+}
+.il-placement-card__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.il-placement-card__url {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.il-placement-card__meta {
+  border-top: 1px solid var(--il-border-hairline);
+  padding-top: 11px;
+}
+.il-placement-card__foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.il-placement-confirm {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--il-text-secondary);
+  margin: 0;
+}
+.il-placement-confirm strong {
+  color: var(--il-text-primary);
+}

@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+# Interloom inference container — CUDA variant (amd64 only).
+# Uses the CUDA-enabled llama.cpp server image.
+# GPU ngl flag is passed when inference.json contains "ngl".
+
+FROM ghcr.io/ggml-org/llama.cpp:server-cuda
+
+ENV MODELS_DIR=/models
+
+COPY supervisor.sh /supervisor.sh
+RUN chmod +x /supervisor.sh
+
+VOLUME /models
+
+EXPOSE 8080
+
+ENTRYPOINT []
+CMD ["/supervisor.sh"]

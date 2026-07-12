@@ -1,0 +1,36 @@
+.il-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--il-bg-system);
+  border-radius: var(--il-radius-pill);
+}
+
+.il-typing__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--il-text-muted);
+  animation: il-typing-bounce 1.2s ease-in-out infinite;
+}
+
+.il-typing__dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.il-typing__dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes il-typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}

@@ -1,0 +1,13 @@
+.superpowers/
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+.env
+
+# terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfplan

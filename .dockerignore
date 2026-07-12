@@ -1,0 +1,38 @@
+# VCS
+.git
+.gitignore
+
+# Node
+node_modules
+**/node_modules
+
+# Build outputs (rebuilt inside Docker)
+**/dist
+**/.turbo
+
+# Dev/test artifacts
+**/*.test.ts
+**/__tests__
+**/coverage
+
+# Local data volumes
+data/
+models/
+
+# Docker outputs
+**/Dockerfile
+docker/
+
+# Misc
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Infra
+infra/
+
+# Docs
+docs/
+README.md

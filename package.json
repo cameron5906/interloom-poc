@@ -1,0 +1,21 @@
+{
+  "name": "interloom-poc",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "dev": "turbo run dev"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2",
+    "typescript": "^5.5"
+  }
+}
