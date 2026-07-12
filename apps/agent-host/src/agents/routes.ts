@@ -6,6 +6,7 @@ import { INFERENCE_URL } from "../config.js";
 import { getKeypair } from "../keys.js";
 import { networkRegisterAgent } from "../network/client.js";
 import { addRequestLogEntry } from "../telemetry/collector.js";
+import { normalizeMessages } from "../inference/normalize.js";
 import { resolvePreviewOptions, type PreviewBody } from "./preview.js";
 import { getActiveModel, findLocalModelPath } from "../models/active.js";
 import { enqueueInference } from "../inference/gate.js";
@@ -145,7 +146,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
-                messages,
+                messages: normalizeMessages(messages),
                 stream: true,
                 temperature,
                 max_tokens: clampMaxTokens(),

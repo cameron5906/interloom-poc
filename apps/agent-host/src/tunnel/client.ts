@@ -10,6 +10,7 @@ import {
 import type { Placement } from "@interloom/protocol";
 import { INFERENCE_URL } from "../config.js";
 import { addRequestLogEntry, recordTokensPerSec } from "../telemetry/collector.js";
+import { normalizeMessages } from "../inference/normalize.js";
 import { enqueueInference } from "../inference/gate.js";
 import { readInferenceCtx } from "../models/active.js";
 
@@ -248,7 +249,7 @@ export class TunnelClient {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            messages: params.messages ?? [],
+            messages: normalizeMessages(params.messages ?? []),
             stream: false,
             temperature: params.params?.temperature,
             max_tokens: clampMaxTokens(params.params?.maxTokens),
@@ -314,7 +315,7 @@ export class TunnelClient {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            messages: params.messages ?? [],
+            messages: normalizeMessages(params.messages ?? []),
             stream: true,
             temperature: params.params?.temperature,
             max_tokens: clampMaxTokens(params.params?.maxTokens),
