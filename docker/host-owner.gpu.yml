@@ -15,7 +15,7 @@ services:
               capabilities: [gpu]
 
   inference:
-    image: ${DOCKER_ORG:-cameron5906}/interloom-inference:${TAG:-latest}-cuda
+    image: ${DOCKER_ORG:-cameron59061}/interloom-inference:${TAG:-latest}-cuda
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility

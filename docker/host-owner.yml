@@ -6,12 +6,12 @@
 name: interloom-host
 
 x-defaults:
-  DOCKER_ORG: &docker_org ${DOCKER_ORG:-cameron5906}
+  DOCKER_ORG: &docker_org ${DOCKER_ORG:-cameron59061}
   TAG: &tag ${TAG:-latest}
 
 services:
   agent-host:
-    image: ${DOCKER_ORG:-cameron5906}/interloom-agent-host:${TAG:-latest}
+    image: ${DOCKER_ORG:-cameron59061}/interloom-agent-host:${TAG:-latest}
     restart: unless-stopped
     ports:
       - "127.0.0.1:7420:7420"
@@ -32,7 +32,7 @@ services:
         condition: service_started
 
   inference:
-    image: ${DOCKER_ORG:-cameron5906}/interloom-inference:${TAG:-latest}
+    image: ${DOCKER_ORG:-cameron59061}/interloom-inference:${TAG:-latest}
     restart: unless-stopped
     environment:
       MODELS_DIR: /models
@@ -46,7 +46,7 @@ services:
       start_period: 5s
 
   model-fetcher:
-    image: ${DOCKER_ORG:-cameron5906}/interloom-model-fetcher:${TAG:-latest}
+    image: ${DOCKER_ORG:-cameron59061}/interloom-model-fetcher:${TAG:-latest}
     restart: unless-stopped
     environment:
       MODELS_DIR: /models
