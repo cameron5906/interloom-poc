@@ -30,21 +30,29 @@ RUN pnpm --filter @interloom/protocol build && \
     pnpm --filter @interloom/agent-host build
 
 # ── Stage 4: runtime ──────────────────────────────────────────────────────────
-FROM node:22-alpine AS runner
-WORKDIR /app
+FROM base AS runner
+WORKDIR /repo
 
-COPY --from=builder /repo/apps/agent-host/dist ./dist
-COPY --from=builder /repo/apps/agent-host/package.json ./
-COPY --from=builder /repo/apps/agent-host/node_modules ./node_modules
-# Workspace packages needed at runtime
-COPY --from=builder /repo/packages/protocol/dist ./node_modules/@interloom/protocol/dist
-COPY --from=builder /repo/packages/protocol/package.json ./node_modules/@interloom/protocol/
-COPY --from=builder /repo/packages/keys/dist ./node_modules/@interloom/keys/dist
-COPY --from=builder /repo/packages/keys/package.json ./node_modules/@interloom/keys/
+# Manifests needed for workspace-layout install
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY packages/protocol/package.json packages/protocol/
+COPY packages/keys/package.json        packages/keys/
+COPY packages/ui/package.json          packages/ui/
+COPY apps/agent-host/package.json      apps/agent-host/
+COPY apps/agent-host/web/package.json  apps/agent-host/web/
 
-# Portal SPA — static.ts resolves __dirname (dist/) + ../../web/dist
-# __dirname=/app/dist → path.resolve('/app/dist', '../../web/dist') = '/web/dist'
-COPY --from=builder /repo/apps/agent-host/web/dist /web/dist
+# Install real (non-symlinked) node_modules in workspace layout (prod only).
+RUN pnpm install --frozen-lockfile --prod --filter @interloom/agent-host...
+
+# Built artefacts from builder
+COPY --from=builder /repo/packages/protocol/dist   packages/protocol/dist
+COPY --from=builder /repo/packages/keys/dist        packages/keys/dist
+COPY --from=builder /repo/apps/agent-host/dist      apps/agent-host/dist
+
+# Portal SPA — static.ts resolves __dirname (dist/) + ../web/dist
+COPY --from=builder /repo/apps/agent-host/web/dist  apps/agent-host/web/dist
+
+WORKDIR /repo/apps/agent-host
 
 ENV NODE_ENV=production \
     PORT=7420 \

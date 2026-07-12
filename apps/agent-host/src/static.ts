@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WEB_DIST = path.resolve(__dirname, "../../web/dist");
+const WEB_DIST = path.resolve(__dirname, "../web/dist");
 
 export function registerStatic(app: FastifyInstance): void {
   if (fs.existsSync(WEB_DIST)) {
