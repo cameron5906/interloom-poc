@@ -30,7 +30,10 @@ RUN pnpm --filter @interloom/protocol build && \
     pnpm --filter @interloom/agent-host build
 
 # ── Stage 4: runtime ──────────────────────────────────────────────────────────
-FROM base AS runner
+# glibc base (not alpine): the NVIDIA container runtime injects a glibc-linked
+# nvidia-smi for GPU telemetry, which cannot run on musl.
+FROM node:22-slim AS runner
+RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
 WORKDIR /repo
 
 # Manifests needed for workspace-layout install

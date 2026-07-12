@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import type { TelemetryGpu, TelemetryRequestLogEntry } from "@interloom/protocol";
+import { NVIDIA_SMI } from "../nvidia.js";
 
 const REQUEST_LOG_SIZE = 50;
 const TOKEN_WINDOW_MS = 10_000;
@@ -46,7 +47,7 @@ async function pollGpuMetrics(): Promise<TelemetryGpu[]> {
   }
 
   return new Promise((resolve) => {
-    const proc = spawn("nvidia-smi", [
+    const proc = spawn(NVIDIA_SMI, [
       "--query-gpu=name,memory.used,memory.total,utilization.gpu",
       "--format=csv,noheader",
     ]);

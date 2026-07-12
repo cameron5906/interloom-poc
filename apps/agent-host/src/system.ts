@@ -2,10 +2,11 @@ import { spawn } from "child_process";
 import os from "os";
 import type { FastifyInstance } from "fastify";
 import type { GpuInfo, SystemInfo } from "@interloom/protocol";
+import { NVIDIA_SMI } from "./nvidia.js";
 
 async function detectGpus(): Promise<GpuInfo[]> {
   return new Promise((resolve) => {
-    const proc = spawn("nvidia-smi", [
+    const proc = spawn(NVIDIA_SMI, [
       "--query-gpu=name,memory.total,utilization.gpu,driver_version",
       "--format=csv,noheader",
     ]);

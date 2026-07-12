@@ -40,9 +40,11 @@ http://localhost:7420
 > ```
 
 **GPU mode** (3080 rig): the installer detects NVIDIA and applies
-`docker/host-owner.gpu.yml` automatically. If it warns about
-`nvidia-container-toolkit`, install that first, then re-run the installer (it's
-idempotent).
+`docker/host-owner.gpu.yml` automatically, pulling the prebuilt CUDA inference
+image (`interloom-inference:latest-cuda`) from Docker Hub — no local build. If it
+warns about `nvidia-container-toolkit`, install that first, then re-run the
+installer (it's idempotent). (The DGX Spark is ARM64 — it runs the CPU inference
+build for now; CUDA-on-ARM is on the roadmap.)
 
 ## The walkthrough (what we'll do together)
 
