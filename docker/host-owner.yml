@@ -54,7 +54,8 @@ services:
     volumes:
       - il_models:/models
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7423/health || exit 1"]
+      # python probe — the slim fetcher image ships no curl
+      test: ["CMD-SHELL", "python -c \"import urllib.request as u; u.urlopen('http://localhost:7423/health', timeout=3)\""]
       interval: 10s
       timeout: 5s
       retries: 3
