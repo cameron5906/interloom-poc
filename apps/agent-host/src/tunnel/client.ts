@@ -11,9 +11,16 @@ import type { Placement } from "@interloom/protocol";
 import { INFERENCE_URL } from "../config.js";
 import { addRequestLogEntry, recordTokensPerSec } from "../telemetry/collector.js";
 import { normalizeMessages } from "../inference/normalize.js";
+import { toLlamaMessages } from "../inference/llamaMessages.js";
 import { enqueueInference } from "../inference/gate.js";
 import { readInferenceCtx } from "../models/active.js";
 import { clampMaxTokens } from "../inference/limits.js";
+import {
+  newToolCallAccumulator,
+  aggregateToolCallDelta,
+  finishToolCalls,
+  type ToolCallDelta,
+} from "../inference/toolCalls.js";
 
 type TunnelStatus = "connecting" | "connected" | "down";
 
@@ -234,6 +241,7 @@ export class TunnelClient {
         voucher: this.placement.voucher,
         sig,
         ctx,
+        features: ["tools"],
       },
     });
   }
@@ -265,7 +273,13 @@ export class TunnelClient {
   ): Promise<void> {
     const params = frame.params as {
       messages?: Array<{ role: string; content: string }>;
-      params?: { temperature?: number; maxTokens?: number; priority?: "interactive" | "maintenance" };
+      params?: {
+        temperature?: number;
+        maxTokens?: number;
+        priority?: "interactive" | "maintenance";
+        tools?: unknown[];
+        toolChoice?: "auto" | "none";
+      };
     };
 
     const agentId = this.placement.voucher.payload.agentId;
@@ -277,10 +291,18 @@ export class TunnelClient {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            messages: normalizeMessages(params.messages ?? []),
+            messages: toLlamaMessages(normalizeMessages(params.messages ?? [])),
             stream: false,
             temperature: params.params?.temperature,
             max_tokens: clampMaxTokens(params.params?.maxTokens, readInferenceCtx()),
+            ...(params.params?.tools && params.params.tools.length > 0
+              ? {
+                  tools: (params.params.tools as Array<{ name: string; description: string; parameters: unknown }>).map(
+                    (t) => ({ type: "function", function: t }),
+                  ),
+                  tool_choice: params.params?.toolChoice ?? "auto",
+                }
+              : {}),
           }),
           signal: AbortSignal.timeout(120_000),
         });
@@ -291,7 +313,13 @@ export class TunnelClient {
         }
 
         const data = await res.json() as {
-          choices?: Array<{ message?: { role: string; content: string } }>;
+          choices?: Array<{
+            message?: {
+              role: string;
+              content: string;
+              tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
+            };
+          }>;
           usage?: { prompt_tokens?: number; completion_tokens?: number };
           timings?: { predicted_per_second?: number };
         };
@@ -300,6 +328,16 @@ export class TunnelClient {
         const promptTokens = data.usage?.prompt_tokens ?? 0;
         const completionTokens = data.usage?.completion_tokens ?? 0;
         const tokensPerSec = data.timings?.predicted_per_second ?? 0;
+
+        const rawCalls = data.choices?.[0]?.message?.tool_calls;
+        const toolCalls =
+          rawCalls && rawCalls.length > 0
+            ? rawCalls.map((c, i) => ({
+                id: c.id ?? `call_${i}`,
+                name: c.function?.name ?? "",
+                arguments: c.function?.arguments ?? "",
+              }))
+            : undefined;
 
         addRequestLogEntry({
           ts: Date.now(),
@@ -313,7 +351,7 @@ export class TunnelClient {
 
         this.send(
           makeRes(frame.id, {
-            message,
+            message: { ...message, ...(toolCalls ? { toolCalls } : {}) },
             usage: { promptTokens, completionTokens, tokensPerSec },
           }),
         );
@@ -329,7 +367,13 @@ export class TunnelClient {
   ): Promise<void> {
     const params = frame.params as {
       messages?: Array<{ role: string; content: string }>;
-      params?: { temperature?: number; maxTokens?: number; priority?: "interactive" | "maintenance" };
+      params?: {
+        temperature?: number;
+        maxTokens?: number;
+        priority?: "interactive" | "maintenance";
+        tools?: unknown[];
+        toolChoice?: "auto" | "none";
+      };
     };
 
     const agentId = this.placement.voucher.payload.agentId;
@@ -344,10 +388,18 @@ export class TunnelClient {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            messages: normalizeMessages(params.messages ?? []),
+            messages: toLlamaMessages(normalizeMessages(params.messages ?? [])),
             stream: true,
             temperature: params.params?.temperature,
             max_tokens: clampMaxTokens(params.params?.maxTokens, readInferenceCtx()),
+            ...(params.params?.tools && params.params.tools.length > 0
+              ? {
+                  tools: (params.params.tools as Array<{ name: string; description: string; parameters: unknown }>).map(
+                    (t) => ({ type: "function", function: t }),
+                  ),
+                  tool_choice: params.params?.toolChoice ?? "auto",
+                }
+              : {}),
           }),
           signal: ac.signal,
         });
@@ -372,6 +424,7 @@ export class TunnelClient {
       let completionTokens = 0;
       let tokensPerSec = 0;
       let tunnelClosed = false;
+      const toolAcc = newToolCallAccumulator();
 
       try {
         while (true) {
@@ -398,13 +451,20 @@ export class TunnelClient {
             if (data === "[DONE]") continue;
             try {
               const parsed = JSON.parse(data) as {
-                choices?: Array<{ delta?: { content?: string }; finish_reason?: string }>;
+                choices?: Array<{
+                  delta?: { content?: string; tool_calls?: ToolCallDelta[] };
+                  finish_reason?: string;
+                }>;
                 usage?: { prompt_tokens?: number; completion_tokens?: number };
                 timings?: { predicted_per_second?: number };
               };
               const delta = parsed.choices?.[0]?.delta?.content;
               if (delta) {
                 this.send(makeEvt("inference.chunk", { delta }, frame.id));
+              }
+              const toolCallDeltas = parsed.choices?.[0]?.delta?.tool_calls;
+              if (toolCallDeltas) {
+                aggregateToolCallDelta(toolAcc, toolCallDeltas);
               }
               // llama.cpp sends usage and timings in the final stream frame
               // (when finish_reason is set or in a trailing frame after [DONE])
@@ -439,7 +499,13 @@ export class TunnelClient {
       });
       recordTokensPerSec(tokensPerSec);
 
-      this.send(makeRes(frame.id, { usage: { promptTokens, completionTokens, tokensPerSec } }));
+      const toolCalls = finishToolCalls(toolAcc);
+      this.send(
+        makeRes(frame.id, {
+          usage: { promptTokens, completionTokens, tokensPerSec },
+          ...(toolCalls ? { toolCalls } : {}),
+        }),
+      );
     }, priority);
   }
 }

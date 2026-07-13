@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mentionedNonMembers, parseMentions } from "./mentions.js";
+import { findMentionSpans, mentionedNonMembers, parseMentions } from "./mentions.js";
 
 const members = [
   { id: "ada", name: "Ada" },
@@ -68,5 +68,26 @@ describe("mentionedNonMembers", () => {
       { id: "ada", name: "Ada" },
       { id: "bob", name: "Bob" },
     ]);
+  });
+});
+
+describe("findMentionSpans (render parity with parseMentions)", () => {
+  const members = [
+    { id: "rm", name: "Rocket Man" },
+    { id: "r", name: "Rocket" },
+    { id: "ada", name: "Ada" },
+  ];
+  it("spans the full spaced name (longest match wins)", () => {
+    const text = "hey @Rocket Man how are you";
+    expect(findMentionSpans(text, members)).toEqual([{ start: 4, end: 15, memberId: "rm" }]);
+  });
+  it("word boundary + email guard match parseMentions", () => {
+    expect(findMentionSpans("@Adam", members)).toEqual([]);
+    expect(findMentionSpans("bob@ada.dev", members)).toEqual([]);
+    expect(findMentionSpans("@Ada!", members)).toEqual([{ start: 0, end: 4, memberId: "ada" }]);
+  });
+  it("multiple + repeated mentions all get spans", () => {
+    const text = "@Ada meet @Rocket Man; thanks @Ada";
+    expect(findMentionSpans(text, members).map((s) => s.memberId)).toEqual(["ada", "rm", "ada"]);
   });
 });

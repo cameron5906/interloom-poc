@@ -73,7 +73,7 @@ start_llama() {
     return 1
   fi
 
-  local args="-m $model_path -c $ctx --host 0.0.0.0 --port 8080 --metrics"
+  local args="-m $model_path -c $ctx --host 0.0.0.0 --port 8080 --metrics --jinja"
 
   # Add GPU layers flag only when ngl is set (CUDA image)
   if [ -n "$ngl" ]; then

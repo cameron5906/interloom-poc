@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   AuthIdentifyParams,
   AuthOkResult,
+  InferenceCompleteParams,
+  InferenceMessage,
+  InferenceStreamResult,
   makeErr,
   makeEvt,
   makeReq,
@@ -11,6 +14,7 @@ import {
   TunnelFrameError,
   TUNNEL_VERSION,
 } from "./index.js";
+import { ToolCall, ToolDef } from "./tunnel.js";
 
 describe("tunnel frame constructors", () => {
   it("makeReq builds a req frame with a uuid id", () => {
@@ -140,5 +144,70 @@ describe("TunnelFrame discriminated union narrowing", () => {
     } else {
       expect.unreachable();
     }
+  });
+});
+
+describe("tool-calling wire shapes (additive, CONTRACTS §3)", () => {
+  it("InferenceParams accepts tools + toolChoice", () => {
+    const p = InferenceCompleteParams.parse({
+      messages: [{ role: "user", content: "hi" }],
+      params: {
+        tools: [
+          {
+            name: "platform.read_history",
+            description: "Read earlier messages",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        toolChoice: "auto",
+      },
+    });
+    expect(p.params?.tools?.[0]?.name).toBe("platform.read_history");
+  });
+
+  it("assistant message carries toolCalls; tool role carries toolCallId", () => {
+    const call = ToolCall.parse({ id: "c1", name: "platform.list_members", arguments: "{}" });
+    const assistant = InferenceMessage.parse({
+      role: "assistant",
+      content: "",
+      toolCalls: [call],
+    });
+    const toolResult = InferenceMessage.parse({
+      role: "tool",
+      content: '{"members":[]}',
+      toolCallId: "c1",
+    });
+    expect(assistant.toolCalls).toHaveLength(1);
+    expect(toolResult.toolCallId).toBe("c1");
+  });
+
+  it("stream terminal result may carry toolCalls", () => {
+    const r = InferenceStreamResult.parse({
+      usage: { promptTokens: 1, completionTokens: 2, tokensPerSec: 3 },
+      toolCalls: [{ id: "c1", name: "x", arguments: "{}" }],
+    });
+    expect(r.toolCalls).toHaveLength(1);
+  });
+
+  it("old shapes still parse (additive)", () => {
+    expect(
+      InferenceCompleteParams.parse({ messages: [{ role: "user", content: "hi" }] }).params,
+    ).toBeUndefined();
+    expect(
+      InferenceStreamResult.parse({ usage: { promptTokens: 0, completionTokens: 0, tokensPerSec: 0 } })
+        .toolCalls,
+    ).toBeUndefined();
+  });
+
+  it("auth.identify accepts features", () => {
+    const p = AuthIdentifyParams.parse({
+      agentId: "a",
+      agentPubKey: "k",
+      voucher: { payload: {}, key: "k", sig: "s" },
+      sig: "s",
+      ctx: 8192,
+      features: ["tools"],
+    });
+    expect(p.features).toEqual(["tools"]);
   });
 });

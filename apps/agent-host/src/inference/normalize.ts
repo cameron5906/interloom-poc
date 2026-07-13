@@ -2,13 +2,20 @@ type ContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
 
-interface InferenceMessage {
-  role: "system" | "user" | "assistant";
+export interface InferenceMessage {
+  role: "system" | "user" | "assistant" | "tool";
   content: string | ContentPart[];
+  toolCalls?: unknown[];
+  toolCallId?: string;
 }
 
 /** Loose inbound shape (message arrays cross the wire as unknown/string-role). */
-type LooseMessage = { role: string; content: string | ContentPart[] };
+type LooseMessage = {
+  role: string;
+  content: string | ContentPart[];
+  toolCalls?: unknown[];
+  toolCallId?: string;
+};
 
 function toParts(content: string | ContentPart[]): ContentPart[] {
   return typeof content === "string" ? [{ type: "text", text: content }] : content;
@@ -20,6 +27,12 @@ function textOf(content: string | ContentPart[]): string {
     .filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text")
     .map((p) => p.text)
     .join("\n\n");
+}
+
+/** A tool-role turn or an assistant turn carrying tool calls is atomic: it
+ * never merges with a neighboring same-role turn, on either side. */
+function isAtomic(m: { role: string; toolCalls?: unknown[] }): boolean {
+  return m.role === "tool" || Array.isArray(m.toolCalls);
 }
 
 /**
@@ -37,11 +50,11 @@ export function normalizeMessages(messages: unknown[]): InferenceMessage[] {
   const valid = (messages as LooseMessage[]).filter(
     (m): m is InferenceMessage =>
       !!m &&
-      (m.role === "system" || m.role === "user" || m.role === "assistant") &&
+      (m.role === "system" || m.role === "user" || m.role === "assistant" || m.role === "tool") &&
       (typeof m.content === "string" || Array.isArray(m.content)),
   );
-  const system = valid.filter((m) => m.role === "system");
-  const rest = valid.filter((m) => m.role !== "system");
+  const system = valid.filter((m) => m.role === "system" && !isAtomic(m));
+  const rest = valid.filter((m) => !(m.role === "system" && !isAtomic(m)));
 
   const out: InferenceMessage[] = [];
   if (system.length > 0) {
@@ -50,7 +63,7 @@ export function normalizeMessages(messages: unknown[]): InferenceMessage[] {
 
   for (const m of rest) {
     const last = out[out.length - 1];
-    if (last && last.role === m.role) {
+    if (last && last.role === m.role && !isAtomic(last) && !isAtomic(m)) {
       if (typeof last.content === "string" && typeof m.content === "string") {
         last.content = `${last.content}\n\n${m.content}`;
       } else {
@@ -62,7 +75,7 @@ export function normalizeMessages(messages: unknown[]): InferenceMessage[] {
   }
 
   const firstTurn = out.find((m) => m.role !== "system");
-  if (firstTurn && firstTurn.role === "assistant") {
+  if (firstTurn && !isAtomic(firstTurn) && firstTurn.role === "assistant") {
     const idx = out.indexOf(firstTurn);
     out.splice(idx, 0, { role: "user", content: "(conversation in progress)" });
   }

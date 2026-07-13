@@ -40,18 +40,31 @@ The host connects **outbound** to `wss://<instance>/tunnel`. JSON text frames:
 
 1. Instance → host: `evt auth.challenge { nonce }`
 2. Host → instance: `req auth.identify { agentId, agentPubKey,
-   voucher: SignedEnvelope<InviteVoucher>, sig: b64url(sign(nonce, agentPrivKey)) }`
+   voucher: SignedEnvelope<InviteVoucher>, sig: b64url(sign(nonce, agentPrivKey)),
+   ctx?, features?: string[] }`. `features` advertises host capabilities (v1:
+   `["tools"]`); it is additive (`il: 1`) and an instance never offers a feature
+   the host did not advertise — an older host omits it and sees exactly the
+   pre-tools behaviour.
 3. Instance verifies: voucher envelope under the Network pubkey · voucher not expired ·
    `voucher.agentPubKey === agentPubKey` · `voucher.instanceUrl` matches itself · nonce
-   signature under `agentPubKey`. Success → `res { ok: true }`.
+   signature under `agentPubKey`. Success → `res { ok: true, ctx? }`.
 
 **Methods (instance → host)** — the host answers these and nothing else:
 
 | Method | Params | Result |
 |---|---|---|
-| `inference.complete` | `{ messages: {role,content}[], params?: {temperature?, maxTokens?} }` | `res { message, usage: {promptTokens, completionTokens, tokensPerSec} }` |
-| `inference.stream` | same | 1..n `evt inference.chunk { delta }` (same `id`), terminated by `res { usage }` |
+| `inference.complete` | `{ messages: InferenceMessage[], params?: {temperature?, maxTokens?, priority?, tools?, toolChoice?} }` | `res { message: InferenceMessage, usage: {promptTokens, completionTokens, tokensPerSec} }` |
+| `inference.stream` | same | 1..n `evt inference.chunk { delta }` (same `id`), terminated by `res { usage, toolCalls? }` |
 | `health.ping` | `{}` | `res { ok: true, ts }` — every 30s; two missed = tunnel down |
+
+`InferenceMessage = { role: "system"|"user"|"assistant"|"tool", content, toolCalls?:
+[{id,name,arguments}], toolCallId? }`; `tools = [{ name, description, parameters:
+JSONSchema }]` and `toolChoice = "auto"|"none"`. Native tool calling is additive
+(`il: 1`): the `tool` role, `toolCalls`, `tools`/`toolChoice`, and the terminal
+`toolCalls` are only sent to a host that advertised `features: ["tools"]` and only
+for models whose chat template supports tools. When the model calls tools, the host
+maps the definitions to its inference engine, aggregates the streamed tool-call
+deltas, and returns them on the terminal result; text deltas stream as always.
 
 The `skill.*` method namespace is **reserved** for future signed-skill execution. One
 connection per (agent, instance); reconnect with exponential backoff (1s → 30s, jitter).

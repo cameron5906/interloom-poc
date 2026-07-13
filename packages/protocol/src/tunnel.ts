@@ -68,6 +68,9 @@ export const AuthIdentifyParams = z.object({
   /** Loaded model context window (tokens). The host sends this so the instance
    *  can cap prompt assembly to fit (chars/4 heuristic, reserving reply budget). */
   ctx: z.number().optional(),
+  /** Host feature advertisement (e.g. "tools"). Instances never offer tools
+   *  over a tunnel that did not advertise them. */
+  features: z.array(z.string()).optional(),
 });
 export type AuthIdentifyParams = z.infer<typeof AuthIdentifyParams>;
 
@@ -81,9 +84,33 @@ export type AuthOkResult = z.infer<typeof AuthOkResult>;
 
 // --- Inference methods (§3) ---
 
+/** A tool the instance offers the model for one inference call (CONTRACTS §3). */
+export const ToolDef = z.object({
+  name: z.string(),
+  description: z.string(),
+  /** JSON Schema for the arguments object. */
+  parameters: z.record(z.unknown()),
+});
+export type ToolDef = z.infer<typeof ToolDef>;
+
+/** A tool invocation the model emitted. `arguments` is the raw JSON string. */
+export const ToolCall = z.object({
+  id: z.string(),
+  name: z.string(),
+  arguments: z.string(),
+});
+export type ToolCall = z.infer<typeof ToolCall>;
+
+/**
+ * A chat turn on the wire. The `tool` role and `toolCalls` are additive and
+ * only ever sent for models gated by `capabilities.tools` — strict chat
+ * templates never receive them (CONTRACTS §3).
+ */
 export const InferenceMessage = z.object({
-  role: z.enum(["system", "user", "assistant"]),
+  role: z.enum(["system", "user", "assistant", "tool"]),
   content: z.string(),
+  toolCalls: z.array(ToolCall).optional(),
+  toolCallId: z.string().optional(),
 });
 export type InferenceMessage = z.infer<typeof InferenceMessage>;
 
@@ -92,6 +119,8 @@ export const InferenceParams = z.object({
   maxTokens: z.number().optional(),
   /** Traffic class on the shared model: interactive replies outrank maintenance (compaction etc.). */
   priority: z.enum(["interactive", "maintenance"]).optional(),
+  tools: z.array(ToolDef).optional(),
+  toolChoice: z.enum(["auto", "none"]).optional(),
 });
 export type InferenceParams = z.infer<typeof InferenceParams>;
 
@@ -119,8 +148,10 @@ export const InferenceChunkEvent = z.object({
 });
 export type InferenceChunkEvent = z.infer<typeof InferenceChunkEvent>;
 
+/** Stream terminal result. `toolCalls` present when the model called tools this round. */
 export const InferenceStreamResult = z.object({
   usage: InferenceUsage,
+  toolCalls: z.array(ToolCall).optional(),
 });
 export type InferenceStreamResult = z.infer<typeof InferenceStreamResult>;
 

@@ -89,3 +89,29 @@ describe("content-parts passthrough (vision preview)", () => {
     ]);
   });
 });
+
+describe("tool-role passthrough (native tool calling)", () => {
+  it("tool turns and assistant toolCalls pass through untouched, no merging across them", () => {
+    const msgs = [
+      { role: "system", content: "p" },
+      { role: "user", content: "check history" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "c1", name: "platform.read_history", arguments: "{}" }],
+      },
+      { role: "tool", content: '{"messages":[]}', toolCallId: "c1" },
+      { role: "user", content: "Tool results above." },
+    ];
+    const out = normalizeMessages(msgs);
+    expect(out).toEqual(msgs);
+  });
+
+  it("plain adjacent same-role turns still merge when no tool shapes involved", () => {
+    const out = normalizeMessages([
+      { role: "user", content: "a" },
+      { role: "user", content: "b" },
+    ]);
+    expect(out).toEqual([{ role: "user", content: "a\n\nb" }]);
+  });
+});
