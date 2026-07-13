@@ -8,6 +8,7 @@ import { getActiveModel, findLocalModelPath } from "../models/active.js";
 import { enqueueInference } from "../inference/gate.js";
 import { clampMaxTokens } from "../inference/limits.js";
 import { registerAgentOnNetwork } from "./register.js";
+import { uploadAgentAvatar } from "./avatar.js";
 import {
   listAgents,
   getAgent,
@@ -198,6 +199,27 @@ export function registerAgentRoutes(app: FastifyInstance): void {
 
       reply.raw.end();
       return reply;
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { dataUrl?: unknown } }>(
+    "/api/agents/:id/avatar",
+    { bodyLimit: 12 * 1024 * 1024 },
+    async (req, reply) => {
+      const agent = getAgent(req.params.id);
+      if (!agent) return reply.status(404).send({ error: "not found" });
+
+      if (typeof req.body?.dataUrl !== "string") {
+        return reply.status(400).send({ error: "bad_image" });
+      }
+
+      const result = await uploadAgentAvatar(agent, req.body.dataUrl);
+      if (!result.ok) {
+        const status = result.error === "network_unreachable" ? 502 : 400;
+        return reply.status(status).send({ error: result.error });
+      }
+
+      return reply.send({ imageUrl: result.imageUrl });
     },
   );
 

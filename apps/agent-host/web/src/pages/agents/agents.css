@@ -189,64 +189,108 @@
   line-height: 1.55;
 }
 
-/* Avatar picker */
-.il-avpick {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-}
-.il-avpick__preview {
-  flex: none;
-  padding-top: 2px;
-}
-.il-avpick__controls {
-  flex: 1;
-  min-width: 0;
-}
-.il-avpick__grid {
-  display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 4px;
-  margin-bottom: 12px;
-}
-.il-avpick__emoji {
-  aspect-ratio: 1;
+/* Avatar field (character preview + customize button) */
+.il-avatar-field {
   display: flex;
   align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-  background: var(--il-bg-system);
-  border-radius: 7px;
-  font-size: 15px;
-  cursor: pointer;
-  transition: background 100ms ease, border-color 100ms ease;
+  gap: 14px;
 }
-.il-avpick__emoji:hover {
-  background: var(--il-bg-active);
+
+/* Wide modal variant (character customizer, generously sized per CONTRACTS §12) */
+.il-modal__card--wide {
+  max-width: 720px;
 }
-.il-avpick__emoji--sel {
-  border-color: var(--il-accent);
-  background: var(--il-accent-tint);
-}
-.il-avpick__swatches {
+
+/* Specialties chip input */
+.il-specialties__chips {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+  min-height: 34px;
+  padding: 5px 7px;
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-sm);
+  background: var(--il-bg-card);
 }
-.il-avpick__swatch {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  border: 2px solid transparent;
+.il-specialties__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--il-text-primary);
+  background: var(--il-accent-tint);
+  border-radius: var(--il-radius-pill);
+  padding: 3px 6px 3px 10px;
+}
+.il-specialties__chip-remove {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--il-text-muted);
+  font-size: 14px;
+  line-height: 1;
   cursor: pointer;
+  padding: 0 2px;
+}
+.il-specialties__chip-remove:hover {
+  color: var(--il-danger-deep);
+}
+.il-specialties__input {
+  flex: 1;
+  min-width: 120px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--il-text-primary);
+  padding: 4px 2px;
+}
+.il-specialties__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.il-specialties__suggestion {
+  appearance: none;
+  border: 1px dashed var(--il-border-strong);
+  background: transparent;
+  color: var(--il-text-muted);
+  font-size: 11.5px;
+  border-radius: var(--il-radius-pill);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color 100ms ease, color 100ms ease;
+}
+.il-specialties__suggestion:hover {
+  border-color: var(--il-accent);
+  color: var(--il-text-primary);
+}
+
+/* Cascade warning modal */
+.il-cascade__body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--il-text-primary);
+  margin: 0 0 12px;
+}
+.il-cascade__list {
+  list-style: none;
+  margin: 0;
   padding: 0;
-  transition: transform 100ms ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.il-avpick__swatch:hover {
-  transform: scale(1.08);
-}
-.il-avpick__swatch--sel {
-  border-color: var(--il-text-primary);
-  box-shadow: 0 0 0 2px #fff inset;
+.il-cascade__item {
+  font-family: var(--il-font-mono);
+  font-size: 12px;
+  color: var(--il-text-secondary);
+  background: var(--il-bg-system);
+  border-radius: var(--il-radius-sm);
+  padding: 6px 10px;
 }
 
 /* Params */
@@ -346,11 +390,31 @@
   font-size: 14px;
   font-weight: 600;
 }
+.il-mktcard__title-line {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--il-text-secondary);
+  margin-top: 10px;
+}
 .il-mktcard__blurb {
   font-size: 12.5px;
   color: var(--il-text-secondary);
   line-height: 1.5;
   margin: 12px 0 0;
+}
+.il-mktcard__specialties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+.il-mktcard__specialty-chip {
+  font-size: 10.5px;
+  color: var(--il-text-muted);
+  background: var(--il-bg-system);
+  border: 1px solid var(--il-border-soft);
+  border-radius: var(--il-radius-pill);
+  padding: 2px 8px;
 }
 .il-mktcard__model {
   margin-top: 10px;

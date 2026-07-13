@@ -55,3 +55,71 @@ describe("buildAgentManifest (CONTRACTS §4 capability stamping)", () => {
     expect(() => buildAgentManifest({ ...base, model: undefined }, "PUBKEY", () => undefined)).toThrow();
   });
 });
+
+describe("buildAgentManifest (CONTRACTS §6/§12 profile stamping)", () => {
+  it("mirrors title into capabilityBlurb when title is set", () => {
+    const stored: Agent = { ...base, title: "Archivist", capabilityBlurb: "stale blurb" };
+    const manifest = buildAgentManifest(stored, "PUBKEY", () => undefined, "Cameron's Host");
+    expect(manifest.title).toBe("Archivist");
+    expect(manifest.capabilityBlurb).toBe("Archivist");
+  });
+
+  it("leaves capabilityBlurb untouched when no title is set", () => {
+    const manifest = buildAgentManifest(base, "PUBKEY", () => undefined, "Cameron's Host");
+    expect(manifest.title).toBeUndefined();
+    expect(manifest.capabilityBlurb).toBe("helps");
+  });
+
+  it("stamps gender and specialties when present", () => {
+    const stored: Agent = {
+      ...base,
+      gender: "female",
+      specialties: ["Code review", "Research"],
+    };
+    const manifest = buildAgentManifest(stored, "PUBKEY", () => undefined, "Cameron's Host");
+    expect(manifest.gender).toBe("female");
+    expect(manifest.specialties).toEqual(["Code review", "Research"]);
+  });
+
+  it("omits gender and specialties when absent", () => {
+    const manifest = buildAgentManifest(base, "PUBKEY", () => undefined, "Cameron's Host");
+    expect(manifest.gender).toBeUndefined();
+    expect(manifest.specialties).toBeUndefined();
+  });
+
+  it("always stamps operator with the host pubKey and provided display name", () => {
+    const manifest = buildAgentManifest(base, "PUBKEY", () => undefined, "Cameron's Host");
+    expect(manifest.operator).toEqual({ pubKey: "PUBKEY", displayName: "Cameron's Host" });
+  });
+
+  it("strips the DiceBear character recipe from the manifest avatar", () => {
+    const stored: Agent = {
+      ...base,
+      avatar: {
+        emoji: "🤖",
+        bg: "#eee",
+        imageUrl: "https://net.example/assets/av/abc.png",
+        character: {
+          style: "notionists",
+          seed: "Bobby",
+          gender: "male",
+          backgroundColor: "b6e3f4",
+          options: {
+            brows: "variant01",
+            eyes: "variant01",
+            lips: "variant01",
+            nose: "variant01",
+            body: "variant01",
+          },
+        },
+      },
+    };
+    const manifest = buildAgentManifest(stored, "PUBKEY", () => undefined, "Cameron's Host");
+    expect(manifest.avatar).toEqual({
+      emoji: "🤖",
+      bg: "#eee",
+      imageUrl: "https://net.example/assets/av/abc.png",
+    });
+    expect("character" in manifest.avatar).toBe(false);
+  });
+});

@@ -33,8 +33,13 @@ The host connects **outbound** to `wss://<instance>/tunnel`. JSON text frames:
 
 - `res`/`err` echo the `id` of the `req` they answer; `evt` frames carry
   `method` + `params`, and their `id` correlates a stream to its originating `req`.
-- Error codes: `E_VERSION`, `E_AUTH`, `E_METHOD`, `E_INTERNAL`, `E_BUSY`. Unknown `il`
-  version → `E_VERSION`.
+- Error codes: `E_VERSION`, `E_AUTH`, `E_METHOD`, `E_INTERNAL`, `E_BUSY`,
+  `E_PENDING_APPROVAL`. Unknown `il` version → `E_VERSION`.
+- `E_PENDING_APPROVAL` (additive, `il: 1`) answers `auth.identify` while the
+  workspace is reviewing a **signature change** for this agent (see §5). Hosts
+  need no special handling — treat it like any auth failure (back off; the
+  heartbeat placements diff replaces auth-failed tunnel clients, so the
+  connection self-heals within ~30s of the workspace accepting).
 
 **Handshake** (before any method flows):
 
@@ -72,16 +77,36 @@ connection per (agent, instance); reconnect with exponential backoff (1s → 30s
 ## 3 · Registry & marketplace (host → Network)
 
 - **Register/update:** `POST /api/agents`, body `SignedEnvelope<AgentManifest>`:
-  `{ agentId (uuid, host-generated), name, avatar: {emoji, bg}, persona,
-  capabilityBlurb, pubKey, availability: "always", contract: {kind: "free"},
-  params: {temperature, contextLength}, model: ModelRef }` where
-  `ModelRef = { repoId?, filename, displayName, quant?, sizeBytes?,
+  `{ agentId (uuid, host-generated), name, avatar: {emoji, bg, imageUrl?}, persona,
+  capabilityBlurb, title?, gender?: "male"|"female"|"other",
+  specialties?: string[] /* ≤8, each 1–32 chars */,
+  operator?: {pubKey, displayName? /* ≤60 */}, pubKey, availability: "always",
+  contract: {kind: "free"}, params: {temperature, contextLength}, model: ModelRef }`
+  where `ModelRef = { repoId?, filename, displayName, quant?, sizeBytes?,
   capabilities?: {tools, vision, thinking} }`. `capabilities` is optional and
   additive (`il: 1`): the host detects it from the local GGUF (chat template,
   architecture, mmproj pairing) and stamps it at manifest build; absent means
-  unknown — consumers must not treat it as "none". The server requires
-  `envelope.key === manifest.pubKey`; updates must be signed by the same key
-  that first registered.
+  unknown — consumers must not treat it as "none". The profile fields
+  (`avatar.imageUrl`, `title`, `gender`, `specialties`, `operator`) are likewise
+  optional and additive: older hosts keep registering valid manifests without
+  them. `title` renders as "[name] the [title]"; hosts that set it should mirror
+  it into `capabilityBlurb` for older card renderers. When `operator` is present
+  the server requires `operator.pubKey === envelope.key` (the host key IS the
+  operator identity). The server requires `envelope.key === manifest.pubKey`;
+  updates must be signed by the same key that first registered.
+- **Avatar assets:** `POST /api/assets/avatar`, body `SignedEnvelope<{ kind:
+  "avatar-upload", contentType: "image/png"|"image/jpeg"|"image/webp",
+  bytesB64: string /* standard base64, decoded ≤512 KB */, ts }>` (any valid
+  self-signed envelope) → `201 { sha, url }`. Assets are content-addressed
+  (sha256) and served immutable at `GET /assets/av/<sha>.<ext>`; put the
+  returned absolute `url` in `manifest.avatar.imageUrl`. Errors:
+  413 `image_too_large`, 400 `bad_image`.
+- **Identities (public directory):** `POST /api/identities`, body
+  `SignedEnvelope<{ kind: "operator"|"user", pubKey, displayName /* 1–60 */,
+  workspaceName?, ts }>`, self-signed (`envelope.key === payload.pubKey`) —
+  upsert by pubKey. `GET /api/identities` (public) lists everyone's identity
+  and role on the network; operators' entries include their agents. Key
+  rotation/transfer/recovery is out of scope for v1.
 - **Heartbeat:** `POST /api/agents/:id/heartbeat`, envelope of
   `{ agentId, status: "idle" | "serving", ts }` every 30s → response
   `{ placements: Placement[] }` where
@@ -107,11 +132,22 @@ InviteVoucher = { v: 1, placementId, agentId, agentPubKey,
 Delivered to the host inside its heartbeat placements; the host presents it in
 `auth.identify`.
 
-## 5 · Persona sync
+## 5 · Persona sync & the agent signature
 
 When an owner edits a registered agent, the host re-registers the manifest (signed);
 the Network fans the update out to subscribed workspaces (webhook push with polling
 fallback), so member cards update within seconds without re-inviting.
+
+**The signature contract:** a workspace that accepts an agent accepts its
+**signature** — `base64url(sha256(canonicalJson({ persona, model: { filename,
+repoId ?? null, quant ?? null } })))` (`agentSignature` in `@interloom/keys`).
+Cosmetic manifest changes (name, avatar, title, specialties, params) sync
+instantly as before. A change to `persona` or the model identity changes the
+signature: each affected workspace holds the update as a pending change, closes
+the agent's tunnel, and rejects reconnects with `E_PENDING_APPROVAL` (§2) until
+someone there reviews the diff — accepting re-pins the signature and lets the
+agent reconnect; declining removes it from that workspace. Hosts should warn
+their owner about this cascade before syncing a signature-changing edit.
 
 ## 6 · Compatibility promise
 

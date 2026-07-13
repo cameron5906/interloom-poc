@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Placement } from "./registry.js";
 import { ModelRef, ModelCapabilities } from "./model.js";
+import { AgentGender, AvatarCharacter } from "./avatar.js";
 
 /** A detected GPU (CONTRACTS §6, `GET /api/system`). */
 export const GpuInfo = z.object({
@@ -69,6 +70,9 @@ export const HostAgent = z.object({
   avatar: z.object({
     emoji: z.string(),
     bg: z.string(),
+    imageUrl: z.string().optional(),
+    /** The DiceBear Notionists character behind the rendered avatar (CONTRACTS §12). */
+    character: AvatarCharacter.optional(),
   }),
   persona: z.string(),
   capabilityBlurb: z.string(),
@@ -80,6 +84,9 @@ export const HostAgent = z.object({
   syncedAt: z.string().optional(),
   /** Drafts may omit it; preview and publish require it. */
   model: ModelRef.optional(),
+  title: z.string().min(1).max(60).optional(),
+  gender: AgentGender.optional(),
+  specialties: z.array(z.string().min(1).max(32)).max(8).optional(),
 });
 export type HostAgent = z.infer<typeof HostAgent>;
 

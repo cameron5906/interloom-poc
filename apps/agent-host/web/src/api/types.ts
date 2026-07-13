@@ -117,9 +117,27 @@ export interface HfTokenResult {
 /** Local agent as returned by the daemon store (CONTRACTS §6). */
 export interface AgentDraft {
   name: string;
-  avatar: { emoji: string; bg: string };
+  avatar: {
+    emoji: string;
+    bg: string;
+    imageUrl?: string;
+    character?: import("@interloom/protocol").AvatarCharacter;
+  };
   persona: string;
   capabilityBlurb: string;
+  title?: string;
+  gender?: import("@interloom/protocol").AgentGender;
+  specialties?: string[];
   params: { temperature: number; contextLength: number };
   model?: import("@interloom/protocol").ModelRef;
 }
+
+/** Shared empty-draft literal — both the "new agent" list row and the editor's
+ * blank-agent form derive from this so they can't drift apart. */
+export const EMPTY_AGENT_DRAFT: AgentDraft = {
+  name: "",
+  avatar: { emoji: "🤖", bg: "linear-gradient(135deg,#8b76ee,#6a5acd)" },
+  persona: "",
+  capabilityBlurb: "",
+  params: { temperature: 0.7, contextLength: 4096 },
+};

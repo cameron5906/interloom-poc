@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { ModelRef } from "./model.js";
+import { AgentGender } from "./avatar.js";
+import { AgentManifest, AgentOperator } from "./registry.js";
 
 /** A chat message (CONTRACTS §5). `mentions` holds member ids. */
 export const ChatMessage = z.object({
@@ -26,7 +28,10 @@ export const Channel = z.object({
 });
 export type Channel = z.infer<typeof Channel>;
 
-/** A workspace member — human or agent (CONTRACTS §5). */
+/**
+ * A workspace member — human or agent (CONTRACTS §5). `avatar` is all-optional:
+ * agents carry `emoji`+`bg`(+`imageUrl`) from the manifest, humans `imageUrl` only.
+ */
 export const Member = z.object({
   id: z.string(),
   name: z.string(),
@@ -34,12 +39,20 @@ export const Member = z.object({
   online: z.boolean(),
   avatar: z
     .object({
-      emoji: z.string(),
-      bg: z.string(),
+      emoji: z.string().optional(),
+      bg: z.string().optional(),
+      imageUrl: z.string().optional(),
     })
     .optional(),
   persona: z.string().optional(),
   capabilityBlurb: z.string().optional(),
+  title: z.string().optional(),
+  gender: AgentGender.optional(),
+  specialties: z.array(z.string()).optional(),
+  /** Agent only — manifest.operator ?? {pubKey: manifest.pubKey}. */
+  owner: AgentOperator.optional(),
+  /** Agent only: a signature change awaits workspace approval. */
+  pendingChange: z.boolean().optional(),
   /** The network agentId; present only for agent members. */
   agentId: z.string().optional(),
   /** Unix ms when the agent manifest was last synced from the network; agent members only. */
@@ -50,6 +63,29 @@ export const Member = z.object({
   model: ModelRef.optional(),
 });
 export type Member = z.infer<typeof Member>;
+
+/**
+ * A pending agent signature change awaiting workspace approval (CONTRACTS §5).
+ * Raised when an inbound manifest's `agentSignature({persona, model})` (§2)
+ * no longer matches the member's `approved_signature`.
+ */
+export const AgentPendingChange = z.object({
+  memberId: z.string(),
+  agentId: z.string(),
+  name: z.string(),
+  requestedAt: z.string(),
+  changedFields: z.array(z.enum(["persona", "model"])).min(1),
+  current: z.object({
+    persona: z.string(),
+    model: ModelRef.optional(),
+  }),
+  incoming: z.object({
+    persona: z.string(),
+    model: ModelRef.optional(),
+  }),
+  incomingManifest: AgentManifest,
+});
+export type AgentPendingChange = z.infer<typeof AgentPendingChange>;
 
 // --- Client → server WS messages (§5) ---
 
@@ -114,6 +150,15 @@ export const ServerWsEvent = z.discriminatedUnion("type", [
     channelId: z.string(),
     memberIds: z.array(z.string()),
     byName: z.string(),
+  }),
+  z.object({
+    type: z.literal("agent.change.pending"),
+    change: AgentPendingChange,
+  }),
+  z.object({
+    type: z.literal("agent.change.resolved"),
+    memberId: z.string(),
+    accepted: z.boolean(),
   }),
 ]);
 export type ServerWsEvent = z.infer<typeof ServerWsEvent>;

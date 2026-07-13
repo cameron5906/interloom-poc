@@ -1,0 +1,16 @@
+.il-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--il-radius-pill);
+  background: var(--il-danger);
+  color: #fff;
+  font-family: var(--il-font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  box-sizing: border-box;
+}

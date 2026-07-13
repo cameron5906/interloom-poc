@@ -1,5 +1,6 @@
 export * from "./envelope.js";
 export * from "./model.js";
+export * from "./avatar.js";
 export * from "./tunnel.js";
 export * from "./registry.js";
 export * from "./chat.js";

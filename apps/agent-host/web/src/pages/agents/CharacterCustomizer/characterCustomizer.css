@@ -1,0 +1,128 @@
+.il-charcust {
+  min-width: 480px;
+  max-width: 640px;
+}
+
+.il-charcust__identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.il-charcust__identity-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--il-text-primary);
+}
+
+.il-charcust__empty {
+  font-size: 13px;
+  color: var(--il-text-muted);
+  text-align: center;
+  padding: 32px 12px;
+}
+
+.il-charcust__preview-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.il-charcust__preview {
+  width: 200px;
+  height: 200px;
+  border-radius: var(--il-radius-md);
+  border: 1px solid var(--il-border-strong);
+  box-shadow: var(--il-shadow-card);
+}
+
+.il-charcust__tabs {
+  margin-bottom: 16px;
+  justify-content: center;
+  display: flex;
+}
+
+.il-charcust__section {
+  min-height: 220px;
+}
+.il-charcust__section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.il-charcust__picker-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--il-text-secondary);
+  margin-bottom: 8px;
+}
+.il-charcust__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.il-charcust__thumb {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  padding: 0;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: var(--il-bg-system);
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 100ms ease, transform 100ms ease;
+}
+.il-charcust__thumb:hover {
+  transform: scale(1.05);
+}
+.il-charcust__thumb--sel {
+  border-color: var(--il-accent);
+}
+.il-charcust__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.il-charcust__thumb-none {
+  font-size: 9.5px;
+  color: var(--il-text-faint);
+  font-weight: 600;
+}
+
+.il-charcust__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.il-charcust__swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 100ms ease;
+}
+.il-charcust__swatch:hover {
+  transform: scale(1.08);
+}
+.il-charcust__swatch--sel {
+  border-color: var(--il-text-primary);
+  box-shadow: 0 0 0 2px #fff inset;
+}
+
+@media (max-width: 620px) {
+  .il-charcust {
+    min-width: 0;
+  }
+}

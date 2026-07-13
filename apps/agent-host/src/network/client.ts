@@ -70,3 +70,26 @@ export async function networkGetWellKnown(): Promise<{ name: string; pubKey: str
   }
   return res.json() as Promise<{ name: string; pubKey: string }>;
 }
+
+export async function networkUploadAvatar(envelope: unknown): Promise<{ sha: string; url: string }> {
+  const res = await fetch(`${NETWORK_URL}/api/assets/avatar`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(envelope),
+  });
+  if (!res.ok) {
+    throw new Error(`avatar upload failed: ${res.status}`);
+  }
+  return res.json() as Promise<{ sha: string; url: string }>;
+}
+
+export async function networkPublishIdentity(envelope: unknown): Promise<void> {
+  const res = await fetch(`${NETWORK_URL}/api/identities`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(envelope),
+  });
+  if (!res.ok) {
+    throw new Error(`identity publish failed: ${res.status}`);
+  }
+}

@@ -1,5 +1,6 @@
 import { Avatar, Badge, CapabilityBadges, StatusPill } from "@interloom/ui";
 import type { AgentDraft } from "../../api/types.js";
+import { draftAvatarImageUrl } from "../../lib/character.js";
 
 /**
  * A faithful preview of how the agent's card appears on the Interloom
@@ -21,7 +22,8 @@ export function MarketplacePreview({
             name={draft.name || "Agent"}
             isAgent
             emoji={draft.avatar.emoji}
-            bg={draft.avatar.bg}
+            bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+            imageUrl={draftAvatarImageUrl(draft.avatar)}
             size="lg"
             presence={live ? "online" : "offline"}
           />
@@ -35,9 +37,23 @@ export function MarketplacePreview({
             </StatusPill>
           </div>
         </div>
+        {draft.title ? (
+          <div className="il-mktcard__title-line">
+            {draft.name || "Agent"} the {draft.title}
+          </div>
+        ) : null}
         <p className="il-mktcard__blurb">
           {draft.capabilityBlurb || "Add a one-line capability blurb to describe your agent."}
         </p>
+        {draft.specialties && draft.specialties.length > 0 ? (
+          <div className="il-mktcard__specialties">
+            {draft.specialties.map((s) => (
+              <span key={s} className="il-mktcard__specialty-chip">
+                {s}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {draft.model ? (
           <div className="il-mktcard__model">
             <span className="il-mktcard__model-chip">

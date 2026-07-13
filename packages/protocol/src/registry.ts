@@ -1,13 +1,26 @@
 import { z } from "zod";
 import { signedEnvelope } from "./envelope.js";
 import { ModelRef } from "./model.js";
+import { AgentGender } from "./avatar.js";
 
-/** Agent avatar descriptor (CONTRACTS §4). */
+/** Agent avatar descriptor (CONTRACTS §4). `imageUrl` is a network-hosted asset URL (§4 Assets). */
 export const AgentAvatar = z.object({
   emoji: z.string(),
   bg: z.string(),
+  imageUrl: z.string().optional(),
 });
 export type AgentAvatar = z.infer<typeof AgentAvatar>;
+
+/**
+ * The operator behind a published agent (CONTRACTS §4). The host key IS the
+ * operator identity — one keypair per host signs all its agents, so the
+ * network verifies `operator.pubKey === envelope.key` when present.
+ */
+export const AgentOperator = z.object({
+  pubKey: z.string(),
+  displayName: z.string().min(1).max(60).optional(),
+});
+export type AgentOperator = z.infer<typeof AgentOperator>;
 
 /** Registered agent manifest — the signed registry record (CONTRACTS §4). */
 export const AgentManifest = z.object({
@@ -27,6 +40,11 @@ export const AgentManifest = z.object({
   }),
   /** Published agents always declare the model they run on. */
   model: ModelRef,
+  /** Renders as "[name] the [title]"; hosts that set it also mirror it into `capabilityBlurb`. */
+  title: z.string().min(1).max(60).optional(),
+  gender: AgentGender.optional(),
+  specialties: z.array(z.string().min(1).max(32)).max(8).optional(),
+  operator: AgentOperator.optional(),
 });
 export type AgentManifest = z.infer<typeof AgentManifest>;
 
@@ -78,6 +96,11 @@ export const MarketplaceAgent = z.object({
   live: z.boolean(),
   ownerEmail: z.string(),
   model: ModelRef.optional(),
+  title: z.string().min(1).max(60).optional(),
+  gender: AgentGender.optional(),
+  specialties: z.array(z.string().min(1).max(32)).max(8).optional(),
+  /** Network-computed: `manifest.operator` when present, else `{pubKey: agent.pubKey}`. */
+  owner: AgentOperator.optional(),
 });
 export type MarketplaceAgent = z.infer<typeof MarketplaceAgent>;
 
@@ -115,3 +138,42 @@ export const WellKnownNetwork = z.object({
   pubKey: z.string(),
 });
 export type WellKnownNetwork = z.infer<typeof WellKnownNetwork>;
+
+/**
+ * `POST /api/assets/avatar` body — a self-signed envelope's payload
+ * (CONTRACTS §4). Uploader identity = envelope.key; agents are drafted
+ * before they exist on the network, so uploads are NOT agent-bound.
+ */
+export const AvatarAssetUpload = z.object({
+  kind: z.literal("avatar-upload"),
+  contentType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  bytesB64: z.string(),
+  ts: z.number(),
+});
+export type AvatarAssetUpload = z.infer<typeof AvatarAssetUpload>;
+
+/**
+ * `POST /api/identities` body — a self-signed envelope's payload
+ * (CONTRACTS §4). `envelope.key === payload.pubKey` is required by the server.
+ */
+export const IdentityPublish = z.object({
+  kind: z.enum(["operator", "user"]),
+  pubKey: z.string(),
+  displayName: z.string().min(1).max(60),
+  workspaceName: z.string().max(80).optional(),
+  ts: z.number(),
+});
+export type IdentityPublish = z.infer<typeof IdentityPublish>;
+
+/** `GET /api/identities` entry — the published identity directory (CONTRACTS §4). */
+export const IdentityRecord = z.object({
+  pubKey: z.string(),
+  kind: z.enum(["operator", "user"]),
+  displayName: z.string(),
+  role: z.enum(["agent-operator", "workspace-member"]),
+  workspaceName: z.string().optional(),
+  updatedAt: z.string(),
+  /** Operators only — joined from agents.pubKey. */
+  agents: z.array(z.object({ agentId: z.string(), name: z.string() })).optional(),
+});
+export type IdentityRecord = z.infer<typeof IdentityRecord>;

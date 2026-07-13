@@ -10,6 +10,7 @@ import { registerAgentRoutes } from "./agents/routes.js";
 import { registerUpdateRoutes } from "./update/routes.js";
 import { startUpdateCheckLoop } from "./update/checker.js";
 import { backfillCapabilities } from "./agents/register.js";
+import { registerOperatorRoutes, publishOperatorIdentity } from "./operator.js";
 import { registerTelemetryWs } from "./telemetry/ws.js";
 import { registerStatic } from "./static.js";
 import { startHeartbeatLoop, triggerHeartbeat } from "./heartbeat.js";
@@ -34,6 +35,7 @@ async function main(): Promise<void> {
   registerNetworkSessionRoutes(app);
   registerModelsRoutes(app, getSystemInfo, triggerHeartbeat);
   registerAgentRoutes(app);
+  registerOperatorRoutes(app);
   registerUpdateRoutes(app);
 
   app.get("/api/placements", async (_req, reply) => {
@@ -74,6 +76,10 @@ async function main(): Promise<void> {
 
   void backfillCapabilities((msg) => app.log.info(msg)).catch((err) =>
     app.log.warn({ err }, "capability backfill failed"),
+  );
+
+  void publishOperatorIdentity().catch((err) =>
+    app.log.warn({ err }, "operator identity publish failed at boot"),
   );
 
   try {

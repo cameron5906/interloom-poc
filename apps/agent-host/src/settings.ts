@@ -1,10 +1,12 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { DATA_DIR } from "./config.js";
 
 interface Settings {
   hfToken?: string;
   hfUsername?: string;
+  operatorDisplayName?: string;
 }
 
 function settingsPath(): string {
@@ -61,5 +63,16 @@ export function disconnectHfToken(): void {
   const settings = readSettings();
   delete settings.hfToken;
   delete settings.hfUsername;
+  writeSettings(settings);
+}
+
+/** The operator identity's display name — defaults to the host's hostname (CONTRACTS §6). */
+export function getOperatorDisplayName(): string {
+  return readSettings().operatorDisplayName ?? os.hostname();
+}
+
+export function setOperatorDisplayName(displayName: string): void {
+  const settings = readSettings();
+  settings.operatorDisplayName = displayName;
   writeSettings(settings);
 }

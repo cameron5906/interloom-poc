@@ -6,6 +6,7 @@ import { useToasts } from "../../components/Toasts.js";
 import { LoadError, Skeleton } from "../../components/States.js";
 import { ApiError } from "../../api/client.js";
 import { HostVersionSection } from "./HostVersionSection.js";
+import { OperatorIdentitySection } from "./OperatorIdentitySection.js";
 import "./settings.css";
 
 export function SettingsPage() {
@@ -21,6 +22,7 @@ export function SettingsPage() {
 
         <div className="il-settings__sections">
           <HostVersionSection />
+          <OperatorIdentitySection />
           <HfAccountSection />
         </div>
       </div>

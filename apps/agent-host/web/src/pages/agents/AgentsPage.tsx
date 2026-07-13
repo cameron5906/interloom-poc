@@ -7,26 +7,20 @@ import { useAsync } from "../../hooks/useAsync.js";
 import { usePoll } from "../../hooks/usePoll.js";
 import { LoadError, Skeleton } from "../../components/States.js";
 import { relativeTime } from "../../lib/format.js";
+import { draftAvatarImageUrl } from "../../lib/character.js";
 import { AgentEditor } from "./AgentEditor.js";
 import { PreviewChat } from "./PreviewChat.js";
+import { EMPTY_AGENT_DRAFT } from "../../api/types.js";
 import type { AgentDraft } from "../../api/types.js";
 import type { ActiveModel } from "../../api/types.js";
 import "./agents.css";
-
-const NEW_DRAFT: AgentDraft = {
-  name: "",
-  avatar: { emoji: "🤖", bg: "linear-gradient(135deg,#8b76ee,#6a5acd)" },
-  persona: "",
-  capabilityBlurb: "",
-  params: { temperature: 0.7, contextLength: 4096 },
-};
 
 export function AgentsPage() {
   const list = useAsync((s) => agentsApi.list(s), []);
   const activePoll = usePoll<ActiveModel | null>((s) => modelsApi.active(s), 3000, true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
-  const [liveDraft, setLiveDraft] = useState<AgentDraft>(NEW_DRAFT);
+  const [liveDraft, setLiveDraft] = useState<AgentDraft>(EMPTY_AGENT_DRAFT);
 
   const agents = list.data ?? [];
   const activeModel = activePoll.data ?? null;
@@ -66,7 +60,7 @@ export function AgentsPage() {
   const startNew = () => {
     setCreatingNew(true);
     setSelectedId(null);
-    setLiveDraft(NEW_DRAFT);
+    setLiveDraft(EMPTY_AGENT_DRAFT);
   };
 
   return (
@@ -134,7 +128,8 @@ export function AgentsPage() {
                       name={a.name}
                       isAgent
                       emoji={a.avatar.emoji}
-                      bg={a.avatar.bg}
+                      bg={a.avatar.character ? `#${a.avatar.character.backgroundColor}` : a.avatar.bg}
+                      imageUrl={draftAvatarImageUrl(a.avatar)}
                       size="md"
                       presence={a.model ? (isOnline ? "online" : "offline") : undefined}
                     />

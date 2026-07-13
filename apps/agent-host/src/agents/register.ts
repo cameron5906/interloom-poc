@@ -2,6 +2,7 @@ import type { AgentManifest, ModelCapabilities } from "@interloom/protocol";
 import { signEnvelope } from "@interloom/keys";
 import { MODELS_DIR } from "../config.js";
 import { getKeypair } from "../keys.js";
+import { getOperatorDisplayName } from "../settings.js";
 import { networkRegisterAgent } from "../network/client.js";
 import { capabilitiesForFilename } from "../models/scan.js";
 import { listAgents, updateAgent, type Agent } from "./store.js";
@@ -11,11 +12,19 @@ type CapabilityLookup = (filename: string) => ModelCapabilities | undefined;
 const localLookup: CapabilityLookup = (filename) =>
   capabilitiesForFilename(MODELS_DIR, filename);
 
-/** Manifest for the network registry — model capabilities stamped from the local parse. */
+/**
+ * Manifest for the network registry — model capabilities stamped from the
+ * local parse; `title`/`gender`/`specialties`/`operator` stamped from the
+ * stored agent + host identity (CONTRACTS §6). The DiceBear `character`
+ * recipe (§12) stays host-side — only the rendered `imageUrl` travels.
+ * When `title` is set it's mirrored into `capabilityBlurb` so legacy card
+ * renderers (that only know `capabilityBlurb`) stay truthful.
+ */
 export function buildAgentManifest(
   agent: Agent,
   pubKey: string,
   lookup: CapabilityLookup = localLookup,
+  operatorDisplayName: string = getOperatorDisplayName(),
 ): AgentManifest {
   if (!agent.model) {
     throw new Error("agent has no model — cannot register");
@@ -24,14 +33,22 @@ export function buildAgentManifest(
   return {
     agentId: agent.agentId,
     name: agent.name,
-    avatar: agent.avatar,
+    avatar: {
+      emoji: agent.avatar.emoji,
+      bg: agent.avatar.bg,
+      ...(agent.avatar.imageUrl ? { imageUrl: agent.avatar.imageUrl } : {}),
+    },
     persona: agent.persona,
-    capabilityBlurb: agent.capabilityBlurb,
+    capabilityBlurb: agent.title ? agent.title : agent.capabilityBlurb,
     pubKey,
     availability: "always",
     contract: { kind: "free" },
     params: agent.params,
     model: { ...agent.model, ...(capabilities ? { capabilities } : {}) },
+    ...(agent.title ? { title: agent.title } : {}),
+    ...(agent.gender ? { gender: agent.gender } : {}),
+    ...(agent.specialties && agent.specialties.length > 0 ? { specialties: agent.specialties } : {}),
+    operator: { pubKey, displayName: operatorDisplayName },
   };
 }
 

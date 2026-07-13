@@ -9,6 +9,7 @@ import { useToasts } from "../../components/Toasts.js";
 import { ApiError } from "../../api/client.js";
 import { downscaleToDataUrl } from "../../lib/image.js";
 import { parseThinkSegments } from "../../lib/think.js";
+import { draftAvatarImageUrl } from "../../lib/character.js";
 
 interface PreviewChatProps {
   agentId: string | null;
@@ -21,12 +22,40 @@ interface ChatTurn {
   role: "user" | "assistant";
   content: string;
   images?: string[];
+  /** Tags the agent's self-introduction exchange so re-pings can clear only these (CONTRACTS §6). */
+  origin?: "auto-intro";
+}
+
+interface StartStreamOptions {
+  origin?: "auto-intro";
+  personaOverride?: string;
+}
+
+const INTRO_USER_PROMPT = "You've just been configured. Briefly introduce yourself to the team.";
+const INTRO_DEBOUNCE_MS = 1200;
+
+/** Persona + identity preamble for the auto-intro re-ping (CONTRACTS §6 "Intro re-ping"). */
+function buildIntroPersona(draft: AgentDraft): string {
+  const lines: string[] = [];
+  lines.push(
+    draft.title ? `You are ${draft.name} the ${draft.title}.` : `Your name is ${draft.name}.`,
+  );
+  if (draft.specialties && draft.specialties.length > 0) {
+    lines.push(`Your specialties: ${draft.specialties.join(", ")}.`);
+  }
+  const gender = draft.gender ?? draft.avatar.character?.gender;
+  if (gender) {
+    lines.push(`You present as ${gender}.`);
+  }
+  return `${draft.persona}\n\n${lines.join("\n")}`;
 }
 
 /**
  * Right-rail live preview. Streams the CURRENT unsaved persona against the
  * active local model. Handles 400 model_required (picker hint) and
- * 409 model_not_active (offers activation then retries).
+ * 409 model_not_active (offers activation then retries). Also drives the
+ * "intro re-ping" — a debounced self-introduction whenever a personality
+ * field changes, so the agent's character feels alive while you edit it.
  */
 export function PreviewChat({ agentId, draft, modelActive, activeModel }: PreviewChatProps) {
   const toasts = useToasts();
@@ -45,6 +74,8 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
   const abortRef = useRef<(() => void) | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentAgentRef = useRef(agentId);
+  const introKeyRef = useRef<string | null>(null);
+  const introTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset the conversation when switching agents.
   useEffect(() => {
@@ -55,6 +86,8 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
     abortRef.current?.();
     setStreaming(false);
     setAwaitingFirst(false);
+    introKeyRef.current = null;
+    if (introTimerRef.current) clearTimeout(introTimerRef.current);
   }, [agentId]);
 
   useEffect(() => {
@@ -67,18 +100,24 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
   const noModel = !draft.model;
   const disabled = noModel || !modelActive || agentId === null;
   const visionReady = Boolean(draft.model?.capabilities?.vision && activeModel?.mmprojPath);
+  const headerAvatarUrl = draftAvatarImageUrl(draft.avatar);
 
-  const startStream = (messages: PreviewMessage[]) => {
+  const startStream = (messages: PreviewMessage[], opts?: StartStreamOptions) => {
     if (!agentId) return;
     setError(null);
     setStreaming(true);
     setAwaitingFirst(true);
 
     let assistant = "";
+    const origin = opts?.origin;
 
     abortRef.current = streamPreview(
       agentId,
-      { messages, personaOverride: draft.persona, temperature: draft.params.temperature },
+      {
+        messages,
+        personaOverride: opts?.personaOverride ?? draft.persona,
+        temperature: draft.params.temperature,
+      },
       {
         onDelta: (delta) => {
           setAwaitingFirst(false);
@@ -87,9 +126,9 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
             const copy = [...prev];
             const last = copy[copy.length - 1];
             if (last && last.role === "assistant") {
-              copy[copy.length - 1] = { role: "assistant", content: assistant };
+              copy[copy.length - 1] = { ...last, content: assistant };
             } else {
-              copy.push({ role: "assistant", content: assistant });
+              copy.push({ role: "assistant", content: assistant, origin });
             }
             return copy;
           });
@@ -133,6 +172,60 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
       },
     );
   };
+
+  // Intro re-ping: a debounced self-introduction whenever name/title/gender/
+  // specialties/persona change — visual-only tweaks don't trigger it.
+  useEffect(() => {
+    const gender = draft.gender ?? draft.avatar.character?.gender;
+    const eligible =
+      !!agentId && modelActive && !!draft.model && draft.name.trim().length > 0 && !!gender;
+
+    if (!eligible) {
+      introKeyRef.current = null;
+      return;
+    }
+
+    const introKey = JSON.stringify({
+      name: draft.name,
+      title: draft.title,
+      gender,
+      specialties: draft.specialties,
+      persona: draft.persona,
+    });
+
+    const isFirstEncounter = introKeyRef.current === null;
+    const changed = introKeyRef.current !== introKey;
+    introKeyRef.current = introKey;
+
+    if (isFirstEncounter || !changed) return;
+
+    if (introTimerRef.current) clearTimeout(introTimerRef.current);
+    introTimerRef.current = setTimeout(() => {
+      abortRef.current?.();
+      setTurns((prev) => [
+        ...prev.filter((t) => t.origin !== "auto-intro"),
+        { role: "user", content: INTRO_USER_PROMPT, origin: "auto-intro" },
+      ]);
+      startStream(
+        [{ role: "user", content: INTRO_USER_PROMPT }],
+        { origin: "auto-intro", personaOverride: buildIntroPersona(draft) },
+      );
+    }, INTRO_DEBOUNCE_MS);
+
+    return () => {
+      if (introTimerRef.current) clearTimeout(introTimerRef.current);
+    };
+  }, [
+    agentId,
+    modelActive,
+    draft.model,
+    draft.name,
+    draft.title,
+    draft.gender,
+    draft.specialties,
+    draft.persona,
+    draft.avatar.character?.gender,
+  ]);
 
   const attach = async (file: File | undefined) => {
     if (!file) return;
@@ -239,7 +332,14 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
       <aside className="il-preview" aria-label="Live preview">
         <header className="il-preview__head">
           <span className="il-preview__title">Live preview</span>
-          <Avatar name={draft.name || "Agent"} isAgent emoji={draft.avatar.emoji} bg={draft.avatar.bg} size="sm" />
+          <Avatar
+            name={draft.name || "Agent"}
+            isAgent
+            emoji={draft.avatar.emoji}
+            bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+            imageUrl={headerAvatarUrl}
+            size="sm"
+          />
         </header>
 
         <div className="il-preview__body il-scroll-fade" ref={scrollRef}>
@@ -268,7 +368,14 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
                   </div>
                 ) : (
                   <div key={i} className="il-preview__agent-turn">
-                    <Avatar name={draft.name || "Agent"} isAgent emoji={draft.avatar.emoji} bg={draft.avatar.bg} size="sm" />
+                    <Avatar
+                      name={draft.name || "Agent"}
+                      isAgent
+                      emoji={draft.avatar.emoji}
+                      bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+                      imageUrl={headerAvatarUrl}
+                      size="sm"
+                    />
                     <div className="il-preview__bubble">
                       {parseThinkSegments(t.content).map((seg, j) =>
                         seg.kind === "think" ? (
@@ -283,7 +390,14 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
               )}
               {awaitingFirst ? (
                 <div className="il-preview__agent-turn">
-                  <Avatar name={draft.name || "Agent"} isAgent emoji={draft.avatar.emoji} bg={draft.avatar.bg} size="sm" />
+                  <Avatar
+                    name={draft.name || "Agent"}
+                    isAgent
+                    emoji={draft.avatar.emoji}
+                    bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+                    imageUrl={headerAvatarUrl}
+                    size="sm"
+                  />
                   <div className="il-preview__bubble il-preview__bubble--typing">
                     <TypingDots />
                   </div>

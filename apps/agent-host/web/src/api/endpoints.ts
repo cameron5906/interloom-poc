@@ -68,6 +68,8 @@ export const agents = {
     api.patch<HostAgent>(`/api/agents/${id}`, draft),
   remove: (id: string) => api.del<void>(`/api/agents/${id}`),
   register: (id: string) => api.post<HostAgent>(`/api/agents/${id}/register`),
+  uploadAvatar: (id: string, dataUrl: string) =>
+    api.post<{ imageUrl: string }>(`/api/agents/${id}/avatar`, { dataUrl }),
 };
 
 export const placements = {
@@ -79,6 +81,10 @@ export const settings = {
   hf: (signal?: AbortSignal) => api.get<HfSettings>("/api/settings/hf", signal),
   setHfToken: (token: string) => api.post<HfTokenResult>("/api/settings/hf-token", { token }),
   deleteHfToken: () => api.del<void>("/api/settings/hf-token"),
+  operator: (signal?: AbortSignal) =>
+    api.get<{ displayName: string }>("/api/settings/operator", signal),
+  setOperator: (displayName: string) =>
+    api.post<{ displayName: string }>("/api/settings/operator", { displayName }),
 };
 
 export const update = {

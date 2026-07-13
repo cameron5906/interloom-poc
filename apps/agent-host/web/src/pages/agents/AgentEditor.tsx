@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, CapabilityBadges, Input, StatusPill, TextArea } from "@interloom/ui";
-import type { HostAgent, LocalModel } from "@interloom/protocol";
+import { Avatar, Button, CapabilityBadges, Input, Modal, StatusPill, TextArea } from "@interloom/ui";
+import type { AgentGender, HostAgent, LocalModel, PlacementStatus } from "@interloom/protocol";
 import type { AgentDraft, ActiveModel } from "../../api/types.js";
-import { agents as agentsApi, models as modelsApi } from "../../api/endpoints.js";
+import { EMPTY_AGENT_DRAFT } from "../../api/types.js";
+import { agents as agentsApi, models as modelsApi, placements as placementsApi } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
 import { useToasts } from "../../components/Toasts.js";
-import { AvatarPicker } from "./AvatarPicker.js";
+import { CharacterCustomizer } from "./CharacterCustomizer/index.js";
+import { SpecialtiesInput } from "./SpecialtiesInput.js";
+import { CascadeWarningModal } from "./CascadeWarningModal.js";
 import { MarketplacePreview } from "./MarketplacePreview.js";
 import { CONTEXT_PRESETS } from "../../lib/constants.js";
 import { relativeTime, bytesToGB } from "../../lib/format.js";
+import { rollCharacter, withGender, draftAvatarImageUrl, svgFor, renderPng } from "../../lib/character.js";
+import { GenderPicker } from "./CharacterCustomizer/GenderPicker.js";
+import { signatureChanged } from "../../lib/signature.js";
 import { ApiError } from "../../api/client.js";
 
 interface AgentEditorProps {
@@ -22,39 +28,67 @@ interface AgentEditorProps {
 type SyncState = "idle" | "saving" | "syncing" | "synced";
 
 function toDraft(agent: HostAgent | null): AgentDraft {
-  if (!agent) {
-    return {
-      name: "",
-      avatar: { emoji: "🤖", bg: "linear-gradient(135deg,#8b76ee,#6a5acd)" },
-      persona: "",
-      capabilityBlurb: "",
-      params: { temperature: 0.7, contextLength: 4096 },
-    };
-  }
+  if (!agent) return EMPTY_AGENT_DRAFT;
   return {
     name: agent.name,
     avatar: agent.avatar,
     persona: agent.persona,
     capabilityBlurb: agent.capabilityBlurb,
+    title: agent.title,
+    gender: agent.gender,
+    specialties: agent.specialties,
     params: agent.params,
     model: agent.model,
   };
 }
 
+/**
+ * New drafts start with a character already rolled (gender "other" — the
+ * open pack) so the avatar is alive from the first keystroke; existing
+ * agents keep exactly what was saved (no surprise re-rolls of a published
+ * look). CONTRACTS §12.
+ */
+function initialDraft(agent: HostAgent | null): AgentDraft {
+  const draft = toDraft(agent);
+  if (agent) return draft;
+  const rolled = rollCharacter(draft.name.trim() || "agent", "other");
+  return {
+    ...draft,
+    gender: rolled.gender,
+    avatar: { ...draft.avatar, character: rolled, bg: `#${rolled.backgroundColor}` },
+  };
+}
+
+/** Mirrors `title` into `capabilityBlurb` for the wire (CONTRACTS §6) — the
+ * portal no longer exposes a raw blurb input. */
+function buildPayload(draft: AgentDraft): AgentDraft {
+  const title = draft.title?.trim();
+  return { ...draft, capabilityBlurb: title ? title : draft.capabilityBlurb };
+}
+
 export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftChange }: AgentEditorProps) {
   const toasts = useToasts();
-  const [draft, setDraft] = useState<AgentDraft>(() => toDraft(agent));
+  const [draft, setDraft] = useState<AgentDraft>(() => initialDraft(agent));
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [registering, setRegistering] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [customizerOpen, setCustomizerOpen] = useState(false);
+  const [characterOverridden, setCharacterOverridden] = useState(() => !!agent?.avatar.character);
+  const [cascade, setCascade] = useState<PlacementStatus[] | null>(null);
+  const [cascadeConfirming, setCascadeConfirming] = useState(false);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevNameRef = useRef(draft.name);
+  const uploadedCharacterRef = useRef(agent?.avatar.character);
 
   const localModels = useAsync((s) => modelsApi.local(s), []);
 
   // Reset the form whenever the selected agent changes.
   useEffect(() => {
-    setDraft(toDraft(agent));
+    setDraft(initialDraft(agent));
     setSyncState("idle");
+    setCharacterOverridden(!!agent?.avatar.character);
+    uploadedCharacterRef.current = agent?.avatar.character;
+    prevNameRef.current = agent?.name ?? "";
   }, [agent]);
 
   // Keep the parent (preview + marketplace card) in sync with edits.
@@ -69,6 +103,20 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
     [],
   );
 
+  // Renaming re-seeds the character only while the user hasn't overridden pieces (CONTRACTS §12).
+  useEffect(() => {
+    if (draft.name === prevNameRef.current) return;
+    prevNameRef.current = draft.name;
+    if (draft.avatar.character && !characterOverridden) {
+      const rerolled = rollCharacter(draft.name.trim() || "agent", draft.avatar.character.gender);
+      setDraft((d) => ({
+        ...d,
+        gender: rerolled.gender,
+        avatar: { ...d.avatar, character: rerolled, bg: `#${rerolled.backgroundColor}` },
+      }));
+    }
+  }, [draft.name]);
+
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(toDraft(agent)), [draft, agent]);
   const registered = agent?.registered ?? false;
   const canSave = draft.name.trim().length > 0;
@@ -76,24 +124,71 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
 
   const patch = (partial: Partial<AgentDraft>) => setDraft((d) => ({ ...d, ...partial }));
 
+  // Gender is a first-class identity control (CONTRACTS §12): flipping it
+  // re-rolls the look within the new pack — unless the user has customized
+  // pieces, in which case the choices stick and only the pack retags.
+  const changeGender = (gender: AgentGender) => {
+    const character = draft.avatar.character;
+    if (character && characterOverridden) {
+      patch({ gender, avatar: { ...draft.avatar, character: withGender(character, gender) } });
+      return;
+    }
+    const rolled = rollCharacter(draft.name.trim() || character?.seed || "agent", gender);
+    setCharacterOverridden(false);
+    patch({ gender, avatar: { ...draft.avatar, character: rolled, bg: `#${rolled.backgroundColor}` } });
+  };
+
+  // Legacy agents saved before characters existed have none — give them one
+  // the moment the customizer opens instead of gating on a gender pick.
+  const openCustomizer = () => {
+    if (!draft.avatar.character) changeGender(draft.gender ?? "other");
+    setCustomizerOpen(true);
+  };
+
   const flashSynced = () => {
     setSyncState("synced");
     if (syncTimer.current) clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => setSyncState("idle"), 2600);
   };
 
-  const save = async () => {
+  const maybeUploadAvatar = async (agentId: string) => {
+    const character = draft.avatar.character;
+    if (!character) return;
+    const changed =
+      JSON.stringify(character) !== JSON.stringify(uploadedCharacterRef.current) || !draft.avatar.imageUrl;
+    if (!changed) return;
+    try {
+      const png = await renderPng(svgFor(character));
+      const { imageUrl } = await agentsApi.uploadAvatar(agentId, png);
+      uploadedCharacterRef.current = character;
+      patch({ avatar: { ...draft.avatar, imageUrl } });
+    } catch {
+      toasts.error("Saved, but the avatar image failed to upload.");
+    }
+  };
+
+  const placementsForAgent = async (agentId: string): Promise<PlacementStatus[]> => {
+    try {
+      const all = await placementsApi.list();
+      return all.filter((p) => !p.revoked && p.voucher.payload.agentId === agentId);
+    } catch {
+      return [];
+    }
+  };
+
+  const doSave = async () => {
     if (!canSave) return;
     setSyncState("saving");
     try {
       let saved: HostAgent;
       if (agent) {
         if (registered) setSyncState("syncing");
-        saved = await agentsApi.update(agent.agentId, draft);
+        saved = await agentsApi.update(agent.agentId, buildPayload(draft));
       } else {
-        saved = await agentsApi.create(draft);
+        saved = await agentsApi.create(buildPayload(draft));
       }
       onSaved(saved);
+      await maybeUploadAvatar(saved.agentId);
       if (registered) flashSynced();
       else setSyncState("idle");
       toasts.success(agent ? "Agent saved" : "Agent created");
@@ -105,6 +200,25 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
     }
   };
 
+  const save = async () => {
+    if (!canSave) return;
+    if (agent && registered && signatureChanged(agent, draft)) {
+      const impacted = await placementsForAgent(agent.agentId);
+      if (impacted.length > 0) {
+        setCascade(impacted);
+        return;
+      }
+    }
+    await doSave();
+  };
+
+  const confirmCascade = async () => {
+    setCascadeConfirming(true);
+    await doSave();
+    setCascadeConfirming(false);
+    setCascade(null);
+  };
+
   const publish = async () => {
     if (!canSave) return;
     if (!hasModel) {
@@ -114,7 +228,8 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
     setRegistering(true);
     if (!agent) {
       try {
-        const created = await agentsApi.create(draft);
+        const created = await agentsApi.create(buildPayload(draft));
+        await maybeUploadAvatar(created.agentId);
         const registeredAgent = await agentsApi.register(created.agentId);
         onSaved(registeredAgent);
         flashSynced();
@@ -131,7 +246,8 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
 
     setSyncState("syncing");
     try {
-      if (dirty) await agentsApi.update(agent.agentId, draft);
+      if (dirty) await agentsApi.update(agent.agentId, buildPayload(draft));
+      await maybeUploadAvatar(agent.agentId);
       const registeredAgent = await agentsApi.register(agent.agentId);
       onSaved(registeredAgent);
       flashSynced();
@@ -193,13 +309,21 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
           />
         </Field>
 
-        <Field label="Avatar">
-          <AvatarPicker
-            name={draft.name}
-            emoji={draft.avatar.emoji}
-            bg={draft.avatar.bg}
-            onChange={(avatar) => patch({ avatar })}
-          />
+        <Field label="Character" hint="The name seeds the look — customize any piece, or shuffle within the pack.">
+          <div className="il-avatar-field">
+            <Avatar
+              name={draft.name || "Agent"}
+              isAgent
+              emoji={draft.avatar.emoji}
+              bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+              imageUrl={draftAvatarImageUrl(draft.avatar)}
+              size="lg"
+            />
+            <GenderPicker value={draft.gender} onChange={changeGender} />
+            <Button variant="secondary" size="sm" onClick={openCustomizer}>
+              Customize
+            </Button>
+          </div>
         </Field>
 
         <Field label="Persona" hint="The system prompt that shapes how your agent behaves.">
@@ -212,12 +336,19 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
           />
         </Field>
 
-        <Field label="Capability blurb" hint="Shown on your marketplace card — one line.">
+        <Field label="Title" hint='Renders as "Name the Title" on your marketplace card.'>
           <Input
-            placeholder="Reviews PRs and explains trade-offs in plain language."
-            maxLength={120}
-            value={draft.capabilityBlurb}
-            onChange={(e) => patch({ capabilityBlurb: e.target.value })}
+            placeholder="e.g. Archivist"
+            maxLength={60}
+            value={draft.title ?? ""}
+            onChange={(e) => patch({ title: e.target.value || undefined })}
+          />
+        </Field>
+
+        <Field label="Specialties" hint="Up to 8 — shown as chips on your marketplace card.">
+          <SpecialtiesInput
+            value={draft.specialties ?? []}
+            onChange={(specialties) => patch({ specialties })}
           />
         </Field>
 
@@ -310,6 +441,34 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
           ) : null}
         </div>
       </div>
+
+      <Modal
+        open={customizerOpen && !!draft.avatar.character}
+        onClose={() => setCustomizerOpen(false)}
+        title="Customize character"
+        className="il-modal__card--wide"
+      >
+        {draft.avatar.character ? (
+          <CharacterCustomizer
+            character={draft.avatar.character}
+            onChange={(character, overridden) => {
+              setCharacterOverridden(overridden);
+              patch({
+                avatar: { ...draft.avatar, character, bg: `#${character.backgroundColor}` },
+              });
+            }}
+          />
+        ) : null}
+      </Modal>
+
+      <CascadeWarningModal
+        open={!!cascade}
+        agentName={draft.name || "This agent"}
+        placements={cascade ?? []}
+        confirming={cascadeConfirming}
+        onConfirm={confirmCascade}
+        onCancel={() => setCascade(null)}
+      />
     </div>
   );
 }

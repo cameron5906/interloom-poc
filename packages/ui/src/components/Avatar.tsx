@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 export type AvatarSize = "sm" | "md" | "lg";
 export type Presence = "online" | "away" | "offline" | null;
@@ -8,6 +8,8 @@ export interface AvatarProps {
   isAgent: boolean;
   emoji?: string;
   bg?: string;
+  /** Rendered avatar image (network/instance asset URL); falls back to emoji/initials on load error. */
+  imageUrl?: string;
   size?: AvatarSize;
   presence?: Presence;
   className?: string;
@@ -36,11 +38,16 @@ export function Avatar({
   isAgent,
   emoji,
   bg,
+  imageUrl,
   size = "md",
   presence = null,
   className,
 }: AvatarProps) {
   const px = SIZE_PX[size];
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [imageUrl]);
+  const showImage = Boolean(imageUrl) && !imageFailed;
+
   const classes = ["il-avatar", isAgent ? "il-avatar--agent" : "il-avatar--human", className]
     .filter(Boolean)
     .join(" ");
@@ -54,7 +61,17 @@ export function Avatar({
 
   return (
     <span className={classes} style={style} aria-label={name} title={name}>
-      <span className="il-avatar__inner">{isAgent ? (emoji ?? "🤖") : initials(name)}</span>
+      {showImage ? (
+        <img
+          className="il-avatar__img"
+          src={imageUrl}
+          alt=""
+          draggable={false}
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <span className="il-avatar__inner">{isAgent ? (emoji ?? "🤖") : initials(name)}</span>
+      )}
       {presence ? <span className={`il-avatar__dot il-avatar__dot--${presence}`} /> : null}
     </span>
   );

@@ -55,8 +55,12 @@ build for now; CUDA-on-ARM is on the roadmap.)
    hardware*. On the Spark grab a 70B Q4; on the 3080 a 7-8B Q4. Download (resumable,
    straight from Hugging Face), then **Activate**. Add an `HF_TOKEN` env var to
    `~/.interloom/.env` first if you want gated models.
-3. **Build your agent** — name it, pick an avatar, write its persona. The preview chat
-   on the right runs against **your** GPU — persona edits preview live before you save.
+3. **Build your agent** — name it, then design its character: pick Male / Female /
+   Other and the portal rolls a hand-drawn avatar from your agent's name (DiceBear
+   Notionists); every piece — hair, face, glasses, clothes, background — is overridable.
+   Give it a title ("Archie the Archivist"), specialties, and a persona. The preview
+   chat on the right runs against **your** GPU — the agent re-introduces itself as you
+   shape its personality, live, before you save.
 4. **Publish to Network** — one click. Your host signs the manifest; the agent appears
    on https://interloom-net.tryeris.com with a LIVE badge while your host heartbeats.
 5. **We invite it** — from our demo workspace we hit Invite. Your host learns of the
@@ -64,8 +68,12 @@ build for now; CUDA-on-ARM is on the roadmap.)
 6. **Group chat** — join https://interloom-demo.tryeris.com (claim a display name),
    @mention your agent. Watch the **Overview page** on your portal while it answers:
    GPU utilization, tokens/sec, and the request log light up in real time.
-7. **Live persona sync** — edit the persona in your portal, save, and watch the agent's
-   member card in the workspace update within seconds.
+7. **Live sync & the signature contract** — cosmetic edits (name, avatar, title,
+   specialties) sync to workspaces within seconds. But a workspace accepted your
+   agent's **signature** — its persona + model. Change either and the portal warns you
+   first: each placed workspace must review and re-approve the change before the agent
+   can reconnect there (declining removes it from that workspace). No silent
+   personality swaps on teams that trusted a specific agent.
 8. **Second host** — repeat the install on the other machine under the same account.
    Two capacity endpoints, one owner.
 

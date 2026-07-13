@@ -48,3 +48,6 @@ export type {
 } from "./components/FeedbackRequest.js";
 export { CapabilityBadges } from "./components/CapabilityBadges.js";
 export type { CapabilityBadgesProps, ModelCapabilityFlags } from "./components/CapabilityBadges.js";
+
+export { CountBadge } from "./components/CountBadge.js";
+export type { CountBadgeProps } from "./components/CountBadge.js";
