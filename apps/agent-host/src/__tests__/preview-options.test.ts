@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolvePreviewOptions } from "../agents/preview.js";
+import { resolvePreviewOptions, buildPreviewMessages } from "../agents/preview.js";
 
 const agent = {
   persona: "You are the stored persona.",
@@ -46,5 +46,41 @@ describe("resolvePreviewOptions", () => {
     expect(resolvePreviewOptions({ temperature: Number.POSITIVE_INFINITY }, agent).temperature).toBe(
       0.7,
     );
+  });
+});
+
+describe("buildPreviewMessages (CONTRACTS §6 preview images)", () => {
+  it("plain text messages stay strings (no parts, hasImages false)", () => {
+    const { messages, hasImages } = buildPreviewMessages("persona", [
+      { role: "user", content: "hi" },
+    ]);
+    expect(hasImages).toBe(false);
+    expect(messages).toEqual([
+      { role: "system", content: "persona" },
+      { role: "user", content: "hi" },
+    ]);
+  });
+
+  it("images become OpenAI content parts on that message", () => {
+    const dataUrl = "data:image/jpeg;base64,AAAA";
+    const { messages, hasImages } = buildPreviewMessages("p", [
+      { role: "user", content: "what is this?", images: [dataUrl] },
+    ]);
+    expect(hasImages).toBe(true);
+    expect(messages[1]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "what is this?" },
+        { type: "image_url", image_url: { url: dataUrl } },
+      ],
+    });
+  });
+
+  it("malformed image entries are dropped, not crashed on", () => {
+    const { messages, hasImages } = buildPreviewMessages("p", [
+      { role: "user", content: "x", images: [123, null] },
+    ]);
+    expect(hasImages).toBe(false);
+    expect(messages[1]).toEqual({ role: "user", content: "x" });
   });
 });

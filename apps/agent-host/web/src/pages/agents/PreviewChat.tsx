@@ -7,6 +7,8 @@ import type { PreviewMessage } from "../../api/preview.js";
 import type { AgentDraft, ActiveModel } from "../../api/types.js";
 import { useToasts } from "../../components/Toasts.js";
 import { ApiError } from "../../api/client.js";
+import { downscaleToDataUrl } from "../../lib/image.js";
+import { parseThinkSegments } from "../../lib/think.js";
 
 interface PreviewChatProps {
   agentId: string | null;
@@ -18,6 +20,7 @@ interface PreviewChatProps {
 interface ChatTurn {
   role: "user" | "assistant";
   content: string;
+  images?: string[];
 }
 
 /**
@@ -37,13 +40,18 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
     modelFilename: string;
     pendingMessages: PreviewMessage[];
   } | null>(null);
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [pendingAttach, setPendingAttach] = useState(0);
   const abortRef = useRef<(() => void) | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const currentAgentRef = useRef(agentId);
 
   // Reset the conversation when switching agents.
   useEffect(() => {
+    currentAgentRef.current = agentId;
     setTurns([]);
     setError(null);
+    setAttachments([]);
     abortRef.current?.();
     setStreaming(false);
     setAwaitingFirst(false);
@@ -58,6 +66,7 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
 
   const noModel = !draft.model;
   const disabled = noModel || !modelActive || agentId === null;
+  const visionReady = Boolean(draft.model?.capabilities?.vision && activeModel?.mmprojPath);
 
   const startStream = (messages: PreviewMessage[]) => {
     if (!agentId) return;
@@ -100,6 +109,12 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
             setError("This agent has no model assigned. Select a model in the editor first.");
             return;
           }
+          if (apiErr.status === 400 && body?.error === "vision_not_supported") {
+            setError(
+              "The active model can't see images — activate the vision build (with its projector) to use attachments.",
+            );
+            return;
+          }
           if (apiErr.status === 409 && body?.error === "model_not_active") {
             const filename = body?.model?.filename;
             const localPath = body?.path;
@@ -119,15 +134,39 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
     );
   };
 
+  const attach = async (file: File | undefined) => {
+    if (!file) return;
+    const forAgent = agentId;
+    setPendingAttach((n) => n + 1);
+    try {
+      const dataUrl = await downscaleToDataUrl(file);
+      if (currentAgentRef.current === forAgent) {
+        setAttachments((prev) => [...prev, dataUrl]);
+      }
+    } catch {
+      toasts.error("Could not read that image.");
+    } finally {
+      setPendingAttach((n) => Math.max(0, n - 1));
+    }
+  };
+
   const send = () => {
     const text = input.trim();
-    if (!text || streaming || disabled || !agentId) return;
+    if ((!text && attachments.length === 0) || pendingAttach > 0 || streaming || disabled || !agentId) return;
 
-    const nextTurns: ChatTurn[] = [...turns, { role: "user", content: text }];
+    const nextTurns: ChatTurn[] = [
+      ...turns,
+      { role: "user", content: text, ...(attachments.length > 0 ? { images: attachments } : {}) },
+    ];
     setTurns(nextTurns);
     setInput("");
+    setAttachments([]);
 
-    const messages: PreviewMessage[] = nextTurns.map((t) => ({ role: t.role, content: t.content }));
+    const messages: PreviewMessage[] = nextTurns.map((t) => ({
+      role: t.role,
+      content: t.content,
+      ...(t.images ? { images: t.images } : {}),
+    }));
     startStream(messages);
   };
 
@@ -218,12 +257,27 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
               {turns.map((t, i) =>
                 t.role === "user" ? (
                   <div key={i} className="il-preview__user">
+                    {t.images?.length ? (
+                      <span className="il-preview__thumbs">
+                        {t.images.map((src, j) => (
+                          <img key={j} src={src} alt="" className="il-preview__thumb" />
+                        ))}
+                      </span>
+                    ) : null}
                     {t.content}
                   </div>
                 ) : (
                   <div key={i} className="il-preview__agent-turn">
                     <Avatar name={draft.name || "Agent"} isAgent emoji={draft.avatar.emoji} bg={draft.avatar.bg} size="sm" />
-                    <div className="il-preview__bubble">{t.content}</div>
+                    <div className="il-preview__bubble">
+                      {parseThinkSegments(t.content).map((seg, j) =>
+                        seg.kind === "think" ? (
+                          <ThinkBlock key={j} text={seg.text} open={seg.open} />
+                        ) : (
+                          <span key={j}>{seg.text}</span>
+                        ),
+                      )}
+                    </div>
                   </div>
                 ),
               )}
@@ -255,8 +309,33 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
             }}
           />
           <div className="il-preview__composer-foot">
+            {visionReady ? (
+              <label className="il-preview__attach" title="Attach an image">
+                <input
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    void attach(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+                📎{pendingAttach > 0 ? "…" : ""}
+                {attachments.length > 0 ? ` ${attachments.length}` : ""}
+              </label>
+            ) : null}
             <span className="il-meta">preview runs on your GPU</span>
-            <Button size="sm" variant="primary" onClick={send} disabled={disabled || streaming || !input.trim()}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={send}
+              disabled={
+                disabled ||
+                streaming ||
+                pendingAttach > 0 ||
+                (!input.trim() && attachments.length === 0)
+              }
+            >
               {streaming ? "…" : "Send"}
             </Button>
           </div>
@@ -317,5 +396,18 @@ function ActivateForPreviewModal({
         </p>
       </div>
     </Modal>
+  );
+}
+
+function ThinkBlock({ text, open }: { text: string; open?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="il-think">
+      <button className="il-think__toggle" onClick={() => setExpanded((v) => !v)}>
+        {open ? "thinking…" : `thought for ${Math.max(1, Math.round(text.length / 400))}s`}{" "}
+        {expanded ? "▾" : "▸"}
+      </button>
+      {expanded ? <pre className="il-think__body">{text}</pre> : null}
+    </div>
   );
 }

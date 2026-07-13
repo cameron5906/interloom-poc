@@ -56,3 +56,36 @@ describe("normalizeMessages", () => {
     ]);
   });
 });
+
+describe("content-parts passthrough (vision preview)", () => {
+  it("messages with array content survive normalization with parts intact", () => {
+    const parts = [
+      { type: "text", text: "look" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,AA" } },
+    ];
+    const out = normalizeMessages([
+      { role: "system", content: "p" },
+      { role: "user", content: parts },
+    ]);
+    expect(out).toEqual([
+      { role: "system", content: "p" },
+      { role: "user", content: parts },
+    ]);
+  });
+
+  it("consecutive same-role turns merge parts arrays", () => {
+    const out = normalizeMessages([
+      { role: "user", content: "a" },
+      { role: "user", content: [{ type: "text", text: "b" }] },
+    ]);
+    expect(out).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "a" },
+          { type: "text", text: "b" },
+        ],
+      },
+    ]);
+  });
+});

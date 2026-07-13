@@ -34,21 +34,38 @@ export interface FitAnnotatedModel {
   tier: "spark" | "gpu-24gb" | "gpu-10gb" | "cpu";
   blurb: string;
   fits: boolean;
+  capabilities?: import("@interloom/protocol").ModelCapabilities;
 }
 
-/** A single GGUF file in a Hugging Face search result. */
-export interface HfSearchFile {
-  filename: string;
-  sizeBytes: number;
-  quant: string;
-}
-
-/** `GET /api/models/search?q=` — mapped HF Hub result row (CONTRACTS §6). */
+/** `GET /api/models/search?q=` — rail row (CONTRACTS §6). Capabilities are estimates. */
 export interface HfSearchResult {
   repoId: string;
   likes: number;
   downloads: number;
-  files: HfSearchFile[];
+  paramsB?: number;
+  trainedCtx?: number;
+  capabilities?: import("@interloom/protocol").ModelCapabilities;
+}
+
+/** One GGUF file in `GET /api/models/hf-detail` (mmproj excluded — paired separately). */
+export interface HfDetailFile {
+  filename: string;
+  sizeBytes: number;
+  quant: string;
+  /** Largest ctx that fits this host at `fast` tier — same math as activation. */
+  maxFastCtx?: number;
+}
+
+/** `GET /api/models/hf-detail?repoId=` (CONTRACTS §6). Capabilities are estimates. */
+export interface HfRepoDetail {
+  repoId: string;
+  likes: number;
+  downloads: number;
+  trainedCtx?: number;
+  lastModified?: string;
+  capabilities?: import("@interloom/protocol").ModelCapabilities;
+  mmprojFilename?: string;
+  files: HfDetailFile[];
 }
 
 /** `POST /api/models/activate` — activation poll result (CONTRACTS §6). */
@@ -63,6 +80,8 @@ export interface ActiveModel {
   filename: string;
   /** Context window the model was loaded with (added by daemon post-R2b). */
   ctx?: number;
+  /** Absolute path of the paired mmproj (vision projector), when loaded. */
+  mmprojPath?: string;
 }
 
 /** One candidate context-size entry from `GET /api/models/context-options`. */

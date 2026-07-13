@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, StatusPill, TextArea } from "@interloom/ui";
+import { Button, CapabilityBadges, Input, StatusPill, TextArea } from "@interloom/ui";
 import type { HostAgent, LocalModel } from "@interloom/protocol";
 import type { AgentDraft, ActiveModel } from "../../api/types.js";
 import { agents as agentsApi, models as modelsApi } from "../../api/endpoints.js";
@@ -234,7 +234,7 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
             onChange={(m) =>
               patch({
                 model: m
-                  ? { filename: m.filename, displayName: m.filename, sizeBytes: m.sizeBytes }
+                  ? { filename: m.filename, displayName: m.filename, sizeBytes: m.sizeBytes, capabilities: m.capabilities }
                   : undefined,
               })
             }
@@ -314,6 +314,16 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
   );
 }
 
+function capSuffix(caps: import("@interloom/protocol").ModelCapabilities | undefined): string {
+  if (!caps) return "";
+  const parts = [
+    caps.tools ? "tools" : null,
+    caps.vision ? "vision" : null,
+    caps.thinking ? "thinking" : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? ` · ${parts.join(", ")}` : "";
+}
+
 function ModelPicker({
   selected,
   localModels,
@@ -356,10 +366,15 @@ function ModelPicker({
         {localModels.map((m) => (
           <option key={m.path} value={m.filename}>
             {m.filename} · {bytesToGB(m.sizeBytes)} GB
+            {capSuffix(m.capabilities)}
             {activeModel?.filename === m.filename ? " · active" : ""}
           </option>
         ))}
       </select>
+      <CapabilityBadges
+        capabilities={localModels.find((m) => m.filename === selected)?.capabilities}
+        size="sm"
+      />
     </div>
   );
 }

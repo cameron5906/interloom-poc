@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Placement } from "./registry.js";
-import { ModelRef } from "./model.js";
+import { ModelRef, ModelCapabilities } from "./model.js";
 
 /** A detected GPU (CONTRACTS §6, `GET /api/system`). */
 export const GpuInfo = z.object({
@@ -32,6 +32,7 @@ export const CuratedModel = z.object({
   minVramMB: z.number(),
   tier: z.enum(["spark", "gpu-24gb", "gpu-10gb", "cpu"]),
   blurb: z.string(),
+  capabilities: ModelCapabilities.optional(),
 });
 export type CuratedModel = z.infer<typeof CuratedModel>;
 
@@ -53,6 +54,10 @@ export const LocalModel = z.object({
   path: z.string(),
   filename: z.string(),
   sizeBytes: z.number(),
+  capabilities: ModelCapabilities.optional(),
+  /** Paired vision projector in the same directory, when present. */
+  mmprojPath: z.string().optional(),
+  mmprojBytes: z.number().optional(),
 });
 export type LocalModel = z.infer<typeof LocalModel>;
 

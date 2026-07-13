@@ -11,6 +11,7 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 55552,
     tier: 'spark',
     blurb: 'Largest capable model for Spark; excellent reasoning and multilingual support with unified memory access.',
+    capabilities: { tools: true, vision: false, thinking: false },
   },
   {
     id: 'llama3.3-70b-q4',
@@ -22,6 +23,7 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 50048,
     tier: 'spark',
     blurb: 'Strong code and math reasoning; efficient 70B model perfect for Spark unified memory.',
+    capabilities: { tools: true, vision: false, thinking: false },
   },
   {
     id: 'qwen2.5-32b-q4',
@@ -33,6 +35,7 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 23424,
     tier: 'gpu-24gb',
     blurb: 'Balanced capability and speed for 24GB cards; excellent instruction-following and knowledge.',
+    capabilities: { tools: true, vision: false, thinking: false },
   },
   {
     id: 'gemma2-27b-q4',
@@ -44,6 +47,7 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 19680,
     tier: 'gpu-24gb',
     blurb: 'Efficient 27B model with strong factual accuracy; well-optimized for 24GB VRAM.',
+    capabilities: { tools: false, vision: false, thinking: false },
   },
   {
     id: 'qwen2.5-7b-q4',
@@ -55,6 +59,7 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 5568,
     tier: 'gpu-10gb',
     blurb: 'Capable 7B fit for 10GB cards; excellent quality-to-size ratio with strong instruction adherence.',
+    capabilities: { tools: true, vision: false, thinking: false },
   },
   {
     id: 'llama3.1-8b-q4',
@@ -66,6 +71,7 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 5824,
     tier: 'gpu-10gb',
     blurb: 'Solid mid-range performer; clean foundation model with strong code reasoning for 10GB tier.',
+    capabilities: { tools: true, vision: false, thinking: false },
   },
   {
     id: 'phi3.5-mini-q4',
@@ -77,6 +83,7 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 2880,
     tier: 'gpu-10gb',
     blurb: 'Tiny 3.5B model on 10GB; Microsoft research favorite for efficiency and instruction tasks.',
+    capabilities: { tools: false, vision: false, thinking: false },
   },
   {
     id: 'qwen2.5-3b-q4',
@@ -88,6 +95,7 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 2304,
     tier: 'cpu',
     blurb: 'Lightweight 3B for CPU or low-VRAM deploy; solid instruct performance at minimal resource cost.',
+    capabilities: { tools: true, vision: false, thinking: false },
   },
   {
     id: 'qwen2.5-1.5b-q4',
@@ -99,6 +107,7 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 1184,
     tier: 'cpu',
     blurb: 'Ultra-compact 1.5B; ideal edge or offline deployment with surprising fluency for size.',
+    capabilities: { tools: true, vision: false, thinking: false },
   },
   {
     id: 'mistral-7b-q4',
@@ -110,5 +119,6 @@ export const CURATED_MODELS: CuratedModel[] = [
     minVramMB: 5184,
     tier: 'gpu-10gb',
     blurb: 'Fast, efficient 7B alternative; excellent instruction-tuned baseline for inference speed.',
+    capabilities: { tools: true, vision: false, thinking: false },
   },
 ]

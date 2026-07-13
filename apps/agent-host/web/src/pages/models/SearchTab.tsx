@@ -1,17 +1,15 @@
-import { useState } from "react";
-import { Badge, Button, EmptyState, Input, Spinner } from "@interloom/ui";
+import { useEffect, useMemo, useState } from "react";
+import { CapabilityBadges, EmptyState, Input, Spinner } from "@interloom/ui";
 import type { DownloadJob, LocalModel } from "@interloom/protocol";
-import type { HfSearchResult, HfSearchFile, ActiveModel } from "../../api/types.js";
+import type { HfSearchResult, ActiveModel } from "../../api/types.js";
 import { models as modelsApi } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
 import { useDebounced } from "../../hooks/useDebounced.js";
-import { useToasts } from "../../components/Toasts.js";
 import { LoadError } from "../../components/States.js";
-import { bytesToGB, compactNumber } from "../../lib/format.js";
-import { ApiError } from "../../api/client.js";
-import { deriveModelState } from "../../hooks/useModelState.js";
-import { RemoveModelModal } from "./RemoveModelModal.js";
-import type { LocalModel as LocalModelType } from "@interloom/protocol";
+import { compactNumber } from "../../lib/format.js";
+import { SearchDetailPanel } from "./SearchDetailPanel.js";
+
+type SortKey = "relevance" | "downloads" | "ctx";
 
 interface SearchTabProps {
   downloads: DownloadJob[];
@@ -22,6 +20,8 @@ interface SearchTabProps {
 
 export function SearchTab({ downloads, localModels, activeModel, onRefresh }: SearchTabProps) {
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortKey>("relevance");
+  const [selected, setSelected] = useState<string | null>(null);
   const debounced = useDebounced(query.trim(), 400);
 
   const results = useAsync<HfSearchResult[]>(
@@ -29,18 +29,44 @@ export function SearchTab({ downloads, localModels, activeModel, onRefresh }: Se
     [debounced],
   );
 
+  const rows = useMemo(() => {
+    const list = [...(results.data ?? [])];
+    if (sort === "downloads") list.sort((a, b) => b.downloads - a.downloads);
+    if (sort === "ctx") {
+      list.sort((a, b) => (b.trainedCtx ?? -1) - (a.trainedCtx ?? -1));
+    }
+    return list;
+  }, [results.data, sort]);
+
+  useEffect(() => {
+    if (rows.length > 0 && !rows.some((r) => r.repoId === selected)) {
+      setSelected(rows[0]!.repoId);
+    }
+    if (rows.length === 0) setSelected(null);
+  }, [rows, selected]);
+
   return (
-    <div className="il-search">
-      <div className="il-search__bar">
-        <SearchIcon />
-        <Input
-          type="search"
-          placeholder="Search Hugging Face for GGUF models…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search models"
-        />
-        {results.loading && debounced.length >= 2 ? <Spinner size="sm" /> : null}
+    <div className="il-hsearch">
+      <div className="il-hsearch__bar">
+        <div className="il-search__bar">
+          <SearchIcon />
+          <Input
+            type="search"
+            placeholder="Search Hugging Face for GGUF models…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search models"
+          />
+          {results.loading && debounced.length >= 2 ? <Spinner size="sm" /> : null}
+        </div>
+        <label className="il-hsearch__sort">
+          <span className="il-meta">Sort</span>
+          <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort results">
+            <option value="relevance">Relevance</option>
+            <option value="downloads">Downloads</option>
+            <option value="ctx">Max context</option>
+          </select>
+        </label>
       </div>
 
       {debounced.length < 2 ? (
@@ -55,171 +81,53 @@ export function SearchTab({ downloads, localModels, activeModel, onRefresh }: Se
           <Spinner size="md" />
           <span className="il-loading-block__label">Searching Hugging Face…</span>
         </div>
-      ) : (results.data ?? []).length === 0 ? (
+      ) : rows.length === 0 ? (
         <EmptyState
           title={`No GGUF results for "${debounced}"`}
           hint='Try a different model name, e.g. "llama", "qwen", or "mistral".'
         />
       ) : (
-        <ul className="il-search__list">
-          {(results.data ?? []).map((r) => (
-            <SearchRow
-              key={r.repoId}
-              result={r}
-              downloads={downloads}
-              localModels={localModels}
-              activeModel={activeModel}
-              onRefresh={onRefresh}
-            />
-          ))}
-        </ul>
+        <div className="il-hsearch__split">
+          <ul className="il-hsearch__rail" role="listbox" aria-label="Search results">
+            {rows.map((r) => (
+              <li key={r.repoId}>
+                <button
+                  role="option"
+                  aria-selected={selected === r.repoId}
+                  className={`il-hsearch__row${selected === r.repoId ? " il-hsearch__row--sel" : ""}`}
+                  onClick={() => setSelected(r.repoId)}
+                >
+                  <span className="il-hsearch__repo">{r.repoId}</span>
+                  <span className="il-meta il-hsearch__row-meta">
+                    {r.paramsB ? `${r.paramsB}B · ` : ""}
+                    ↓ {compactNumber(r.downloads)}
+                    {r.trainedCtx ? ` · ${fmtCtxShort(r.trainedCtx)} ctx` : ""}
+                  </span>
+                  <CapabilityBadges capabilities={r.capabilities} estimated size="sm" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="il-hsearch__detail">
+            {selected ? (
+              <SearchDetailPanel
+                key={selected}
+                repoId={selected}
+                downloads={downloads}
+                localModels={localModels}
+                activeModel={activeModel}
+                onRefresh={onRefresh}
+              />
+            ) : null}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function SearchRow({
-  result,
-  downloads,
-  localModels,
-  activeModel,
-  onRefresh,
-}: {
-  result: HfSearchResult;
-  downloads: DownloadJob[];
-  localModels: LocalModel[];
-  activeModel: ActiveModel | null;
-  onRefresh: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <li className="il-search__row">
-      <button
-        className="il-search__row-head"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <div className="il-search__row-main">
-          <span className="il-search__repo">{result.repoId}</span>
-          <span className="il-meta il-search__stats">
-            ↓ {compactNumber(result.downloads)} · ♥ {compactNumber(result.likes)} ·{" "}
-            {result.files.length} GGUF file{result.files.length === 1 ? "" : "s"}
-          </span>
-        </div>
-        <span className={`il-search__chevron${open ? " il-search__chevron--open" : ""}`} aria-hidden>
-          ▸
-        </span>
-      </button>
-      {open ? (
-        <ul className="il-search__files">
-          {result.files.map((f) => (
-            <FileRow
-              key={f.filename}
-              file={f}
-              repoId={result.repoId}
-              downloads={downloads}
-              localModels={localModels}
-              activeModel={activeModel}
-              onRefresh={onRefresh}
-            />
-          ))}
-        </ul>
-      ) : null}
-    </li>
-  );
-}
-
-function FileRow({
-  file,
-  repoId,
-  downloads,
-  localModels,
-  activeModel,
-  onRefresh,
-}: {
-  file: HfSearchFile;
-  repoId: string;
-  downloads: DownloadJob[];
-  localModels: LocalModel[];
-  activeModel: ActiveModel | null;
-  onRefresh: () => void;
-}) {
-  const toasts = useToasts();
-  const [busy, setBusy] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<LocalModelType | null>(null);
-
-  const ms = deriveModelState(repoId, file.filename, downloads, localModels, activeModel);
-  const job = ms.job;
-  const pct = job && job.bytesTotal > 0 ? Math.round((job.bytesDone / job.bytesTotal) * 100) : 0;
-
-  const download = async () => {
-    setBusy(true);
-    try {
-      await modelsApi.download(repoId, file.filename);
-      toasts.success(`Downloading ${file.filename}`);
-      onRefresh();
-    } catch (err) {
-      toasts.error(
-        err instanceof ApiError && err.isOffline
-          ? "Daemon unreachable — can't start download."
-          : "Could not start the download.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <li className="il-search__file">
-        <div className="il-search__file-main">
-          <span className="il-mono il-search__filename">{file.filename}</span>
-          <span className="il-search__file-meta">
-            {file.quant ? <Badge variant="neutral">{file.quant}</Badge> : null}
-            <span className="il-meta">{bytesToGB(file.sizeBytes)} GB</span>
-          </span>
-        </div>
-
-        {ms.state === "active" ? (
-          <Badge variant="success">Active ✓</Badge>
-        ) : ms.state === "installed" ? (
-          <div className="il-search__file-actions">
-            <Badge variant="success">Installed ✓</Badge>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setRemoveTarget(ms.localModel!)}
-            >
-              Remove
-            </Button>
-          </div>
-        ) : ms.state === "queued" || ms.state === "downloading" ? (
-          <div className="il-model-card__progress-row">
-            <Spinner size="sm" />
-            <span className="il-meta">
-              {ms.state === "queued" ? "Queued" : `${pct}%`}
-            </span>
-          </div>
-        ) : (
-          <Button size="sm" variant="secondary" onClick={download} disabled={busy}>
-            {busy ? "Starting…" : "Download"}
-          </Button>
-        )}
-      </li>
-
-      {removeTarget ? (
-        <RemoveModelModal
-          model={removeTarget}
-          activeModel={activeModel}
-          onClose={() => setRemoveTarget(null)}
-          onRemoved={() => {
-            setRemoveTarget(null);
-            onRefresh();
-          }}
-        />
-      ) : null}
-    </>
-  );
+export function fmtCtxShort(ctx: number): string {
+  return ctx >= 1024 ? `${Math.round(ctx / 1024)}k` : String(ctx);
 }
 
 function SearchIcon() {

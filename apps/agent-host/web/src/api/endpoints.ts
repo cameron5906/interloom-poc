@@ -16,6 +16,7 @@ import type {
   NetworkLoginResult,
   FitAnnotatedModel,
   HfSearchResult,
+  HfRepoDetail,
   ActivateResult,
   ActiveModel,
   ContextOptions,
@@ -42,10 +43,15 @@ export const models = {
     api.get<FitAnnotatedModel[]>("/api/models/curated", signal),
   search: (q: string, signal?: AbortSignal) =>
     api.get<HfSearchResult[]>(`/api/models/search?q=${encodeURIComponent(q)}`, signal),
+  hfDetail: (repoId: string, signal?: AbortSignal) =>
+    api.get<HfRepoDetail>(`/api/models/hf-detail?repoId=${encodeURIComponent(repoId)}`, signal),
   local: (signal?: AbortSignal) => api.get<LocalModel[]>("/api/models/local", signal),
   downloads: (signal?: AbortSignal) => api.get<DownloadJob[]>("/api/models/downloads", signal),
-  download: (repoId: string, filename: string) =>
-    api.post<{ id: string }>("/api/models/download", { repoId, filename }),
+  download: (repoId: string, filename: string, mmprojFilename?: string) =>
+    api.post<{ id: string }>(
+      "/api/models/download",
+      mmprojFilename ? { repoId, filename, mmprojFilename } : { repoId, filename },
+    ),
   contextOptions: (path: string, signal?: AbortSignal) =>
     api.get<ContextOptions>(`/api/models/context-options?path=${encodeURIComponent(path)}`, signal),
   activate: (path: string, ctx?: number) =>

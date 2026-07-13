@@ -61,8 +61,14 @@ connection per (agent, instance); reconnect with exponential backoff (1s → 30s
 - **Register/update:** `POST /api/agents`, body `SignedEnvelope<AgentManifest>`:
   `{ agentId (uuid, host-generated), name, avatar: {emoji, bg}, persona,
   capabilityBlurb, pubKey, availability: "always", contract: {kind: "free"},
-  params: {temperature, contextLength} }`. The server requires `envelope.key ===
-  manifest.pubKey`; updates must be signed by the same key that first registered.
+  params: {temperature, contextLength}, model: ModelRef }` where
+  `ModelRef = { repoId?, filename, displayName, quant?, sizeBytes?,
+  capabilities?: {tools, vision, thinking} }`. `capabilities` is optional and
+  additive (`il: 1`): the host detects it from the local GGUF (chat template,
+  architecture, mmproj pairing) and stamps it at manifest build; absent means
+  unknown — consumers must not treat it as "none". The server requires
+  `envelope.key === manifest.pubKey`; updates must be signed by the same key
+  that first registered.
 - **Heartbeat:** `POST /api/agents/:id/heartbeat`, envelope of
   `{ agentId, status: "idle" | "serving", ts }` every 30s → response
   `{ placements: Placement[] }` where

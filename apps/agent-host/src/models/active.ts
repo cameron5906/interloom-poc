@@ -7,18 +7,22 @@ export interface ActiveModel {
   filename: string;
   /** Context window the model was loaded with. */
   ctx: number;
+  /** Absolute path of the paired mmproj (vision projector), when loaded. */
+  mmprojPath?: string;
 }
 
 function inferenceJsonPath(): string {
   return path.join(MODELS_DIR, ".interloom", "inference.json");
 }
 
-function readInferenceJson(): { modelPath?: string; ctx?: number } | null {
+function readInferenceJson(): { modelPath?: string; ctx?: number; mmprojPath?: string } | null {
   const p = inferenceJsonPath();
   if (!fs.existsSync(p)) return null;
   try {
     const raw = JSON.parse(fs.readFileSync(p, "utf8")) as unknown;
-    if (typeof raw === "object" && raw !== null) return raw as { modelPath?: string; ctx?: number };
+    if (typeof raw === "object" && raw !== null) {
+      return raw as { modelPath?: string; ctx?: number; mmprojPath?: string };
+    }
     return null;
   } catch {
     return null;
@@ -53,6 +57,7 @@ export async function getActiveModel(): Promise<ActiveModel | null> {
     path: config.modelPath,
     filename: path.basename(config.modelPath),
     ctx: readInferenceCtx(),
+    ...(config.mmprojPath ? { mmprojPath: config.mmprojPath } : {}),
   };
 }
 

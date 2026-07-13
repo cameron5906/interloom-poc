@@ -33,3 +33,18 @@ export type { EmptyStateProps } from "./components/EmptyState.js";
 
 export { TypingDots } from "./components/TypingDots.js";
 export type { TypingDotsProps } from "./components/TypingDots.js";
+
+export { ApprovalRequest } from "./components/ApprovalRequest.js";
+export type { ApprovalRequestProps, ApprovalStatus } from "./components/ApprovalRequest.js";
+
+export { ShellOutput } from "./components/ShellOutput.js";
+export type { ShellOutputProps } from "./components/ShellOutput.js";
+
+export { FeedbackRequest } from "./components/FeedbackRequest.js";
+export type {
+  FeedbackRequestProps,
+  FeedbackOption,
+  FeedbackAnswer,
+} from "./components/FeedbackRequest.js";
+export { CapabilityBadges } from "./components/CapabilityBadges.js";
+export type { CapabilityBadgesProps, ModelCapabilityFlags } from "./components/CapabilityBadges.js";

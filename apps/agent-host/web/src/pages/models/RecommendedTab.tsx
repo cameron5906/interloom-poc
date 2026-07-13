@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Badge, Button, EmptyState, Spinner } from "@interloom/ui";
+import { Badge, Button, CapabilityBadges, EmptyState, Spinner } from "@interloom/ui";
 import type { DownloadJob, LocalModel } from "@interloom/protocol";
 import type { FitAnnotatedModel, ActiveModel } from "../../api/types.js";
 import { models as modelsApi } from "../../api/endpoints.js";
@@ -123,6 +123,7 @@ function RecommendedCard({
           <div className="il-model-card__name">{model.displayName}</div>
           <Badge variant="neutral">{model.quant}</Badge>
         </div>
+        <CapabilityBadges capabilities={model.capabilities} size="sm" />
         <div className="il-meta il-model-card__size">
           {bytesToGB(model.sizeBytes)} GB · needs {mbToGB(model.minVramMB)} GB
         </div>

@@ -54,10 +54,12 @@ start_llama() {
   local model_path
   local ctx
   local ngl
+  local mmproj_path
 
   model_path="$(json_field "$config" "modelPath")"
   ctx="$(json_num "$config" "ctx")"
   ngl="$(json_num "$config" "ngl")"
+  mmproj_path="$(json_field "$config" "mmprojPath")"
 
   ctx="${ctx:-4096}"
 
@@ -76,6 +78,10 @@ start_llama() {
   # Add GPU layers flag only when ngl is set (CUDA image)
   if [ -n "$ngl" ]; then
     args="$args -ngl $ngl"
+  fi
+
+  if [ -n "$mmproj_path" ] && [ -f "$mmproj_path" ]; then
+    args="$args --mmproj $mmproj_path"
   fi
 
   log "Starting llama-server: $LLAMA_BIN $args"

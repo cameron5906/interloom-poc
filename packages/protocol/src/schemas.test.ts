@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentManifest,
+  ChatMessage,
   ClientWsMessage,
+  CuratedModel,
   InviteVoucher,
+  LocalModel,
   Placement,
+  ModelRef,
   ServerWsEvent,
   signedEnvelope,
   TelemetryFrame,
   WebhookEvent,
 } from "./index.js";
+import { ModelCapabilities } from "./model.js";
 
 describe("InviteVoucher schema", () => {
   const base = {
@@ -299,5 +304,88 @@ describe("TelemetryFrame schema", () => {
       agents: [],
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("auto-join wire additions", () => {
+  it("ChatMessage accepts an optional system flag", () => {
+    const m = ChatMessage.parse({
+      id: "m1",
+      channelId: "c1",
+      authorId: "system",
+      authorName: "",
+      isAgent: false,
+      text: "Cam added Bob to the channel",
+      mentions: [],
+      createdAt: "2026-07-12T00:00:00.000Z",
+      system: true,
+    });
+    expect(m.system).toBe(true);
+  });
+
+  it("message.send accepts optional addMemberIds", () => {
+    const s = ClientWsMessage.parse({
+      type: "message.send",
+      channelId: "c1",
+      text: "hi @Bob",
+      addMemberIds: ["bob"],
+    });
+    expect(s.type === "message.send" && s.addMemberIds).toEqual(["bob"]);
+  });
+
+  it("parses a channel.member.added event", () => {
+    const e = ServerWsEvent.parse({
+      type: "channel.member.added",
+      channelId: "c1",
+      memberIds: ["bob"],
+      byName: "Cam",
+    });
+    expect(e.type).toBe("channel.member.added");
+    expect(e.type === "channel.member.added" && e.memberIds).toEqual(["bob"]);
+  });
+});
+
+describe("ModelCapabilities (additive, CONTRACTS §4)", () => {
+  it("round-trips a ModelRef with capabilities", () => {
+    const ref = {
+      filename: "Qwen3-8B-Q4_K_M.gguf",
+      displayName: "Qwen3 8B",
+      capabilities: { tools: true, vision: false, thinking: true },
+    };
+    const parsed = ModelRef.parse(ref);
+    expect(parsed.capabilities).toEqual({ tools: true, vision: false, thinking: true });
+  });
+
+  it("ModelRef without capabilities still parses (old manifests stay valid)", () => {
+    const parsed = ModelRef.parse({ filename: "a.gguf", displayName: "A" });
+    expect(parsed.capabilities).toBeUndefined();
+  });
+
+  it("LocalModel accepts capabilities + mmproj pairing fields", () => {
+    const parsed = LocalModel.parse({
+      path: "/models/repo/model.gguf",
+      filename: "model.gguf",
+      sizeBytes: 123,
+      capabilities: { tools: false, vision: true, thinking: false },
+      mmprojPath: "/models/repo/mmproj-f16.gguf",
+      mmprojBytes: 456,
+    });
+    expect(parsed.mmprojPath).toBe("/models/repo/mmproj-f16.gguf");
+  });
+
+  it("CuratedModel accepts optional capabilities", () => {
+    const base = {
+      id: "x", repoId: "r/x", filename: "x.gguf", displayName: "X",
+      sizeBytes: 1, quant: "Q4_K_M", minVramMB: 1, tier: "cpu" as const, blurb: "b",
+    };
+    expect(CuratedModel.parse(base).capabilities).toBeUndefined();
+    expect(
+      CuratedModel.parse({ ...base, capabilities: { tools: true, vision: false, thinking: false } })
+        .capabilities?.tools,
+    ).toBe(true);
+  });
+
+  it("ModelCapabilities rejects missing keys", () => {
+    expect(ModelCapabilities.safeParse({ tools: true }).success).toBe(false);
   });
 });

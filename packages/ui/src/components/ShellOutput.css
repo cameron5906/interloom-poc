@@ -1,0 +1,153 @@
+/**
+ * Dark mono terminal panel — palette matches the host portal telemetry
+ * surfaces (DESIGN_NOTES.md "Telemetry": #1c1b18 bg, #e8e6df text).
+ */
+.il-shell {
+  background: #1c1b18;
+  border: 1px solid #2a2925;
+  border-radius: var(--il-radius-md);
+  overflow: hidden;
+  max-width: 640px;
+}
+
+.il-shell__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #2a2925;
+  font-family: var(--il-font-mono);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.il-shell__prompt {
+  color: #6f6d64;
+  flex: none;
+}
+
+.il-shell__cmd {
+  color: #e8e6df;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.il-shell__meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.il-shell__label {
+  color: #8b887e;
+  font-size: 10.5px;
+}
+
+.il-shell__paused {
+  color: #d9b96b;
+  font-size: 10px;
+}
+
+.il-shell__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.il-shell__status--run {
+  color: #7fcf9f;
+}
+
+.il-shell__status--ok {
+  color: #7fcf9f;
+}
+
+.il-shell__status--err {
+  color: #e0897f;
+}
+
+.il-shell__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: il-shell-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes il-shell-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.75);
+  }
+}
+
+.il-shell__body {
+  overflow-y: auto;
+  padding: 9px 12px 11px;
+  font-family: var(--il-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: #d6d4cb;
+  scrollbar-width: thin;
+  scrollbar-color: #45433d transparent;
+}
+
+.il-shell__body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.il-shell__body::-webkit-scrollbar-thumb {
+  background: #45433d;
+  border-radius: 4px;
+}
+
+.il-shell__line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.il-shell__line--in {
+  animation: il-shell-line-in 180ms ease backwards;
+}
+
+@keyframes il-shell-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.il-shell__cursor {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  vertical-align: text-bottom;
+  background: #7fcf9f;
+  animation: il-shell-blink 1s steps(2, start) infinite;
+}
+
+@keyframes il-shell-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .il-shell__line--in,
+  .il-shell__dot {
+    animation: none;
+  }
+}

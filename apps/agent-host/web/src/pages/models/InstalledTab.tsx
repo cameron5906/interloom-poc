@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Badge, Button, EmptyState, Modal } from "@interloom/ui";
+import { Badge, Button, CapabilityBadges, EmptyState, Modal } from "@interloom/ui";
 import type { LocalModel, HostAgent } from "@interloom/protocol";
 import type { ActiveModel, ContextOptions, ContextOption } from "../../api/types.js";
 import { models as modelsApi, agents as agentsApi } from "../../api/endpoints.js";
@@ -48,13 +48,7 @@ export function InstalledTab({ localModels, activeModel, onGoToRecommended, onRe
   };
 
   const handleActivateClick = (model: LocalModel) => {
-    const goingOnline = allAgents.filter((a) => a.model?.filename === model.filename);
-    const goingOffline = allAgents.filter((a) => a.model && a.model.filename !== model.filename);
-    if (goingOnline.length > 0 || goingOffline.length > 0) {
-      setImpactTarget(model);
-    } else {
-      setImpactTarget(model);
-    }
+    setImpactTarget(model);
   };
 
   if (agentList.loading && agentList.initialLoad && localModels.length === 0) {
@@ -103,6 +97,7 @@ export function InstalledTab({ localModels, activeModel, onGoToRecommended, onRe
                 <div className="il-installed__name">
                   <span className="il-mono il-installed__filename">{m.filename}</span>
                   {isActive ? <Badge variant="success">ACTIVE</Badge> : null}
+                  <CapabilityBadges capabilities={m.capabilities} size="sm" />
                 </div>
                 <div className="il-meta">
                   {bytesToGB(m.sizeBytes)} GB
@@ -110,6 +105,11 @@ export function InstalledTab({ localModels, activeModel, onGoToRecommended, onRe
                     <span className="il-installed__ctx-suffix il-mono"> @ {fmtCtx(activeModel.ctx)} ctx</span>
                   ) : null}
                 </div>
+                {m.mmprojPath ? (
+                  <div className="il-meta">vision projector paired ({fmtKv(m.mmprojBytes ?? 0).slice(1)})</div>
+                ) : m.capabilities?.vision ? (
+                  <div className="il-meta">vision projector missing — re-download from Search to enable vision</div>
+                ) : null}
                 {isActive && agentsOnThisModel.length > 0 ? (
                   <div className="il-installed__agents-online il-meta">
                     {agentsOnThisModel.length} agent{agentsOnThisModel.length === 1 ? "" : "s"} online on this model
@@ -279,6 +279,13 @@ function ActivationImpactModal({
               </span>
             ) : null}
           </div>
+
+          {model.mmprojPath ? (
+            <p className="il-meta">
+              loads vision projector ({fmtKv(model.mmprojBytes ?? 0).slice(1)}) — included in the fit
+              figures below
+            </p>
+          ) : null}
 
           {!exact && (
             <p className="il-ctx-picker__estimated il-mono">

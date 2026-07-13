@@ -1,0 +1,126 @@
+.il-approval {
+  background: var(--il-bg-card);
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  box-shadow: var(--il-shadow-card);
+  padding: 12px 14px 13px;
+  max-width: 560px;
+}
+
+.il-approval__kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.il-approval__chip {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.il-approval__chip--pending {
+  background: var(--il-warning-tint);
+  color: var(--il-warning-deep);
+}
+
+.il-approval__chip--approved {
+  background: var(--il-success-tint);
+  color: var(--il-success-deep);
+}
+
+.il-approval__chip--rejected {
+  background: var(--il-danger-tint);
+  color: var(--il-danger-deep);
+}
+
+.il-approval__label {
+  font-family: var(--il-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--il-text-muted);
+}
+
+.il-approval__tool {
+  margin-left: auto;
+  font-family: var(--il-font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--il-accent);
+  background: var(--il-accent-tint);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.il-approval__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--il-text-primary);
+  margin-bottom: 3px;
+}
+
+.il-approval__reason {
+  font-size: 13px;
+  color: var(--il-text-secondary);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.il-approval__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.il-approval__reject {
+  margin-top: 12px;
+  animation: il-approval-in 160ms ease;
+}
+
+.il-approval__reject .il-approval__actions {
+  margin-top: 8px;
+}
+
+@keyframes il-approval-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.il-approval__resolution {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.il-approval__meta {
+  font-family: var(--il-font-mono);
+  font-size: 11px;
+  color: var(--il-text-faint);
+}
+
+.il-approval__note {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--il-danger);
+  background: var(--il-bg-system);
+  border-radius: 0 var(--il-radius-sm) var(--il-radius-sm) 0;
+  font-size: 12.5px;
+  color: var(--il-text-secondary);
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .il-approval__reject {
+    animation: none;
+  }
+}

@@ -235,3 +235,24 @@ describe("buildContextOptions — exact path (GGUF parse succeeds)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// buildContextOptions — mmproj-aware fit (CONTRACTS §6)
+// ---------------------------------------------------------------------------
+
+describe("mmproj-aware fit (CONTRACTS §6)", () => {
+  it("adding mmprojBytes shrinks or removes fast options versus without", () => {
+    const gpus = [{ name: "RTX 3080", vramMB: 10240, kind: "cuda" as const }];
+    const without = buildContextOptions("/nonexistent.gguf", 7 * 1024 ** 3, gpus, undefined);
+    const withMmproj = buildContextOptions(
+      "/nonexistent.gguf",
+      7 * 1024 ** 3,
+      gpus,
+      undefined,
+      1.5 * 1024 ** 3,
+    );
+    const fastCount = (o: typeof without) => o.options.filter((x) => x.fit === "fast").length;
+    expect(fastCount(withMmproj)).toBeLessThanOrEqual(fastCount(without));
+    expect(withMmproj.recommendedCtx).toBeLessThanOrEqual(without.recommendedCtx);
+  });
+});

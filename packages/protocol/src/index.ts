@@ -3,4 +3,5 @@ export * from "./model.js";
 export * from "./tunnel.js";
 export * from "./registry.js";
 export * from "./chat.js";
+export * from "./mentions.js";
 export * from "./host.js";

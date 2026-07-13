@@ -31,3 +31,7 @@
 @import "./components/Spinner.css";
 @import "./components/EmptyState.css";
 @import "./components/TypingDots.css";
+@import "./components/ApprovalRequest.css";
+@import "./components/ShellOutput.css";
+@import "./components/FeedbackRequest.css";
+@import "./components/CapabilityBadges.css";

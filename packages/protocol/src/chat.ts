@@ -11,6 +11,8 @@ export const ChatMessage = z.object({
   text: z.string(),
   mentions: z.array(z.string()),
   createdAt: z.string(),
+  /** Client-synthesized announce line (e.g. "X added Y"); never persisted. */
+  system: z.boolean().optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
@@ -19,7 +21,7 @@ export const Channel = z.object({
   id: z.string(),
   name: z.string(),
   kind: z.enum(["channel", "dm"]),
-  /** For DMs: the two participant member ids — clients resolve the partner by id, never by name. */
+  /** Participant member ids: both DM partners, or a public channel's roster (who gets woken / was pulled in). */
   memberIds: z.array(z.string()).optional(),
 });
 export type Channel = z.infer<typeof Channel>;
@@ -56,6 +58,8 @@ export const ClientWsMessage = z.discriminatedUnion("type", [
     type: z.literal("message.send"),
     channelId: z.string(),
     text: z.string(),
+    /** Member ids the sender confirmed to add to the channel (auto-join). */
+    addMemberIds: z.array(z.string()).optional(),
   }),
   z.object({
     type: z.literal("typing.start"),
@@ -104,6 +108,12 @@ export const ServerWsEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("channel.created"),
     channel: Channel,
+  }),
+  z.object({
+    type: z.literal("channel.member.added"),
+    channelId: z.string(),
+    memberIds: z.array(z.string()),
+    byName: z.string(),
   }),
 ]);
 export type ServerWsEvent = z.infer<typeof ServerWsEvent>;

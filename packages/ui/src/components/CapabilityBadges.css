@@ -1,0 +1,45 @@
+/* Capability chips (spec: solid = definitive parse, dashed = estimate). */
+.il-capbadges {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  vertical-align: middle;
+}
+.il-capbadge {
+  font-family: var(--il-font-mono);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: var(--il-radius-pill);
+  border: 1px solid transparent;
+  padding: 1px 7px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.il-capbadges--sm .il-capbadge {
+  font-size: 9px;
+  padding: 0.5px 6px;
+}
+.il-capbadge--text {
+  background: var(--il-bg-rail);
+  color: var(--il-text-secondary);
+  border-color: var(--il-border-strong);
+}
+.il-capbadge--tools {
+  background: var(--il-accent-tint);
+  color: var(--il-accent);
+  border-color: color-mix(in srgb, var(--il-accent) 25%, transparent);
+}
+.il-capbadge--vision {
+  background: var(--il-active-tint);
+  color: var(--il-active);
+  border-color: color-mix(in srgb, var(--il-active) 25%, transparent);
+}
+.il-capbadge--thinking {
+  background: var(--il-warning-tint);
+  color: var(--il-warning-deep);
+  border-color: color-mix(in srgb, var(--il-warning) 30%, transparent);
+}
+.il-capbadge--est {
+  border-style: dashed;
+  background: transparent;
+}

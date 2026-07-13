@@ -17,6 +17,7 @@ import { ApiError } from "./client.js";
 export interface PreviewMessage {
   role: "user" | "assistant";
   content: string;
+  images?: string[];
 }
 
 export interface PreviewUsage {
@@ -65,7 +66,13 @@ export function streamPreview(
     }
 
     if (!res.ok || !res.body) {
-      handlers.onError(new ApiError(`Preview failed (${res.status})`, res.status));
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch {
+        /* non-JSON error body — leave body undefined */
+      }
+      handlers.onError(new ApiError(`Preview failed (${res.status})`, res.status, body));
       return;
     }
 

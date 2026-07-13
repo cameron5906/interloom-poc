@@ -9,6 +9,9 @@ import { ContextOptions } from "@interloom/protocol";
 import { CURATED_MODELS } from "./curated.js";
 import { getActiveModel } from "./active.js";
 import { parseGgufMeta } from "./gguf.js";
+import { scanLocalModels } from "./scan.js";
+import { computeAvailableVramMB, kvBytes, fitTier } from "./fit.js";
+import { mapSearchRows, buildRepoDetail } from "./hf.js";
 import {
   getHfStatus,
   connectHfToken,
@@ -16,9 +19,12 @@ import {
   getHfToken,
 } from "../settings.js";
 
+export { computeAvailableVramMB, kvBytes, fitTier, type FitTierInput } from "./fit.js";
+
 const DownloadBody = z.object({
   repoId: z.string().min(1),
   filename: z.string().min(1),
+  mmprojFilename: z.string().min(1).optional(),
 });
 
 const ActivateBody = z.object({
@@ -47,20 +53,6 @@ export interface CuratedModelWithFits {
   fits: boolean;
 }
 
-export function computeAvailableVramMB(
-  gpus: GpuInfo[],
-  unifiedMemoryMB?: number,
-): number {
-  const discreteGpus = gpus.filter((g) => g.kind === "cuda");
-  if (discreteGpus.length > 0) {
-    return Math.max(...discreteGpus.map((g) => g.vramMB));
-  }
-  if (unifiedMemoryMB !== undefined) {
-    return unifiedMemoryMB;
-  }
-  return 8192;
-}
-
 export function annotateWithFits(
   gpus: GpuInfo[],
   unifiedMemoryMB?: number,
@@ -70,27 +62,6 @@ export function annotateWithFits(
     ...m,
     fits: m.minVramMB <= availableVramMB,
   }));
-}
-
-async function scanGgufFiles(dir: string): Promise<Array<{ path: string; filename: string; sizeBytes: number }>> {
-  const results: Array<{ path: string; filename: string; sizeBytes: number }> = [];
-  if (!fs.existsSync(dir)) return results;
-
-  function walk(current: string): void {
-    const entries = fs.readdirSync(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name.endsWith(".gguf")) {
-        const stat = fs.statSync(full);
-        results.push({ path: full, filename: entry.name, sizeBytes: stat.size });
-      }
-    }
-  }
-
-  walk(dir);
-  return results;
 }
 
 /**
@@ -110,76 +81,6 @@ function assertInsideModelsDir(filePath: string): string {
 // Context-options computation (CONTRACTS §6)
 // ---------------------------------------------------------------------------
 
-export interface FitTierInput {
-  fileSizeBytes: number;
-  gpus: GpuInfo[];
-  unifiedMemoryMB?: number;
-  layers: number;
-  kvHeads: number;
-  headDim: number;
-  ctx: number;
-}
-
-/**
- * Compute KV-cache bytes for a given context length.
- * Formula: 2 × layers × kv_heads × head_dim × 2 bytes × ctx
- */
-export function kvBytes(layers: number, kvHeads: number, headDim: number, ctx: number): number {
-  return 2 * layers * kvHeads * headDim * 2 * ctx;
-}
-
-/**
- * Classify a context size into a fit tier against the host hardware.
- *
- * fast  — model weights + KV ≤ free VRAM
- * spill — model weights + KV ≤ VRAM + 50% system RAM
- * no    — too large to load
- *
- * Unified memory (arm64, no discrete GPU): the "VRAM" is treated as system
- * RAM as well, so free VRAM equals unifiedMemoryMB and spill bound adds
- * 50% of that same pool — both come from the same physical memory.
- */
-export function fitTier(input: FitTierInput): "fast" | "spill" | "no" {
-  const {
-    fileSizeBytes,
-    gpus,
-    unifiedMemoryMB,
-    layers,
-    kvHeads,
-    headDim,
-    ctx,
-  } = input;
-
-  const OVERHEAD_BYTES = 1.5 * 1024 * 1024 * 1024; // 1.5 GB runtime overhead
-  const kv = kvBytes(layers, kvHeads, headDim, ctx);
-  const total = fileSizeBytes + kv + OVERHEAD_BYTES;
-
-  const arch = os.arch();
-  const isUnified = arch === "arm64" && !gpus.some((g) => g.kind === "cuda");
-
-  let freeVramBytes: number;
-  let spillBoundBytes: number;
-
-  if (isUnified && unifiedMemoryMB !== undefined) {
-    freeVramBytes = unifiedMemoryMB * 1024 * 1024;
-    // On unified memory, "system RAM" is the same pool — spill adds 50% of it
-    spillBoundBytes = freeVramBytes + 0.5 * freeVramBytes;
-  } else {
-    const discreteGpus = gpus.filter((g) => g.kind === "cuda");
-    const vramMB =
-      discreteGpus.length > 0
-        ? Math.max(...discreteGpus.map((g) => g.vramMB))
-        : 0;
-    freeVramBytes = vramMB * 1024 * 1024;
-    const totalRamBytes = os.totalmem();
-    spillBoundBytes = freeVramBytes + 0.5 * totalRamBytes;
-  }
-
-  if (total <= freeVramBytes) return "fast";
-  if (total <= spillBoundBytes) return "spill";
-  return "no";
-}
-
 /**
  * Build the full ContextOptions payload for a model file.
  * Exported for unit testing.
@@ -189,6 +90,7 @@ export function buildContextOptions(
   fileSizeBytes: number,
   gpus: GpuInfo[],
   unifiedMemoryMB?: number,
+  mmprojBytes = 0,
 ): import("@interloom/protocol").ContextOptions {
   const meta = parseGgufMeta(filePath);
 
@@ -208,7 +110,7 @@ export function buildContextOptions(
 
     const options = candidates.map((ctx) => {
       const kv = kvBytesPerToken * ctx;
-      const totalBytes = fileSizeBytes + kv + 1.5 * 1024 * 1024 * 1024;
+      const totalBytes = fileSizeBytes + mmprojBytes + kv + 1.5 * 1024 * 1024 * 1024;
       const freeVram = computeAvailableVramMB(gpus, unifiedMemoryMB) * 1024 * 1024;
       const totalRam = os.totalmem();
       const spillBound = freeVram + 0.5 * totalRam;
@@ -252,7 +154,15 @@ export function buildContextOptions(
 
   const options = candidates.map((ctx) => {
     const kv = kvBytes(blockCount, kvHeads, headDim, ctx);
-    const fit = fitTier({ fileSizeBytes, gpus, unifiedMemoryMB, layers: blockCount, kvHeads, headDim, ctx });
+    const fit = fitTier({
+      fileSizeBytes: fileSizeBytes + mmprojBytes,
+      gpus,
+      unifiedMemoryMB,
+      layers: blockCount,
+      kvHeads,
+      headDim,
+      ctx,
+    });
     return { ctx, kvBytes: kv, fit };
   });
 
@@ -313,32 +223,40 @@ export function registerModelsRoutes(
     if (hfToken) headers["Authorization"] = `Bearer ${hfToken}`;
     try {
       const res = await fetch(
-        `https://huggingface.co/api/models?search=${encodeURIComponent(q)}&filter=gguf&limit=20`,
+        `https://huggingface.co/api/models?search=${encodeURIComponent(q)}&filter=gguf&limit=20&expand[]=gguf&expand[]=downloads&expand[]=likes&expand[]=tags`,
         { headers },
       );
       if (!res.ok) {
         return reply.status(502).send({ error: "HF search failed" });
       }
-      const data = await res.json() as Array<{
-        modelId?: string;
-        id?: string;
-        likes?: number;
-        downloads?: number;
-        siblings?: Array<{ rfilename: string; size?: number }>;
-      }>;
-      const mapped = data.map((m) => ({
-        repoId: m.modelId ?? m.id ?? "",
-        likes: m.likes ?? 0,
-        downloads: m.downloads ?? 0,
-        files: (m.siblings ?? [])
-          .filter((s) => s.rfilename.endsWith(".gguf"))
-          .map((s) => ({
-            filename: s.rfilename,
-            sizeBytes: s.size ?? 0,
-            quant: s.rfilename.match(/[QqIi][0-9_A-Za-z]+/)?.[0] ?? "",
-          })),
-      }));
-      return reply.send(mapped);
+      return reply.send(mapSearchRows((await res.json()) as Parameters<typeof mapSearchRows>[0]));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(502).send({ error: message });
+    }
+  });
+
+  app.get<{ Querystring: { repoId?: string } }>("/api/models/hf-detail", async (req, reply) => {
+    const repoId = req.query.repoId;
+    if (!repoId) return reply.status(400).send({ error: "repoId query parameter is required" });
+    const hfToken = getHfToken();
+    const headers: Record<string, string> = {};
+    if (hfToken) headers["Authorization"] = `Bearer ${hfToken}`;
+    try {
+      const res = await fetch(
+        `https://huggingface.co/api/models/${repoId.split("/").map(encodeURIComponent).join("/")}?blobs=true`,
+        { headers },
+      );
+      if (!res.ok) {
+        return reply.status(502).send({ error: "HF detail failed" });
+      }
+      const { gpus, unifiedMemoryMB } = await getSystemInfo();
+      return reply.send(
+        buildRepoDetail(repoId, (await res.json()) as Parameters<typeof buildRepoDetail>[1], {
+          gpus,
+          unifiedMemoryMB,
+        }),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(502).send({ error: message });
@@ -354,7 +272,7 @@ export function registerModelsRoutes(
       if (!parsed.success) {
         return reply.status(400).send({ error: parsed.error.message });
       }
-      const { repoId, filename } = parsed.data;
+      const { repoId, filename, mmprojFilename } = parsed.data;
       const hfToken = getHfToken();
       const fetcherBody: Record<string, unknown> = { repoId, filename };
       if (hfToken) fetcherBody["hfToken"] = hfToken;
@@ -368,7 +286,26 @@ export function registerModelsRoutes(
           const text = await res.text();
           return reply.status(502).send({ error: text });
         }
-        return reply.send(await res.json());
+        const job = await res.json();
+        if (mmprojFilename) {
+          const mmprojBody: Record<string, unknown> = { repoId, filename: mmprojFilename };
+          if (hfToken) mmprojBody["hfToken"] = hfToken;
+          try {
+            const mmprojRes = await fetch(`${FETCHER_URL}/downloads`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(mmprojBody),
+            });
+            if (!mmprojRes.ok) {
+              app.log.warn(
+                `mmproj download enqueue failed for ${repoId}/${mmprojFilename}: ${await mmprojRes.text()}`,
+              );
+            }
+          } catch {
+            app.log.warn(`mmproj download enqueue failed for ${repoId}/${mmprojFilename}`);
+          }
+        }
+        return reply.send(job);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(502).send({ error: `fetcher unavailable: ${message}` });
@@ -389,8 +326,7 @@ export function registerModelsRoutes(
   // --- Local model management ---
 
   app.get("/api/models/local", async (_req, reply) => {
-    const files = await scanGgufFiles(MODELS_DIR);
-    return reply.send(files);
+    return reply.send(scanLocalModels(MODELS_DIR));
   });
 
   app.delete<{ Body: unknown }>("/api/models/local", async (req, reply) => {
@@ -450,7 +386,14 @@ export function registerModelsRoutes(
 
     const stat = fs.statSync(resolvedPath);
     const { gpus, unifiedMemoryMB } = await getSystemInfo();
-    const result = buildContextOptions(resolvedPath, stat.size, gpus, unifiedMemoryMB);
+    const paired = scanLocalModels(MODELS_DIR).find((m) => path.resolve(m.path) === resolvedPath);
+    const result = buildContextOptions(
+      resolvedPath,
+      stat.size,
+      gpus,
+      unifiedMemoryMB,
+      paired?.mmprojBytes ?? 0,
+    );
     return reply.send(result);
   });
 
@@ -467,6 +410,10 @@ export function registerModelsRoutes(
       const inferenceJson = path.join(inferenceDir, "inference.json");
       const config: Record<string, unknown> = { modelPath };
       if (ctx !== undefined) config["ctx"] = ctx;
+      const pairedModel = scanLocalModels(MODELS_DIR).find(
+        (m) => path.resolve(m.path) === path.resolve(modelPath),
+      );
+      if (pairedModel?.mmprojPath) config["mmprojPath"] = pairedModel.mmprojPath;
       const tmp = inferenceJson + ".tmp";
       fs.writeFileSync(tmp, JSON.stringify(config, null, 2), "utf8");
       fs.renameSync(tmp, inferenceJson);

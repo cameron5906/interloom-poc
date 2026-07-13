@@ -1,45 +1,20 @@
 import type { FastifyInstance } from "fastify";
 import { HostAgent } from "@interloom/protocol";
-import type { AgentManifest } from "@interloom/protocol";
-import { signEnvelope } from "@interloom/keys";
 import { INFERENCE_URL } from "../config.js";
-import { getKeypair } from "../keys.js";
-import { networkRegisterAgent } from "../network/client.js";
 import { addRequestLogEntry } from "../telemetry/collector.js";
 import { normalizeMessages } from "../inference/normalize.js";
-import { resolvePreviewOptions, type PreviewBody } from "./preview.js";
+import { resolvePreviewOptions, buildPreviewMessages, type PreviewBody } from "./preview.js";
 import { getActiveModel, findLocalModelPath } from "../models/active.js";
 import { enqueueInference } from "../inference/gate.js";
 import { clampMaxTokens } from "../inference/limits.js";
+import { registerAgentOnNetwork } from "./register.js";
 import {
   listAgents,
   getAgent,
   createAgent,
   updateAgent,
   deleteAgent,
-  type Agent,
 } from "./store.js";
-
-async function registerAgentOnNetwork(agent: Agent): Promise<void> {
-  if (!agent.model) {
-    throw new Error("agent has no model — cannot register");
-  }
-  const keypair = getKeypair();
-  const manifest: AgentManifest = {
-    agentId: agent.agentId,
-    name: agent.name,
-    avatar: agent.avatar,
-    persona: agent.persona,
-    capabilityBlurb: agent.capabilityBlurb,
-    pubKey: keypair.publicKey,
-    availability: "always",
-    contract: { kind: "free" },
-    params: agent.params,
-    model: agent.model,
-  };
-  const envelope = signEnvelope(manifest, keypair.privateKey, keypair.publicKey);
-  await networkRegisterAgent(envelope);
-}
 
 export function registerAgentRoutes(app: FastifyInstance): void {
   app.get("/api/agents", async (_req, reply) => {
@@ -97,6 +72,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
 
   app.post<{ Params: { id: string }; Body: PreviewBody }>(
     "/api/agents/:id/preview",
+    { bodyLimit: 12 * 1024 * 1024 },
     async (req, reply) => {
       const agent = getAgent(req.params.id);
       if (!agent) return reply.status(404).send({ error: "not found" });
@@ -114,10 +90,10 @@ export function registerAgentRoutes(app: FastifyInstance): void {
       }
 
       const { persona, temperature } = resolvePreviewOptions(req.body, agent);
-      const messages = [
-        { role: "system", content: persona },
-        ...(req.body.messages ?? []),
-      ];
+      const { messages, hasImages } = buildPreviewMessages(persona, req.body.messages ?? []);
+      if (hasImages && !active.mmprojPath) {
+        return reply.status(400).send({ error: "vision_not_supported" });
+      }
 
       reply.raw.writeHead(200, {
         "content-type": "text/event-stream",

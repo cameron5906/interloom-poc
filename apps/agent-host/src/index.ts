@@ -7,6 +7,7 @@ import { registerSystemRoutes, getSystemInfo } from "./system.js";
 import { registerNetworkSessionRoutes } from "./network/session.js";
 import { registerModelsRoutes } from "./models/routes.js";
 import { registerAgentRoutes } from "./agents/routes.js";
+import { backfillCapabilities } from "./agents/register.js";
 import { registerTelemetryWs } from "./telemetry/ws.js";
 import { registerStatic } from "./static.js";
 import { startHeartbeatLoop, triggerHeartbeat } from "./heartbeat.js";
@@ -66,6 +67,10 @@ async function main(): Promise<void> {
   registerStatic(app);
 
   startHeartbeatLoop(tunnelManager);
+
+  void backfillCapabilities((msg) => app.log.info(msg)).catch((err) =>
+    app.log.warn({ err }, "capability backfill failed"),
+  );
 
   try {
     await app.listen({ port: PORT, host: "0.0.0.0" });

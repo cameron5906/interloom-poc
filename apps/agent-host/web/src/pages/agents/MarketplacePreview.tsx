@@ -1,4 +1,4 @@
-import { Avatar, Badge, StatusPill } from "@interloom/ui";
+import { Avatar, Badge, CapabilityBadges, StatusPill } from "@interloom/ui";
 import type { AgentDraft } from "../../api/types.js";
 
 /**
@@ -45,6 +45,7 @@ export function MarketplacePreview({
               {draft.model.filename}
               {draft.model.quant ? ` · ${draft.model.quant}` : ""}
             </span>
+            <CapabilityBadges capabilities={draft.model?.capabilities} size="sm" />
           </div>
         ) : null}
       </div>

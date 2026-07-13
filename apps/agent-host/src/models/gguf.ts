@@ -17,6 +17,8 @@ export interface GgufMeta {
   blockCount: number;
   kvHeads: number;
   headDim: number;
+  /** Raw tokenizer.chat_template when present — capability detection input. */
+  chatTemplate?: string;
 }
 
 // GGUF magic bytes: "GGUF" in little-endian u32 = 0x46554747
@@ -39,7 +41,7 @@ const GgufValueType = {
   FLOAT64: 12,
 } as const;
 
-const READ_LIMIT_BYTES = 8 * 1024 * 1024; // 8 MB max
+const READ_LIMIT_BYTES = 32 * 1024 * 1024; // 32 MB — vocab arrays precede chat_template
 
 /**
  * Buffered sequential reader over a file chunk. Supports reading fixed-width
@@ -254,11 +256,17 @@ function parseGgufMetaUnsafe(filePath: string): GgufMeta | null {
   const kv = new Map<string, string | number | boolean>();
 
   for (let i = 0; i < kvCount; i++) {
-    const key = r.string();
-    const valueType = r.u32();
-    const value = readScalarValue(r, valueType);
-    if (value !== undefined) {
-      kv.set(key, value);
+    try {
+      const key = r.string();
+      const valueType = r.u32();
+      const value = readScalarValue(r, valueType);
+      if (value !== undefined) {
+        kv.set(key, value);
+      }
+    } catch (err) {
+      // Truncated read window: keep whatever parsed cleanly so far.
+      if (err instanceof RangeError) break;
+      throw err;
     }
   }
 
@@ -297,11 +305,14 @@ function parseGgufMetaUnsafe(filePath: string): GgufMeta | null {
 
   if (headDim <= 0) return null;
 
+  const chatTemplate = kv.get("tokenizer.chat_template");
+
   return {
     architecture: arch,
     contextLength: Math.floor(contextLength),
     blockCount: Math.floor(blockCount),
     kvHeads: Math.floor(kvHeads),
     headDim: Math.floor(headDim),
+    ...(typeof chatTemplate === "string" && chatTemplate.length > 0 ? { chatTemplate } : {}),
   };
 }
