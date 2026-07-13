@@ -178,6 +178,8 @@ export const UpdateApplyState = z.object({
   version: z.string().optional(),
   error: z.string().optional(),
   finishedAt: z.string().optional(),
+  managed: z.boolean().optional(),
+  reason: z.string().optional(),
 });
 export type UpdateApplyState = z.infer<typeof UpdateApplyState>;
 

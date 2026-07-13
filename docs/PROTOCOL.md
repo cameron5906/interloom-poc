@@ -135,10 +135,15 @@ internally is not part of the shared protocol and may change.
 - **Updater sidecar** (`docker/host-updater`, image `interloom-host-updater`): a
   separate container with access to the Docker socket. It exposes
   `UpdateApplyState` (`{ state: "idle" | "pulling" | "applying" | "error" | "unknown",
-  version?, error?, finishedAt? }`) and applies **only** the version the release
+  version?, error?, finishedAt?, managed?, reason? }`) and applies **only** the version the release
   manifest currently advertises — compare-and-set against the manifest, not
   whatever the caller passes, so a stale or racing apply request can't downgrade or
   jump to an unpublished build. Applying rewrites `TAG=` in the install directory's
   `.env` and recreates the host-owner compose stack; it does not touch any other key.
+  Hosts that run the compose stack straight from a checkout (no installer-written
+  `.env` with `INTERLOOM_DIR`) report `managed: false` (+ `reason`) in `/status`, and
+  `POST /apply` refuses up front with 409 `{ error: "not_installer_managed" }` —
+  such hosts update by re-pulling their checkout's compose, or run the installer
+  once to become self-updating (named volumes carry models/agents across).
 - No `il: 1` tunnel wire changes ship with self-update — it is entirely host ⇄
   Network HTTP plus the local daemon ⇄ updater sidecar, outside the tunnel protocol.

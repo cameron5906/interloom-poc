@@ -110,6 +110,20 @@ describe("update routes", () => {
     expect(JSON.parse(res.body).apply.state).toBe("unknown");
   });
 
+  it("status passes through managed:false from the updater", async () => {
+    const app = Fastify();
+    registerUpdateRoutes(app, DEPS);
+    stubFetch({
+      manifest: () => jsonResponse(200, MANIFEST),
+      updaterStatus: () => jsonResponse(200, { state: "idle", managed: false, reason: "no_env_file" }),
+    });
+    await app.inject({ method: "POST", url: "/api/update/check" });
+    const res = await app.inject({ method: "GET", url: "/api/update/status" });
+    const body = JSON.parse(res.body);
+    expect(body.apply.managed).toBe(false);
+    expect(body.apply.reason).toBe("no_env_file");
+  });
+
   it("apply forwards the latest version to the updater", async () => {
     const app = await primedApp();
     const applyCalls: string[] = [];
@@ -151,5 +165,29 @@ describe("update routes", () => {
     const res = await app.inject({ method: "POST", url: "/api/update/apply" });
     expect(res.statusCode).toBe(502);
     expect(JSON.parse(res.body)).toEqual({ error: "updater_unreachable" });
+  });
+
+  it("apply passes through not_installer_managed from the updater verbatim", async () => {
+    const app = await primedApp();
+    stubFetch({
+      manifest: () => jsonResponse(200, MANIFEST),
+      updaterStatus: () => jsonResponse(200, { state: "idle" }),
+      updaterApply: () => jsonResponse(409, { error: "not_installer_managed", reason: "no_env_file" }),
+    });
+    const res = await app.inject({ method: "POST", url: "/api/update/apply" });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({ error: "not_installer_managed" });
+  });
+
+  it("apply still maps updater version_moved to daemon version_moved and re-checks", async () => {
+    const app = await primedApp();
+    stubFetch({
+      manifest: () => jsonResponse(200, MANIFEST),
+      updaterStatus: () => jsonResponse(200, { state: "idle" }),
+      updaterApply: () => jsonResponse(409, { error: "version_moved", advertised: "2026.07.13-abcdef1" }),
+    });
+    const res = await app.inject({ method: "POST", url: "/api/update/apply" });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({ error: "version_moved" });
   });
 });

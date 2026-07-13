@@ -67,9 +67,14 @@ export function registerUpdateRoutes(
       return reply.status(502).send({ error: "updater_unreachable" });
     }
     if (res.status === 409) {
-      // Manifest moved between our check and the updater's CAS — refresh ours.
-      void checkForUpdate();
-      return reply.status(409).send({ error: "version_moved" });
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const slug = body?.error;
+      if (slug === "version_moved") {
+        // Manifest moved between our check and the updater's CAS — refresh ours.
+        void checkForUpdate();
+        return reply.status(409).send({ error: "version_moved" });
+      }
+      return reply.status(409).send({ error: slug ?? "updater_conflict" });
     }
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;

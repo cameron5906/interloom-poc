@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isValidVersion, rewriteTag, parseEnv } from "./lib.mjs";
+import { isValidVersion, rewriteTag, parseEnv, managedState } from "./lib.mjs";
 
 test("accepts CI-stamped versions and latest, rejects shell metacharacters", () => {
   assert.equal(isValidVersion("2026.07.12-27d3674"), true);
@@ -31,4 +31,20 @@ test("parseEnv reads installer-written keys and ignores comments", () => {
   assert.equal(env.GPU, "1");
   assert.equal(env.TAG, "latest");
   assert.equal(Object.keys(env).length, 3);
+});
+
+test("managedState reports no_env_file when .env is missing", () => {
+  assert.deepEqual(managedState(null), { managed: false, reason: "no_env_file" });
+});
+
+test("managedState reports no_interloom_dir when .env lacks INTERLOOM_DIR", () => {
+  const env = "TAG=latest\nDOCKER_ORG=cameron59061\nGPU=0\n";
+  assert.deepEqual(managedState(env), { managed: false, reason: "no_interloom_dir" });
+});
+
+test("managedState reports managed true (no reason key) for installer-shaped .env", () => {
+  const env = "TAG=latest\nINTERLOOM_DIR=/home/josh/.interloom\nGPU=1\n";
+  const result = managedState(env);
+  assert.equal(result.managed, true);
+  assert.equal("reason" in result, false);
 });

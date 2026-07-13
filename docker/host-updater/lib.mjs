@@ -33,3 +33,13 @@ export function parseEnv(envContent) {
   }
   return env;
 }
+
+/** Installer-managed check: the apply path needs .env with INTERLOOM_DIR (absolute
+ * host path for the finisher bind). Repo-managed dev stacks fail this — they update
+ * by re-pulling their checkout's compose instead. */
+export function managedState(envContent) {
+  if (envContent === null) return { managed: false, reason: "no_env_file" };
+  const env = parseEnv(envContent);
+  if (!env.INTERLOOM_DIR) return { managed: false, reason: "no_interloom_dir" };
+  return { managed: true };
+}

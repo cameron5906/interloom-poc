@@ -3,6 +3,12 @@ import { Button, Modal, Spinner } from "@interloom/ui";
 import type { UpdateStatus } from "@interloom/protocol";
 import { system as systemApi, update as updateApi } from "../../api/endpoints.js";
 import { ApiError } from "../../api/client.js";
+import { InstallCommand } from "./InstallCommand.js";
+
+const NOT_INSTALLER_MANAGED_MESSAGE =
+  "This host runs from a checkout, not the installer, so it can't update itself. " +
+  "Re-run your stack's compose pull/up — or run the installer once to enable one-click " +
+  "updates (your models and agents live in Docker volumes and are kept):";
 
 type Phase = "confirm" | "starting" | "applying" | "success" | "failed";
 
@@ -31,9 +37,11 @@ export function UpdateModal({ current, target, networkUrl, onClose }: UpdateModa
       setError(
         err instanceof ApiError && err.isOffline
           ? "Daemon unreachable — is the stack running?"
-          : err instanceof ApiError
-            ? err.message
-            : "Could not start the update.",
+          : err instanceof ApiError && err.message === "not_installer_managed"
+            ? NOT_INSTALLER_MANAGED_MESSAGE
+            : err instanceof ApiError
+              ? err.message
+              : "Could not start the update.",
       );
       setPhase("failed");
     }
@@ -76,7 +84,6 @@ export function UpdateModal({ current, target, networkUrl, onClose }: UpdateModa
     };
   }, [phase, target.version]);
 
-  const fallbackCommand = `curl -fsSL ${networkUrl}/install.sh | sh`;
   const locked = phase === "applying" || phase === "starting";
 
   return (
@@ -122,10 +129,8 @@ export function UpdateModal({ current, target, networkUrl, onClose }: UpdateModa
         <div className="il-update-modal">
           <h2>Update did not complete</h2>
           <p>{error}</p>
-          <p>
-            You can update manually by re-running the installer:
-            <code className="il-mono il-update-modal__cmd">{fallbackCommand}</code>
-          </p>
+          <p>You can update manually by re-running the installer:</p>
+          <InstallCommand networkUrl={networkUrl} />
           <div className="il-update-modal__actions">
             <Button variant="secondary" onClick={onClose}>Close</Button>
           </div>

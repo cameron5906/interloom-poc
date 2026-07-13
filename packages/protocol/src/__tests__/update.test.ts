@@ -32,6 +32,18 @@ describe("host release schemas", () => {
     expect(UpdateApplyState.parse({ state: "unknown" }).state).toBe("unknown");
   });
 
+  it("UpdateApplyState carries managed/reason when the host is unmanaged", () => {
+    const s = UpdateApplyState.parse({ state: "idle", managed: false, reason: "no_env_file" });
+    expect(s.managed).toBe(false);
+    expect(s.reason).toBe("no_env_file");
+  });
+
+  it("UpdateApplyState leaves managed/reason undefined when omitted (additive)", () => {
+    const s = UpdateApplyState.parse({ state: "idle" });
+    expect(s.managed).toBeUndefined();
+    expect(s.reason).toBeUndefined();
+  });
+
   it("UpdateStatus round-trips the full shape", () => {
     const s = UpdateStatus.parse({
       current: { version: "2026.07.10-abc1234" },

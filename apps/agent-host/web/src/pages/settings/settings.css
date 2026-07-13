@@ -118,6 +118,14 @@
 .il-settings__update-title {
   font-weight: 600;
 }
+.il-settings__update-card--unmanaged {
+  display: block;
+}
+.il-settings__unmanaged {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 10px 0 0;
+}
 .il-update-modal h2 {
   margin: 0 0 10px;
 }

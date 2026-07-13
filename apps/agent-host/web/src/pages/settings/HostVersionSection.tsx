@@ -6,6 +6,7 @@ import { useToasts } from "../../components/Toasts.js";
 import { LoadError, Skeleton } from "../../components/States.js";
 import { relativeTime } from "../../lib/format.js";
 import { UpdateModal } from "./UpdateModal.js";
+import { InstallCommand } from "./InstallCommand.js";
 
 export function HostVersionSection() {
   const toasts = useToasts();
@@ -59,7 +60,28 @@ export function HostVersionSection() {
             )}
           </div>
 
-          {s.updateAvailable && s.latest && (
+          {s.updateAvailable && s.latest && s.apply.managed === false && (
+            <div className="il-settings__update-card il-settings__update-card--unmanaged">
+              <div>
+                <div className="il-settings__update-title">
+                  Update available: <span className="il-mono">v{s.latest.version}</span>
+                </div>
+                <div className="il-settings__version-meta">
+                  Published {relativeTime(s.latest.publishedAt)}
+                  {s.latest.notes ? ` — ${s.latest.notes}` : ""}
+                </div>
+                <p className="il-settings__unmanaged">
+                  This host runs from a checkout, not the installer, so it can&apos;t update
+                  itself. Re-run your stack&apos;s compose pull/up — or run the installer once to
+                  enable one-click updates (your models and agents live in Docker volumes and are
+                  kept):
+                </p>
+                <InstallCommand networkUrl={s.networkUrl} />
+              </div>
+            </div>
+          )}
+
+          {s.updateAvailable && s.latest && s.apply.managed !== false && (
             <div className="il-settings__update-card">
               <div>
                 <div className="il-settings__update-title">

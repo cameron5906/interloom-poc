@@ -8,7 +8,7 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { isValidVersion, rewriteTag, parseEnv } from "./lib.mjs";
+import { isValidVersion, rewriteTag, parseEnv, managedState } from "./lib.mjs";
 
 const PORT = Number(process.env.PORT ?? 7424);
 const CONFIG_DIR = process.env.HOST_CONFIG_DIR ?? "/host-config";
@@ -25,6 +25,14 @@ function readState() {
     return JSON.parse(readFileSync(STATE_FILE, "utf-8"));
   } catch {
     return { state: "idle" };
+  }
+}
+
+function readEnvSafe() {
+  try {
+    return readFileSync(ENV_FILE, "utf-8");
+  } catch {
+    return null;
   }
 }
 
@@ -74,7 +82,14 @@ async function downloadComposeFiles() {
 }
 
 async function applyUpdate(version) {
-  const envBefore = readFileSync(ENV_FILE, "utf-8");
+  const envRaw = readEnvSafe();
+  const m = managedState(envRaw);
+  if (!m.managed) {
+    throw new Error(
+      `host is not installer-managed (${m.reason}) — run the installer once to enable self-update`,
+    );
+  }
+  const envBefore = envRaw;
   const backups = new Map([[ENV_FILE, envBefore]]);
   for (const f of [COMPOSE_FILE, GPU_COMPOSE_FILE]) {
     if (existsSync(f)) backups.set(f, readFileSync(f, "utf-8"));
@@ -139,7 +154,8 @@ function send(res, status, body) {
 
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") return send(res, 200, { ok: true });
-  if (req.method === "GET" && req.url === "/status") return send(res, 200, readState());
+  if (req.method === "GET" && req.url === "/status")
+    return send(res, 200, { ...readState(), ...managedState(readEnvSafe()) });
 
   if (req.method === "POST" && req.url === "/apply") {
     let raw = "";
@@ -154,6 +170,9 @@ const server = http.createServer((req, res) => {
         }
         if (!isValidVersion(version)) return send(res, 400, { error: "invalid_version" });
         if (busy()) return send(res, 409, { error: "already_updating" });
+
+        const m = managedState(readEnvSafe());
+        if (!m.managed) return send(res, 409, { error: "not_installer_managed", reason: m.reason });
 
         let advertised;
         try {
