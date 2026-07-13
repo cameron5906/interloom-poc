@@ -8,6 +8,7 @@ import type {
   LocalModel,
   HostAgent,
   PlacementStatus,
+  UpdateStatus,
 } from "@interloom/protocol";
 import { api } from "./client.js";
 import type {
@@ -78,4 +79,10 @@ export const settings = {
   hf: (signal?: AbortSignal) => api.get<HfSettings>("/api/settings/hf", signal),
   setHfToken: (token: string) => api.post<HfTokenResult>("/api/settings/hf-token", { token }),
   deleteHfToken: () => api.del<void>("/api/settings/hf-token"),
+};
+
+export const update = {
+  status: (signal?: AbortSignal) => api.get<UpdateStatus>("/api/update/status", signal),
+  check: () => api.post<UpdateStatus>("/api/update/check"),
+  apply: () => api.post<{ status: "started" }>("/api/update/apply"),
 };

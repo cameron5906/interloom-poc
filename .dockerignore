@@ -21,7 +21,8 @@ models/
 
 # Docker outputs
 **/Dockerfile
-docker/
+docker/*
+!docker/host-updater
 
 # Misc
 *.log

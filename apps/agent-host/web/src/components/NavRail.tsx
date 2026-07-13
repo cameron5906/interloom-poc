@@ -9,6 +9,8 @@ interface NavRailProps {
   session: NetworkSession | undefined;
   hostKeys: HostKeys | undefined;
   daemonOnline: boolean;
+  updateAvailable: boolean;
+  version: string | undefined;
 }
 
 const NAV = [
@@ -19,7 +21,7 @@ const NAV = [
   { to: "/settings", label: "Settings", end: false, icon: SettingsIcon },
 ];
 
-export function NavRail({ session, hostKeys, daemonOnline }: NavRailProps) {
+export function NavRail({ session, hostKeys, daemonOnline, updateAvailable, version }: NavRailProps) {
   const sessionState: { tone: "success" | "warning" | "danger"; label: string; live: boolean } =
     !daemonOnline
       ? { tone: "danger", label: "daemon offline", live: false }
@@ -57,6 +59,12 @@ export function NavRail({ session, hostKeys, daemonOnline }: NavRailProps) {
       </ul>
 
       <div className="il-nav__footer">
+        {updateAvailable && (
+          <NavLink to="/settings" className="il-nav__update">
+            <span className="il-nav__update-dot" aria-hidden />
+            Update available
+          </NavLink>
+        )}
         <div className="il-nav__pubkey" title={hostKeys?.pubKey ?? "host key not yet generated"}>
           <span className="il-nav__pubkey-label">host</span>
           <span className="il-mono il-nav__pubkey-code">{shortCode(hostKeys?.pubKey)}</span>
@@ -64,6 +72,9 @@ export function NavRail({ session, hostKeys, daemonOnline }: NavRailProps) {
         <StatusPill tone={sessionState.tone} live={sessionState.live}>
           {sessionState.label}
         </StatusPill>
+        <div className="il-nav__version il-mono">
+          {version === undefined ? "" : version === "dev" ? "dev build" : `v${version}`}
+        </div>
       </div>
     </nav>
   );

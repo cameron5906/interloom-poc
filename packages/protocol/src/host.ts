@@ -18,6 +18,7 @@ export const SystemInfo = z.object({
   dockerized: z.literal(true),
   gpus: z.array(GpuInfo),
   unifiedMemoryMB: z.number().optional(),
+  version: z.string().optional(),
 });
 export type SystemInfo = z.infer<typeof SystemInfo>;
 
@@ -160,3 +161,36 @@ export const PlacementStatus = Placement.extend({
   tunnelStatus: z.enum(["connected", "connecting", "down"]),
 });
 export type PlacementStatus = z.infer<typeof PlacementStatus>;
+
+/** Published host release (network `GET /releases/host.json`, CONTRACTS §8). */
+export const HostReleaseManifest = z.object({
+  version: z.string(),
+  gitSha: z.string(),
+  publishedAt: z.string(),
+  images: z.array(z.string()),
+  notes: z.string().nullable(),
+});
+export type HostReleaseManifest = z.infer<typeof HostReleaseManifest>;
+
+/** Updater sidecar apply state (`GET http://updater:7424/status`, CONTRACTS §8). */
+export const UpdateApplyState = z.object({
+  state: z.enum(["idle", "pulling", "applying", "error", "unknown"]),
+  version: z.string().optional(),
+  error: z.string().optional(),
+  finishedAt: z.string().optional(),
+});
+export type UpdateApplyState = z.infer<typeof UpdateApplyState>;
+
+/** `GET /api/update/status` response (CONTRACTS §6). */
+export const UpdateStatus = z.object({
+  current: z.object({ version: z.string() }),
+  latest: z
+    .object({ version: z.string(), publishedAt: z.string(), notes: z.string().nullable() })
+    .nullable(),
+  updateAvailable: z.boolean(),
+  checkedAt: z.string().nullable(),
+  checkError: z.string().optional(),
+  networkUrl: z.string(),
+  apply: UpdateApplyState,
+});
+export type UpdateStatus = z.infer<typeof UpdateStatus>;

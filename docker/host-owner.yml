@@ -22,6 +22,7 @@ services:
       NETWORK_URL: ${NETWORK_URL:-https://interloom-net.tryeris.com}
       INFERENCE_URL: http://inference:8080
       FETCHER_URL: http://model-fetcher:7423
+      UPDATER_URL: http://updater:7424
     volumes:
       - il_data:/data
       - il_models:/models
@@ -59,6 +60,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+  updater:
+    image: ${DOCKER_ORG:-cameron59061}/interloom-host-updater:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NETWORK_URL: ${NETWORK_URL:-https://interloom-net.tryeris.com}
+      DOCKER_ORG: ${DOCKER_ORG:-cameron59061}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # INTERLOOM_DIR must be the ABSOLUTE host path of the install dir (the
+      # installer writes it): a containerized compose client (the updater's
+      # finisher) cannot resolve a relative bind against the host filesystem.
+      - ${INTERLOOM_DIR:-.}:/host-config
 
 volumes:
   il_data:

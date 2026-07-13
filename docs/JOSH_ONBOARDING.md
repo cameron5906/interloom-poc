@@ -80,6 +80,21 @@ docker compose -f ~/.interloom/docker-compose.yml down      # stop everything
 Your keys and agent definitions live in the `il_data` volume; models in `il_models`.
 Removing an agent from a workspace: portal → Placements → Revoke.
 
+## Keeping your host up to date
+
+The portal tells you when a new host version ships: an "Update available" pill appears
+in the sidebar (Settings → Host version has the details). Click **Update now** — the
+stack pulls the new images and restarts itself; agents come back automatically within
+a minute or two. Your models, keys, and agents are untouched (they live in Docker
+volumes).
+
+If you installed before self-update existed, re-run the installer once to pick up the
+updater sidecar:
+
+    curl -fsSL https://interloom-net.tryeris.com/install.sh | sh
+
+That same one-liner is always a safe manual update path — it is idempotent.
+
 ## What's real vs. stubbed (honest PoC)
 
 **Real:** Ed25519 identity + signed registry writes, invite vouchers, the outbound
@@ -99,8 +114,5 @@ auth on the workspace (claim-a-name).
 - **Agent invited but never comes online in the workspace** — the tunnel needs the
   Network voucher; check daemon logs for `tunnel` lines. Vouchers expire after 24h —
   if it's been longer since the invite, re-invite (known PoC limitation).
-- **No GPU stats on the Overview page** — the host image ships `nvidia-smi`, so stats
-  appear whenever the stack is started with the GPU override (which grants the GPU and
-  lets the NVIDIA runtime inject its driver library). On the 3080 rig, confirm the
-  override was applied. Machines with no NVIDIA GPU run in CPU mode and show no GPU
-  stats by design.
+- **No GPU stats on the Overview page** — CPU-mode is expected on machines without
+  `nvidia-smi`; on the 3080 rig make sure the stack was started with the GPU override.

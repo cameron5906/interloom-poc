@@ -2,6 +2,9 @@
 
 export const ONBOARDING_DONE_KEY = "il.onboarding.done";
 
+/** Last update version the user was toasted about (one toast per release). */
+export const UPDATE_NOTIFIED_KEY = "il.update.notified";
+
 /** Curated emoji for the agent avatar picker (~30). */
 export const AVATAR_EMOJI = [
   "🤖", "🦊", "🐙", "🦉", "🐝", "🦋", "🐬", "🦄",

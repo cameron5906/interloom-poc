@@ -88,3 +88,56 @@
 .il-settings__link {
   color: var(--il-accent);
 }
+
+.il-settings__version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.il-settings__version-current {
+  font-size: 15px;
+  font-weight: 600;
+}
+.il-settings__version-meta {
+  font-size: 12px;
+  opacity: 0.65;
+  margin-top: 2px;
+}
+.il-settings__update-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--il-accent) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--il-accent) 8%, transparent);
+}
+.il-settings__update-title {
+  font-weight: 600;
+}
+.il-update-modal h2 {
+  margin: 0 0 10px;
+}
+.il-update-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.il-update-modal__progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.il-update-modal__cmd {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  user-select: all;
+}

@@ -5,6 +5,7 @@ import { useAsync } from "../../hooks/useAsync.js";
 import { useToasts } from "../../components/Toasts.js";
 import { LoadError, Skeleton } from "../../components/States.js";
 import { ApiError } from "../../api/client.js";
+import { HostVersionSection } from "./HostVersionSection.js";
 import "./settings.css";
 
 export function SettingsPage() {
@@ -19,6 +20,7 @@ export function SettingsPage() {
         </div>
 
         <div className="il-settings__sections">
+          <HostVersionSection />
           <HfAccountSection />
         </div>
       </div>

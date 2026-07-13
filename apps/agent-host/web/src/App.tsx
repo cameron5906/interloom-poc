@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { NavRail } from "./components/NavRail.js";
+import { useToasts } from "./components/Toasts.js";
 import { keys as keysApi, network as networkApi, agents as agentsApi } from "./api/endpoints.js";
 import { useAsync } from "./hooks/useAsync.js";
 import { useDaemonHealth } from "./hooks/useDaemonHealth.js";
-import { ONBOARDING_DONE_KEY } from "./lib/constants.js";
+import { useUpdateStatus } from "./hooks/useUpdateStatus.js";
+import { ONBOARDING_DONE_KEY, UPDATE_NOTIFIED_KEY } from "./lib/constants.js";
 import { OnboardingPage } from "./pages/onboarding/OnboardingPage.js";
 import { OverviewPage } from "./pages/overview/OverviewPage.js";
 import { ModelsPage } from "./pages/models/ModelsPage.js";
@@ -18,6 +20,19 @@ export function App() {
 
   const hostKeys = useAsync((s) => keysApi.get(s), []);
   const session = useAsync((s) => networkApi.session(s), []);
+
+  const toasts = useToasts();
+  const { status: updateStatus } = useUpdateStatus();
+
+  const availableVersion = updateStatus?.updateAvailable
+    ? updateStatus.latest?.version
+    : undefined;
+  useEffect(() => {
+    if (!availableVersion) return;
+    if (window.localStorage.getItem(UPDATE_NOTIFIED_KEY) === availableVersion) return;
+    window.localStorage.setItem(UPDATE_NOTIFIED_KEY, availableVersion);
+    toasts.push(`Host update ${availableVersion} is available — see Settings`, "accent");
+  }, [availableVersion, toasts]);
 
   const isOnboarding = location.pathname === "/onboarding";
 
@@ -37,6 +52,8 @@ export function App() {
         session={session.data}
         hostKeys={hostKeys.data}
         daemonOnline={daemonOnline}
+        updateAvailable={updateStatus?.updateAvailable ?? false}
+        version={updateStatus?.current.version}
       />
       <main className="il-content-outer">
         {!daemonOnline && (

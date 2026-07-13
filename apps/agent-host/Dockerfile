@@ -78,13 +78,16 @@ COPY --from=builder /repo/apps/agent-host/web/dist  apps/agent-host/web/dist
 
 WORKDIR /repo/apps/agent-host
 
+ARG VERSION=dev
 ENV NODE_ENV=production \
     PORT=7420 \
     DATA_DIR=/data \
     MODELS_DIR=/models \
     NETWORK_URL=https://interloom-net.tryeris.com \
     INFERENCE_URL=http://inference:8080 \
-    FETCHER_URL=http://model-fetcher:7423
+    FETCHER_URL=http://model-fetcher:7423 \
+    HOST_VERSION=$VERSION \
+    UPDATER_URL=http://updater:7424
 
 VOLUME /data
 VOLUME /models

@@ -12,7 +12,6 @@ export function registerStatic(app: FastifyInstance): void {
     void app.register(fastifyStatic, {
       root: WEB_DIST,
       prefix: "/",
-      decorateReply: false,
     });
 
     app.setNotFoundHandler((req, reply) => {

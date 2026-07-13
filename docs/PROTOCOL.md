@@ -105,3 +105,27 @@ fallback), so member cards update within seconds without re-inviting.
 The three tunnel methods, the frame envelope, the SignedEnvelope shape, and the
 voucher fields above are stable for `il: 1`. Anything else the platform speaks
 internally is not part of the shared protocol and may change.
+
+## 7 · Host self-update
+
+- **Release manifest:** `GET /releases/host.json` on the Network → `HostReleaseManifest`
+  (`packages/protocol/src/host.ts`): `{ version, gitSha, publishedAt, images, notes }`.
+  404 when the current build has no published release. `version` is
+  `YYYY.MM.DD-<7sha>`; every host image publishes both a `:latest` and a `:<version>`
+  tag, so a pinned `version` always resolves to an immutable image.
+- **Daemon status/control** (agent-host, unauthenticated localhost-only):
+  `GET /api/update/status` → `UpdateStatus` (`{ current: {version}, latest: {version,
+  publishedAt, notes} | null, updateAvailable, checkedAt, checkError?, networkUrl,
+  apply: UpdateApplyState }`); `POST /api/update/check` re-polls the release manifest;
+  `POST /api/update/apply` hands the currently-known `latest.version` to the updater
+  sidecar. Shapes are the zod schemas in `packages/protocol/src/host.ts`.
+- **Updater sidecar** (`docker/host-updater`, image `interloom-host-updater`): a
+  separate container with access to the Docker socket. It exposes
+  `UpdateApplyState` (`{ state: "idle" | "pulling" | "applying" | "error" | "unknown",
+  version?, error?, finishedAt? }`) and applies **only** the version the release
+  manifest currently advertises — compare-and-set against the manifest, not
+  whatever the caller passes, so a stale or racing apply request can't downgrade or
+  jump to an unpublished build. Applying rewrites `TAG=` in the install directory's
+  `.env` and recreates the host-owner compose stack; it does not touch any other key.
+- No `il: 1` tunnel wire changes ship with self-update — it is entirely host ⇄
+  Network HTTP plus the local daemon ⇄ updater sidecar, outside the tunnel protocol.

@@ -3,6 +3,7 @@ import os from "os";
 import type { FastifyInstance } from "fastify";
 import type { GpuInfo, SystemInfo } from "@interloom/protocol";
 import { NVIDIA_SMI } from "./nvidia.js";
+import { HOST_VERSION } from "./config.js";
 
 async function detectGpus(): Promise<GpuInfo[]> {
   return new Promise((resolve) => {
@@ -61,6 +62,7 @@ export async function getSystemInfo(): Promise<SystemInfo> {
     arch: os.arch(),
     dockerized: true,
     gpus,
+    version: HOST_VERSION,
     ...(unifiedMemoryMB !== undefined && { unifiedMemoryMB }),
   };
   cachedSystem = info;

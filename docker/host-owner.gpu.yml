@@ -15,7 +15,9 @@ services:
               capabilities: [gpu]
 
   inference:
-    image: ${DOCKER_ORG:-cameron59061}/interloom-inference:${TAG:-latest}-cuda
+    # CUDA image is not CI-versioned (built/pushed manually) — it floats on its
+    # own tag so pinning TAG to a release does not break GPU hosts.
+    image: ${DOCKER_ORG:-cameron59061}/interloom-inference:${CUDA_TAG:-latest-cuda}
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility

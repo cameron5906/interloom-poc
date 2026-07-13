@@ -7,6 +7,8 @@ import { registerSystemRoutes, getSystemInfo } from "./system.js";
 import { registerNetworkSessionRoutes } from "./network/session.js";
 import { registerModelsRoutes } from "./models/routes.js";
 import { registerAgentRoutes } from "./agents/routes.js";
+import { registerUpdateRoutes } from "./update/routes.js";
+import { startUpdateCheckLoop } from "./update/checker.js";
 import { backfillCapabilities } from "./agents/register.js";
 import { registerTelemetryWs } from "./telemetry/ws.js";
 import { registerStatic } from "./static.js";
@@ -32,6 +34,7 @@ async function main(): Promise<void> {
   registerNetworkSessionRoutes(app);
   registerModelsRoutes(app, getSystemInfo, triggerHeartbeat);
   registerAgentRoutes(app);
+  registerUpdateRoutes(app);
 
   app.get("/api/placements", async (_req, reply) => {
     const placements = getLastPlacements();
@@ -67,6 +70,7 @@ async function main(): Promise<void> {
   registerStatic(app);
 
   startHeartbeatLoop(tunnelManager);
+  startUpdateCheckLoop();
 
   void backfillCapabilities((msg) => app.log.info(msg)).catch((err) =>
     app.log.warn({ err }, "capability backfill failed"),

@@ -98,3 +98,35 @@
   align-self: flex-start;
   margin: 0 6px;
 }
+
+.il-nav__update {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--il-accent);
+  background: color-mix(in srgb, var(--il-accent) 12%, transparent);
+  text-decoration: none;
+}
+.il-nav__update:hover {
+  background: color-mix(in srgb, var(--il-accent) 20%, transparent);
+}
+.il-nav__update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: il-update-pulse 2s ease-in-out infinite;
+}
+@keyframes il-update-pulse {
+  50% { opacity: 0.35; }
+}
+.il-nav__version {
+  margin-top: 4px;
+  font-size: 10.5px;
+  opacity: 0.55;
+}
