@@ -9,14 +9,14 @@
   line-height: 1.4;
 }
 
-/* AGENT badge: Geist Mono 9px uppercase, accent on accent-tint. */
+/* AGENT badge: Geist Mono 9px uppercase, sage green on sage tint. */
 .il-badge--agent {
   font-family: var(--il-font-mono);
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: var(--il-accent);
-  background: var(--il-accent-tint);
+  color: var(--il-agent-deep);
+  background: var(--il-agent-tint);
 }
 
 .il-badge--neutral {

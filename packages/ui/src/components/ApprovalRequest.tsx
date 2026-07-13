@@ -46,6 +46,8 @@ export function ApprovalRequest({
   const pending = status === "pending";
 
   const classes = ["il-approval", `il-approval--${status}`, className].filter(Boolean).join(" ");
+  const kickerLabel =
+    status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : "Needs your OK";
 
   return (
     <div className={classes} {...rest}>
@@ -53,7 +55,7 @@ export function ApprovalRequest({
         <span className={`il-approval__chip il-approval__chip--${status}`} aria-hidden>
           <ShieldGlyph />
         </span>
-        <span className="il-approval__label">Approval request</span>
+        <span className="il-approval__label">{kickerLabel}</span>
         {toolName && <code className="il-approval__tool">{toolName}</code>}
       </div>
 
@@ -66,7 +68,7 @@ export function ApprovalRequest({
             Approve
           </Button>
           <Button variant="secondary" size="sm" disabled={busy} onClick={() => setRejecting(true)}>
-            Reject…
+            Not now
           </Button>
         </div>
       )}

@@ -9,6 +9,14 @@
   pointer-events: none;
 }
 
+@media (max-width: 767px) {
+  .il-toasts {
+    left: 12px;
+    right: 12px;
+    bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+}
+
 .il-toast {
   pointer-events: auto;
   display: flex;
@@ -35,13 +43,13 @@
 }
 
 .il-toast--success .il-toast__dot {
-  background: #6fce9a;
+  background: var(--il-success);
 }
 .il-toast--danger .il-toast__dot {
-  background: #e58b83;
+  background: var(--il-danger);
 }
 .il-toast--accent .il-toast__dot {
-  background: #9d8dff;
+  background: var(--il-accent);
 }
 
 .il-toast__msg {

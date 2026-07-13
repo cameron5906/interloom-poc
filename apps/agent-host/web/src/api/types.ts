@@ -136,7 +136,7 @@ export interface AgentDraft {
  * blank-agent form derive from this so they can't drift apart. */
 export const EMPTY_AGENT_DRAFT: AgentDraft = {
   name: "",
-  avatar: { emoji: "🤖", bg: "linear-gradient(135deg,#8b76ee,#6a5acd)" },
+  avatar: { emoji: "🤖", bg: "var(--il-agent-gradient)" },
   persona: "",
   capabilityBlurb: "",
   params: { temperature: 0.7, contextLength: 4096 },

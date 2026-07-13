@@ -18,7 +18,8 @@ export interface AvatarProps {
 const SIZE_PX: Record<AvatarSize, number> = { sm: 24, md: 32, lg: 44 };
 
 // Deterministic pastel fill for human avatars derived from the name.
-const HUMAN_PALETTE = ["#efeafc", "#e7f2ea", "#faf1dc", "#faeae8", "#e5f2f0", "#eceae3"];
+// Warm peach family — default is `--il-avatar-human-bg` (#f2be93).
+const HUMAN_PALETTE = ["#f2be93", "#f6d3a1", "#eab488", "#f0c9a0", "#e3c39a", "#f4c9ad"];
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -56,7 +57,7 @@ export function Avatar({
     width: px,
     height: px,
     fontSize: Math.round(px * (isAgent ? 0.5 : 0.38)),
-    background: isAgent ? (bg ?? "var(--il-accent-gradient)") : (bg ?? pastelFor(name)),
+    background: isAgent ? (bg ?? "var(--il-agent-gradient)") : (bg ?? pastelFor(name)),
   };
 
   return (

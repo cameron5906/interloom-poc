@@ -1,14 +1,15 @@
 /**
  * Single stylesheet entry for consumers: `import '@interloom/ui/styles.css'`.
- * Pulls in Geist fonts, design tokens, and every component's CSS.
+ * Pulls in Figtree + Geist Mono fonts, design tokens, and every component's CSS.
  * Resolved through a bundler (Vite) that understands package-relative @import.
  */
 
-/* Geist Sans (UI + body) */
-@import "@fontsource/geist-sans/400.css";
-@import "@fontsource/geist-sans/500.css";
-@import "@fontsource/geist-sans/600.css";
-@import "@fontsource/geist-sans/700.css";
+/* Figtree (UI + body + display) */
+@import "@fontsource/figtree/400.css";
+@import "@fontsource/figtree/500.css";
+@import "@fontsource/figtree/600.css";
+@import "@fontsource/figtree/700.css";
+@import "@fontsource/figtree/800.css";
 
 /* Geist Mono (data, IDs, timestamps, badges) */
 @import "@fontsource/geist-mono/400.css";
@@ -35,4 +36,5 @@
 @import "./components/ShellOutput.css";
 @import "./components/FeedbackRequest.css";
 @import "./components/CapabilityBadges.css";
+@import "./components/MobileTabBar.css";
 @import "./components/CountBadge.css";

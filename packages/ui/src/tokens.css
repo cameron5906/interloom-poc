@@ -1,73 +1,91 @@
 /**
  * Interloom design tokens (DESIGN_NOTES.md).
  * All surfaces consume these via the `--il-*` custom properties.
+ * Warm cream/brown/rust/sage language — every token name is kept stable so
+ * consumer CSS across apps keeps resolving; new tokens are additive.
  */
 :root {
   /* Surfaces */
-  --il-bg-page: #fbfbf9;
-  --il-bg-rail: #f4f3ef;
+  --il-bg-page: #f6ede0;
+  --il-bg-rail: #f1e6d4;
   --il-bg-card: #ffffff;
-  --il-bg-active: #eceae3;
-  --il-bg-system: #f7f6f2;
+  --il-bg-card-warm: #fffdf9;
+  --il-bg-active: #f6dfc8;
+  --il-bg-system: #f4ead9;
 
   /* Borders */
-  --il-border-strong: #e7e5dd;
-  --il-border-soft: #eeece4;
-  --il-border-hairline: #f0eee6;
-  --il-border-input: #e0ddd4;
-  --il-border-card-hover: #cfc9dd;
+  --il-border-strong: #e6d8c2;
+  --il-border-soft: #eee1cd;
+  --il-border-hairline: #f2e8d8;
+  --il-border-input: #e2d4bd;
+  --il-border-card-hover: #d9c5a6;
 
-  /* Text */
-  --il-text-primary: #1c1b18;
-  --il-text-secondary: #57554c;
-  --il-text-muted: #8f8c82;
-  --il-text-faint: #a5a299;
-  --il-text-on-dark: #e8e6df;
+  /* Text (warm brown ink) */
+  --il-text-primary: #37291a;
+  --il-text-secondary: #6b5b48;
+  --il-text-muted: #9a8a75;
+  --il-text-faint: #b3a58f;
+  --il-text-on-dark: #f3ece1;
 
-  /* Accent (brand) */
-  --il-accent: #6a5acd;
-  --il-accent-hover: #5a49bd;
-  --il-accent-tint: #efeafc;
-  --il-accent-gradient: linear-gradient(135deg, #8b76ee, #6a5acd);
+  /* Accent — rust/sienna (replaces purple everywhere) */
+  --il-accent: #c0662b;
+  --il-accent-hover: #a85420;
+  --il-accent-tint: #f8e5d0;
+  --il-accent-deep: #8a431a;
+  --il-accent-gradient: linear-gradient(135deg, #d98544, #c0662b);
+
+  /* Agent green — sage (agents are green, humans are peach) */
+  --il-agent: #5d7a4e;
+  --il-agent-tint: #e7f0dc;
+  --il-agent-deep: #42582f;
+  --il-agent-bubble-bg: #f2f8ea;
+  --il-agent-bubble-border: #dfebd0;
+  --il-agent-gradient: linear-gradient(135deg, #71915e, #5d7a4e);
+
+  /* Human avatar default pastel fill */
+  --il-avatar-human-bg: #f2be93;
 
   /* Success */
-  --il-success: #3f9e69;
-  --il-success-deep: #2f6b47;
-  --il-success-tint: #e7f2ea;
+  --il-success: #4e8a5a;
+  --il-success-deep: #38663f;
+  --il-success-tint: #e4efdd;
 
   /* Warning */
-  --il-warning: #d69a2e;
-  --il-warning-deep: #b58a2e;
-  --il-warning-tint: #faf1dc;
+  --il-warning: #cf8a2e;
+  --il-warning-deep: #a86e20;
+  --il-warning-tint: #f9ecd2;
 
   /* Danger */
-  --il-danger: #cf5b52;
-  --il-danger-deep: #b8443b;
-  --il-danger-tint: #faeae8;
+  --il-danger: #c14e3d;
+  --il-danger-deep: #9c3a2b;
+  --il-danger-tint: #f8e3dc;
 
-  /* Active / teal */
-  --il-active: #3a9d95;
-  --il-active-tint: #e5f2f0;
+  /* Active / "live" — accent doubles as the syncing/running color (was teal) */
+  --il-active: #c0662b;
+  --il-active-tint: #f8e5d0;
 
   /* Presence dots */
-  --il-presence-online: #3f9e69;
-  --il-presence-away: #d69a2e;
-  --il-presence-offline: #a5a299;
+  --il-presence-online: #4e8a5a;
+  --il-presence-away: #cf8a2e;
+  --il-presence-offline: #b3a58f;
 
   /* Button fills */
-  --il-btn-primary-bg: #1c1b18;
-  --il-btn-primary-bg-hover: #333029;
+  --il-btn-primary-bg: var(--il-accent);
+  --il-btn-primary-bg-hover: var(--il-accent-hover);
 
-  /* Radii */
-  --il-radius-sm: 7px;
-  --il-radius-md: 10px;
-  --il-radius-pill: 20px;
+  /* Radii — bigger, softer */
+  --il-radius-sm: 10px;
+  --il-radius-md: 16px;
+  --il-radius-lg: 22px;
+  --il-radius-pill: 999px;
 
-  /* Shadows */
-  --il-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03);
-  --il-shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.06);
+  /* Shadows — warm, soft */
+  --il-shadow-card: 0 1px 2px rgba(66, 45, 15, 0.04);
+  --il-shadow-hover: 0 4px 14px rgba(66, 45, 15, 0.08);
+  --il-shadow-float: 0 10px 30px rgba(66, 45, 15, 0.16);
 
   /* Fonts */
-  --il-font-ui: "Geist Sans", "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --il-font-ui: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --il-font-display: var(--il-font-ui);
   --il-font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
 }

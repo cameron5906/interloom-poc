@@ -45,3 +45,35 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Mobile: bottom sheet — full-width, pinned bottom, rounded top corners. */
+@media (max-width: 767px) {
+  .il-modal__overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .il-modal__card {
+    max-width: 100%;
+    max-height: calc(100vh - 48px);
+    border-radius: var(--il-radius-lg) var(--il-radius-lg) 0 0;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: il-modal-sheet-in 260ms cubic-bezier(0.3, 0.7, 0.25, 1);
+  }
+}
+
+@keyframes il-modal-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+  .il-modal__card {
+    animation: none;
+  }
+}

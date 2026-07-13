@@ -4,6 +4,11 @@
 .il-models-body {
   min-height: 200px;
 }
+@media (max-width: 767px) {
+  .il-page--models {
+    padding-bottom: 130px;
+  }
+}
 
 /* ---- Model tiers + cards (Recommended) ---- */
 .il-model-tiers {
@@ -101,6 +106,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 14px;
   padding: 14px 16px;
   border: 1px solid var(--il-border-strong);
@@ -111,7 +117,7 @@
 .il-installed__row--active {
   border-color: var(--il-accent);
   background: linear-gradient(0deg, var(--il-accent-tint), var(--il-accent-tint)), var(--il-bg-card);
-  box-shadow: 0 0 0 3px rgba(106, 90, 205, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--il-accent) 8%, transparent);
 }
 .il-installed__main {
   min-width: 0;
@@ -200,6 +206,11 @@
 /* ---- Activation impact modal ---- */
 .il-impact-modal__body {
   min-width: 360px;
+}
+@media (max-width: 767px) {
+  .il-impact-modal__body {
+    min-width: 0;
+  }
 }
 .il-impact-modal__section {
   display: flex;
@@ -378,7 +389,7 @@
 .il-remove-modal__warn {
   color: var(--il-warning-deep);
   background: var(--il-warning-tint);
-  border: 1px solid #f0e2c0;
+  border: 1px solid color-mix(in srgb, var(--il-warning) 30%, var(--il-warning-tint));
   border-radius: var(--il-radius-sm);
   padding: 10px 13px;
   font-size: 13px;
@@ -414,6 +425,13 @@
   border-top: 1px solid var(--il-border-strong);
   box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.05);
   z-index: 40;
+}
+@media (max-width: 767px) {
+  .il-dl {
+    left: 0;
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    border-radius: var(--il-radius-lg) var(--il-radius-lg) 0 0;
+  }
 }
 .il-dl__head {
   width: 100%;
@@ -493,6 +511,7 @@
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
 }
 .il-hsearch__bar .il-search__bar {
   flex: 1;
@@ -591,6 +610,7 @@
 .il-hdetail__file {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 7px 10px;
   border-top: 1px solid var(--il-border-hairline);

@@ -1,0 +1,175 @@
+/**
+ * Floating bottom pill nav (design spec §2). Hidden on desktop; the active
+ * item's label reveal and pill fill are the signature "buttery" interaction
+ * of the mobile-first redesign.
+ */
+.il-tabbar {
+  display: none;
+  position: fixed;
+  left: 50%;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  background: #fff;
+  border-radius: var(--il-radius-pill);
+  box-shadow: var(--il-shadow-float);
+  z-index: 900;
+}
+
+@media (max-width: 767px) {
+  .il-tabbar {
+    display: flex;
+  }
+}
+
+.il-tabbar__item {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--il-radius-pill);
+  cursor: pointer;
+  font-family: var(--il-font-ui);
+  color: var(--il-text-secondary);
+  transition: color 180ms ease;
+}
+
+.il-tabbar__item:focus-visible {
+  outline: 2px solid var(--il-accent);
+  outline-offset: 2px;
+}
+
+.il-tabbar__item--active {
+  color: #fff;
+}
+
+/* Pill fill — fades/scales in behind the icon + label. */
+.il-tabbar__item::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--il-accent-gradient);
+  opacity: 0;
+  transform: scale(0.85);
+  transition:
+    opacity 320ms cubic-bezier(0.3, 0.7, 0.25, 1),
+    transform 320ms cubic-bezier(0.3, 0.7, 0.25, 1);
+}
+
+.il-tabbar__item--active::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.il-tabbar__iconwrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.il-tabbar__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  transform: scale(1);
+  transition: transform 180ms ease;
+}
+
+.il-tabbar__icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.il-tabbar__item--active .il-tabbar__icon {
+  transform: scale(1.08);
+}
+
+.il-tabbar__badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--il-radius-pill);
+  background: var(--il-accent);
+  color: #fff;
+  font-family: var(--il-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+/*
+ * Label reveal. A max-width sweep (not a 0fr -> 1fr grid trick): fr tracks
+ * under-resolve when the grid container is itself a flex item, which clipped
+ * the settled label. The cap comfortably exceeds any real tab label.
+ */
+.il-tabbar__labelwrap {
+  display: inline-flex;
+}
+
+.il-tabbar__label {
+  overflow: hidden;
+  max-width: 0;
+  min-width: 0;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-4px);
+  padding-left: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  transition:
+    max-width 320ms cubic-bezier(0.3, 0.7, 0.25, 1),
+    opacity 320ms cubic-bezier(0.3, 0.7, 0.25, 1),
+    transform 320ms cubic-bezier(0.3, 0.7, 0.25, 1),
+    padding-left 320ms cubic-bezier(0.3, 0.7, 0.25, 1);
+}
+
+.il-tabbar__item--active .il-tabbar__label {
+  max-width: 96px;
+  opacity: 1;
+  transform: translateX(0);
+  padding-left: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .il-tabbar__item,
+  .il-tabbar__item::before,
+  .il-tabbar__icon,
+  .il-tabbar__labelwrap,
+  .il-tabbar__label {
+    transition: none;
+  }
+
+  .il-tabbar__item--active .il-tabbar__icon {
+    transform: none;
+  }
+
+  .il-tabbar__item::before {
+    transform: none;
+  }
+
+  .il-tabbar__item--active::before {
+    transform: none;
+  }
+}

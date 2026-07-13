@@ -1,0 +1,54 @@
+.il-topbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .il-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
+    padding: 0 14px;
+    padding-top: env(safe-area-inset-top);
+    height: calc(52px + env(safe-area-inset-top));
+    background: var(--il-bg-rail);
+    border-bottom: 1px solid var(--il-border-strong);
+    z-index: 800;
+  }
+}
+
+.il-topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.il-topbar__mark {
+  display: inline-flex;
+  flex: none;
+}
+
+.il-topbar__wordmark {
+  font-family: var(--il-font-display);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--il-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.il-topbar__pill {
+  flex: none;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

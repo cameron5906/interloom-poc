@@ -17,7 +17,7 @@
 
 /* Agent avatars are rounded-squares with gradient / bg + emoji. */
 .il-avatar--agent {
-  border-radius: 9px;
+  border-radius: var(--il-radius-sm);
   color: #fff;
 }
 

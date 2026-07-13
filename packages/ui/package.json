@@ -30,7 +30,7 @@
     "react-dom": "^18"
   },
   "dependencies": {
-    "@fontsource/geist-sans": "^5",
+    "@fontsource/figtree": "^5",
     "@fontsource/geist-mono": "^5"
   },
   "devDependencies": {

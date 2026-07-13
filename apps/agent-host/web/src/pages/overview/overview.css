@@ -6,7 +6,7 @@
   padding: 9px 14px;
   margin-bottom: 18px;
   background: var(--il-warning-tint);
-  border: 1px solid #f0e2c0;
+  border: 1px solid color-mix(in srgb, var(--il-warning) 30%, var(--il-warning-tint));
   border-radius: var(--il-radius-md);
   color: var(--il-warning-deep);
   font-size: 12.5px;
@@ -23,7 +23,7 @@
 /* ---- Stat tiles ---- */
 .il-tiles {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 20px;
 }
@@ -34,6 +34,7 @@
   padding: 15px 16px 16px;
   box-shadow: var(--il-shadow-card);
   min-height: 108px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -52,6 +53,7 @@
   line-height: 1;
   color: var(--il-text-primary);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .il-tile__unit {
   font-size: 13px;
@@ -124,22 +126,22 @@
   color: var(--il-text-primary);
 }
 
-/* ---- Request log (dark) ---- */
+/* ---- Request log (dark, warm-tinted per DESIGN_NOTES telemetry pattern) ---- */
 .il-reqlog {
-  background: #1c1b18;
-  border-color: #2a2925;
+  background: var(--il-text-primary);
+  border-color: color-mix(in srgb, var(--il-text-primary) 80%, black);
 }
 .il-reqlog__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 11px 15px;
-  border-bottom: 1px solid #2a2925;
+  border-bottom: 1px solid color-mix(in srgb, var(--il-text-primary) 80%, black);
 }
 .il-reqlog__title {
   font-size: 12.5px;
   font-weight: 600;
-  color: #e8e6df;
+  color: var(--il-text-on-dark);
 }
 .il-reqlog__meta {
   font-family: var(--il-font-mono);
@@ -149,36 +151,37 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #7fcf9f;
+  color: color-mix(in srgb, var(--il-success) 65%, white 25%);
 }
 .il-reqlog__live-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #7fcf9f;
+  background: currentColor;
   animation: il-pulse 1.2s ease-in-out infinite;
 }
 .il-reqlog__paused {
-  color: #d9b96b;
+  color: color-mix(in srgb, var(--il-warning) 70%, white 15%);
 }
 .il-reqlog__body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: auto;
   padding: 8px 6px 10px;
   font-family: var(--il-font-mono);
   font-size: 11.5px;
   line-height: 1.55;
-  color: #e8e6df;
+  color: var(--il-text-on-dark);
 }
 .il-reqlog__body.il-scroll-fade {
-  scrollbar-color: #45433d transparent;
+  scrollbar-color: color-mix(in srgb, var(--il-text-on-dark) 30%, transparent) transparent;
 }
 .il-reqlog__body.il-scroll-fade::-webkit-scrollbar-thumb {
-  background: #45433d;
+  background: color-mix(in srgb, var(--il-text-on-dark) 30%, transparent);
 }
 .il-reqlog__empty {
   padding: 24px 14px;
-  color: #8b887e;
+  color: var(--il-text-faint);
   font-size: 11.5px;
   line-height: 1.6;
 }
@@ -191,30 +194,30 @@
   border-radius: 4px;
 }
 .il-reqlog__row:hover {
-  background: #262520;
+  background: color-mix(in srgb, var(--il-text-primary) 85%, white 8%);
 }
 .il-reqlog__ts {
-  color: #6f6d64;
+  color: var(--il-text-faint);
 }
 .il-reqlog__src {
-  color: #9d8dff;
+  color: color-mix(in srgb, var(--il-accent) 60%, white 30%);
   font-weight: 500;
 }
 .il-reqlog__src--preview {
-  color: #d9b96b;
+  color: color-mix(in srgb, var(--il-warning) 70%, white 15%);
 }
 .il-reqlog__agent {
-  color: #e8e6df;
+  color: var(--il-text-on-dark);
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 140px;
 }
 .il-reqlog__tok {
-  color: #8b887e;
+  color: var(--il-text-faint);
   margin-left: auto;
 }
 .il-reqlog__tps {
-  color: #7fcf9f;
+  color: color-mix(in srgb, var(--il-success) 65%, white 25%);
   min-width: 68px;
   text-align: right;
 }
@@ -315,7 +318,7 @@
 
 @media (max-width: 1080px) {
   .il-tiles {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .il-overview-grid {
     grid-template-columns: 1fr;

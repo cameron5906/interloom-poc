@@ -1,10 +1,10 @@
 /**
  * Dark mono terminal panel — palette matches the host portal telemetry
- * surfaces (DESIGN_NOTES.md "Telemetry": #1c1b18 bg, #e8e6df text).
+ * surfaces (DESIGN_NOTES.md "Telemetry": #37291a bg, --il-text-on-dark text).
  */
 .il-shell {
-  background: #1c1b18;
-  border: 1px solid #2a2925;
+  background: #37291a;
+  border: 1px solid #4a3a26;
   border-radius: var(--il-radius-md);
   overflow: hidden;
   max-width: 640px;
@@ -15,19 +15,19 @@
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
-  border-bottom: 1px solid #2a2925;
+  border-bottom: 1px solid #4a3a26;
   font-family: var(--il-font-mono);
   font-size: 12px;
   min-width: 0;
 }
 
 .il-shell__prompt {
-  color: #6f6d64;
+  color: #a4907a;
   flex: none;
 }
 
 .il-shell__cmd {
-  color: #e8e6df;
+  color: var(--il-text-on-dark);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -43,7 +43,7 @@
 }
 
 .il-shell__label {
-  color: #8b887e;
+  color: #a4907a;
   font-size: 10.5px;
 }
 
@@ -100,9 +100,9 @@
   font-family: var(--il-font-mono);
   font-size: 12px;
   line-height: 1.6;
-  color: #d6d4cb;
+  color: rgba(243, 236, 225, 0.82);
   scrollbar-width: thin;
-  scrollbar-color: #45433d transparent;
+  scrollbar-color: #4a3a26 transparent;
 }
 
 .il-shell__body::-webkit-scrollbar {
@@ -110,7 +110,7 @@
 }
 
 .il-shell__body::-webkit-scrollbar-thumb {
-  background: #45433d;
+  background: #4a3a26;
   border-radius: 4px;
 }
 

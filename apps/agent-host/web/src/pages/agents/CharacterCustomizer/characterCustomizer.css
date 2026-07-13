@@ -121,7 +121,7 @@
   box-shadow: 0 0 0 2px #fff inset;
 }
 
-@media (max-width: 620px) {
+@media (max-width: 767px) {
   .il-charcust {
     min-width: 0;
   }

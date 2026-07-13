@@ -28,11 +28,13 @@
 .il-btn--sm {
   font-size: 12px;
   padding: 5px 10px;
+  min-height: 32px;
 }
 
 .il-btn--md {
   font-size: 13px;
-  padding: 8px 14px;
+  padding: 9px 16px;
+  min-height: 40px;
 }
 
 .il-btn--primary {

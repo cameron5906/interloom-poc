@@ -73,7 +73,8 @@ button {
   min-width: 0;
 }
 .il-content-outer > .il-content,
-.il-content-outer > .il-page-scroll {
+.il-content-outer > .il-page-scroll,
+.il-content-outer > .il-agents {
   flex: 1;
   min-height: 0;
 }
@@ -92,6 +93,20 @@ button {
   max-width: 1080px;
   margin: 0 auto;
   padding: 28px 32px 64px;
+}
+
+/* ---- Mobile frame: NavRail hidden, MobileTopBar + MobileTabBar take over ---- */
+@media (max-width: 767px) {
+  .il-app {
+    grid-template-columns: 1fr;
+  }
+  .il-content-outer {
+    padding-top: calc(52px + env(safe-area-inset-top));
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+  .il-page {
+    padding: 20px 16px 32px;
+  }
 }
 
 .il-page__head {
@@ -125,9 +140,10 @@ button {
 }
 
 .il-page__title {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-family: var(--il-font-display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
   margin: 0;
 }
 
@@ -135,6 +151,12 @@ button {
   color: var(--il-text-muted);
   font-size: 13px;
   margin: 4px 0 0;
+}
+
+@media (max-width: 767px) {
+  .il-page__title {
+    font-size: 26px;
+  }
 }
 
 .il-section-label {
@@ -153,7 +175,7 @@ button {
   gap: 10px;
   padding: 9px 16px;
   background: var(--il-warning-tint);
-  border-bottom: 1px solid #f0e2c0;
+  border-bottom: 1px solid color-mix(in srgb, var(--il-warning) 30%, var(--il-warning-tint));
   color: var(--il-warning-deep);
   font-size: 12.5px;
 }
@@ -180,9 +202,9 @@ button {
   border-radius: 8px;
   background: linear-gradient(
     100deg,
-    #efeee9 30%,
-    #f7f6f2 50%,
-    #efeee9 70%
+    var(--il-bg-rail) 30%,
+    var(--il-bg-system) 50%,
+    var(--il-bg-rail) 70%
   );
   background-size: 200% 100%;
   animation: il-shimmer 1.3s ease-in-out infinite;
@@ -204,7 +226,7 @@ button {
   gap: 10px;
   padding: 16px 18px;
   background: var(--il-danger-tint);
-  border: 1px solid #f2d5d1;
+  border: 1px solid color-mix(in srgb, var(--il-danger) 30%, var(--il-danger-tint));
   border-radius: var(--il-radius-md);
   color: var(--il-danger-deep);
   font-size: 13px;

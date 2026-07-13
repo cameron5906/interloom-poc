@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { NavRail } from "./components/NavRail.js";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { MobileTabBar } from "@interloom/ui";
+import { NavRail, NAV } from "./components/NavRail.js";
+import { MobileTopBar } from "./components/MobileTopBar.js";
 import { useToasts } from "./components/Toasts.js";
 import { keys as keysApi, network as networkApi, agents as agentsApi } from "./api/endpoints.js";
 import { useAsync } from "./hooks/useAsync.js";
@@ -14,8 +16,15 @@ import { AgentsPage } from "./pages/agents/AgentsPage.js";
 import { PlacementsPage } from "./pages/placements/PlacementsPage.js";
 import { SettingsPage } from "./pages/settings/SettingsPage.js";
 
+/** Which NAV entry the bottom tab bar should highlight for a given path. */
+function activeNavKey(pathname: string): string {
+  const match = NAV.find((n) => (n.end ? pathname === n.to : pathname.startsWith(n.to)));
+  return match?.to ?? "/";
+}
+
 export function App() {
   const location = useLocation();
+  const navigate = useNavigate();
   const daemonOnline = useDaemonHealth();
 
   const hostKeys = useAsync((s) => keysApi.get(s), []);
@@ -55,6 +64,7 @@ export function App() {
         updateAvailable={updateStatus?.updateAvailable ?? false}
         version={updateStatus?.current.version}
       />
+      <MobileTopBar session={session.data} daemonOnline={daemonOnline} />
       <main className="il-content-outer">
         {!daemonOnline && (
           <div className="il-offline-banner" role="alert">
@@ -73,6 +83,15 @@ export function App() {
           </Routes>
         </OnboardingGate>
       </main>
+      <MobileTabBar
+        items={NAV.map(({ to, label, icon: Icon }) => ({
+          key: to,
+          label,
+          icon: <Icon />,
+        }))}
+        activeKey={activeNavKey(location.pathname)}
+        onSelect={(key) => navigate(key)}
+      />
     </div>
   );
 }

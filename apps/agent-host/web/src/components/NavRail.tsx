@@ -1,8 +1,10 @@
+import { useId } from "react";
 import { NavLink } from "react-router-dom";
 import { StatusPill } from "@interloom/ui";
 import type { NetworkSession } from "../api/types.js";
 import type { HostKeys } from "../api/types.js";
 import { shortCode } from "../lib/format.js";
+import { sessionPillState } from "../lib/sessionState.js";
 import "./NavRail.css";
 
 interface NavRailProps {
@@ -13,7 +15,7 @@ interface NavRailProps {
   version: string | undefined;
 }
 
-const NAV = [
+export const NAV = [
   { to: "/", label: "Overview", end: true, icon: OverviewIcon },
   { to: "/models", label: "Models", end: false, icon: ModelsIcon },
   { to: "/agents", label: "Agents", end: false, icon: AgentsIcon },
@@ -22,12 +24,7 @@ const NAV = [
 ];
 
 export function NavRail({ session, hostKeys, daemonOnline, updateAvailable, version }: NavRailProps) {
-  const sessionState: { tone: "success" | "warning" | "danger"; label: string; live: boolean } =
-    !daemonOnline
-      ? { tone: "danger", label: "daemon offline", live: false }
-      : session?.signedIn
-        ? { tone: "success", label: "network · online", live: true }
-        : { tone: "warning", label: "not signed in", live: false };
+  const sessionState = sessionPillState(daemonOnline, session);
 
   return (
     <nav className="il-nav" aria-label="Primary">
@@ -80,10 +77,12 @@ export function NavRail({ session, hostKeys, daemonOnline, updateAvailable, vers
   );
 }
 
-function LoomGlyph() {
+/** The Interloom brand mark — also reused by MobileTopBar and OnboardingPage. */
+export function LoomGlyph({ size = 18 }: { size?: number }) {
+  const gid = useId();
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-      <rect x="1" y="1" width="16" height="16" rx="5" fill="url(#il-loom)" />
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" aria-hidden>
+      <rect x="1" y="1" width="16" height="16" rx="5" fill={`url(#il-loom-${gid})`} />
       <path
         d="M5 6.2h8M5 9h8M5 11.8h8"
         stroke="#fff"
@@ -93,9 +92,9 @@ function LoomGlyph() {
       />
       <path d="M6.6 4.4v9.2M11.4 4.4v9.2" stroke="#fff" strokeWidth="1.1" strokeLinecap="round" opacity="0.5" />
       <defs>
-        <linearGradient id="il-loom" x1="1" y1="1" x2="17" y2="17" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#8b76ee" />
-          <stop offset="1" stopColor="#6a5acd" />
+        <linearGradient id={`il-loom-${gid}`} x1="1" y1="1" x2="17" y2="17" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#d98544" />
+          <stop offset="1" stopColor="#c0662b" />
         </linearGradient>
       </defs>
     </svg>

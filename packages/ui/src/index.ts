@@ -49,5 +49,7 @@ export type {
 export { CapabilityBadges } from "./components/CapabilityBadges.js";
 export type { CapabilityBadgesProps, ModelCapabilityFlags } from "./components/CapabilityBadges.js";
 
+export { MobileTabBar } from "./components/MobileTabBar.js";
+export type { MobileTabBarProps, MobileTabBarItem } from "./components/MobileTabBar.js";
 export { CountBadge } from "./components/CountBadge.js";
 export type { CountBadgeProps } from "./components/CountBadge.js";
