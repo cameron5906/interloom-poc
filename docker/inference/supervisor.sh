@@ -1,168 +1,303 @@
-#!/bin/sh
-# Supervisor for llama-server.
-# Polls MODELS_DIR/.interloom/inference.json every 2s.
-# On change: kills existing llama-server and restarts with new config.
-# If no config file exists yet, waits silently (health endpoint returns 503
-# which compose healthcheck will report as unhealthy until model is activated).
+#!/bin/bash
+# Supervisor for N llama-server processes.
+#
+# Watches MODELS_DIR/.interloom/inference.json every 2s. v2 shape:
+#   { v: 2, instances: [{id, modelPath, ctx, port, gpus, tensorSplit?, reasoningBudget?,
+#                        mmprojPath?, kvCache?, nCpuMoe?}] }
+# v1 shape (no "v" key — a single object {modelPath, ctx?, mmprojPath?}) is read-compat:
+# wrapped as one instance ("default") on port 8080.
+#
+# kvCache ("f16"|"q8_0") and nCpuMoe (rig-optimizer plan, CONTRACTS §6/§7) are optional
+# per-instance launch flags: kvCache → --cache-type-k/--cache-type-v (+ -fa on for q8_0),
+# nCpuMoe → --n-cpu-moe (MoE experts parked in system RAM).
+#
+# On change: reconciles the running process set against desired instances, diffing by
+# FULL identity (id + modelPath + ctx + port + gpus + tensorSplit + reasoningBudget +
+# mmprojPath + kvCache + nCpuMoe) — only instances whose definition changed are
+# stopped+restarted; unchanged siblings keep running untouched. A crashed instance
+# restarts alone on the next poll, independent of file changes.
+#
+# IL_GPU=1 (baked into the CUDA image only) makes this supervisor add "-ngl 999" plus
+# GPU placement flags (CUDA_VISIBLE_DEVICES / --split-mode row --tensor-split) per
+# instance; on the CPU image none of that is emitted. `ngl` is never read from
+# inference.json — GPU offload is image-decided, per contract.
+#
+# IL_SUPERVISOR_DRYRUN=1 prints the env + command line that would be launched for each
+# instance and spawns a lightweight placeholder process in its place (no real
+# llama-server) — used to verify GPU flag emission on hosts without the target GPUs.
 
-set -e
+set -u
 
 MODELS_DIR="${MODELS_DIR:-/models}"
 CONFIG_FILE="${MODELS_DIR}/.interloom/inference.json"
 LLAMA_BIN="/app/llama-server"
+DRYRUN="${IL_SUPERVISOR_DRYRUN:-0}"
+GRACE_SECS=10
+POLL_SECS=2
+HEARTBEAT_FILE="/tmp/supervisor-heartbeat"
 
-LLAMA_PID=""
-LAST_HASH=""
-LAST_MTIME=""
+declare -A PID_OF   # instance id -> pid
+declare -A SIG_OF   # instance id -> last-applied identity signature (canonical JSON)
+declare -A PORT_OF  # instance id -> port (for log messages after removal)
+
+DESIRED_JSON="[]"   # last successfully-applied normalized instance list
 
 log() {
   echo "[supervisor] $*"
 }
 
-# Extract a JSON string field value (portable, no jq required)
-json_field() {
-  local json="$1"
-  local field="$2"
-  printf '%s' "$json" | sed -n "s/.*\"${field}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n1
+# Normalize whatever's in the config file (v1 or v2) into a canonical v2 instances
+# array, with every field defaulted so downstream comparisons/launches are uniform.
+normalize_config() {
+  jq -c '
+    if (.v // 0) == 2 then
+      .instances
+    else
+      [ {
+          id: "default",
+          modelPath: .modelPath,
+          ctx: (.ctx // 4096),
+          port: 8080,
+          gpus: [],
+          tensorSplit: null,
+          reasoningBudget: (.reasoningBudget // null),
+          mmprojPath: (.mmprojPath // null),
+          kvCache: (.kvCache // null),
+          nCpuMoe: (.nCpuMoe // null)
+        } ]
+    end
+    | map({
+        id: ((.id // (.port | tostring)) | tostring),
+        modelPath: .modelPath,
+        ctx: (.ctx // 4096),
+        port: (.port // 8080),
+        gpus: (.gpus // []),
+        tensorSplit: (.tensorSplit // null),
+        reasoningBudget: (.reasoningBudget // null),
+        mmprojPath: (.mmprojPath // null),
+        kvCache: (.kvCache // null),
+        nCpuMoe: (.nCpuMoe // null)
+      })
+  ' <<<"$1"
 }
 
-json_num() {
-  local json="$1"
-  local field="$2"
-  printf '%s' "$json" | sed -n "s/.*\"${field}\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" | head -n1
-}
+# Build "ENV:<KEY=VAL KEY=VAL>" and "ARGS:<...>" lines for one instance (canonical JSON on stdin).
+build_cmd() {
+  local inst="$1"
+  local modelPath ctx port gpus tensorSplit reasoningBudget mmprojPath kvCache nCpuMoe
+  modelPath=$(jq -r '.modelPath' <<<"$inst")
+  ctx=$(jq -r '.ctx' <<<"$inst")
+  port=$(jq -r '.port' <<<"$inst")
+  gpus=$(jq -c '.gpus // []' <<<"$inst")
+  tensorSplit=$(jq -c '.tensorSplit // null' <<<"$inst")
+  reasoningBudget=$(jq -r '.reasoningBudget // "null"' <<<"$inst")
+  mmprojPath=$(jq -r '.mmprojPath // "null"' <<<"$inst")
+  kvCache=$(jq -r '.kvCache // "null"' <<<"$inst")
+  nCpuMoe=$(jq -r '.nCpuMoe // "null"' <<<"$inst")
 
-stop_llama() {
-  if [ -n "$LLAMA_PID" ]; then
-    if kill -0 "$LLAMA_PID" 2>/dev/null; then
-      log "Stopping llama-server (pid $LLAMA_PID)"
-      kill -TERM "$LLAMA_PID" 2>/dev/null || true
-      # Wait up to 10s for graceful stop
-      local waited=0
-      while kill -0 "$LLAMA_PID" 2>/dev/null && [ $waited -lt 10 ]; do
-        sleep 1
-        waited=$((waited + 1))
-      done
-      kill -KILL "$LLAMA_PID" 2>/dev/null || true
-    fi
-    LLAMA_PID=""
-  fi
-}
+  local args="-m $modelPath -c $ctx --host 0.0.0.0 --port $port --metrics --jinja --reasoning-format deepseek"
+  local envs=""
 
-start_llama() {
-  local config="$1"
-  local model_path
-  local ctx
-  local ngl
-  local mmproj_path
-  local cache_type_k
-  local cache_type_v
-  local n_cpu_moe
-  local fa_needed
-
-  model_path="$(json_field "$config" "modelPath")"
-  ctx="$(json_num "$config" "ctx")"
-  ngl="$(json_num "$config" "ngl")"
-  mmproj_path="$(json_field "$config" "mmprojPath")"
-  cache_type_k="$(json_field "$config" "cacheTypeK")"
-  cache_type_v="$(json_field "$config" "cacheTypeV")"
-  n_cpu_moe="$(json_num "$config" "nCpuMoe")"
-
-  ctx="${ctx:-4096}"
-
-  if [ -z "$model_path" ]; then
-    log "ERROR: modelPath missing in inference.json"
-    return 1
+  if [ "$mmprojPath" != "null" ] && [ -n "$mmprojPath" ]; then
+    args="$args --mmproj $mmprojPath"
   fi
 
-  if [ ! -f "$model_path" ]; then
-    log "ERROR: model file not found: $model_path"
-    return 1
+  if [ "$reasoningBudget" = "0" ]; then
+    args="$args --reasoning-budget 0"
   fi
 
-  local args="-m $model_path -c $ctx --host 0.0.0.0 --port 8080 --metrics --jinja"
-
-  # Add GPU layers flag only when ngl is set (CUDA image)
-  if [ -n "$ngl" ]; then
-    args="$args -ngl $ngl"
-  fi
-
-  if [ -n "$mmproj_path" ] && [ -f "$mmproj_path" ]; then
-    args="$args --mmproj $mmproj_path"
-  fi
-
-  # KV-cache quantization — q8_0 requires flash attention (-fa on).
-  fa_needed=""
-  if [ -n "$cache_type_k" ]; then
-    args="$args --cache-type-k $cache_type_k"
-    if [ "$cache_type_k" = "q8_0" ]; then
-      fa_needed=1
+  # KV-cache quantization (rig-optimizer plan) — a single precision drives both
+  # cache halves; q8_0 needs flash attention (-fa on) to be honored by llama.cpp.
+  if [ "$kvCache" != "null" ] && [ -n "$kvCache" ]; then
+    args="$args --cache-type-k $kvCache --cache-type-v $kvCache"
+    if [ "$kvCache" = "q8_0" ]; then
+      args="$args -fa on"
     fi
   fi
-  if [ -n "$cache_type_v" ]; then
-    args="$args --cache-type-v $cache_type_v"
-    if [ "$cache_type_v" = "q8_0" ]; then
-      fa_needed=1
+
+  # MoE expert offload to system RAM (rig-optimizer experts_cpu plan).
+  if [ "$nCpuMoe" != "null" ] && [ -n "$nCpuMoe" ]; then
+    args="$args --n-cpu-moe $nCpuMoe"
+  fi
+
+  # GPU placement is entirely image-decided: only emitted when IL_GPU=1 (CUDA image).
+  # The CPU image never sees CUDA_VISIBLE_DEVICES / split-mode / -ngl, even if an
+  # instance happens to carry a gpus list.
+  if [ "${IL_GPU:-0}" = "1" ]; then
+    local gpu_count idx idx_csv split_csv
+    gpu_count=$(jq 'length' <<<"$gpus")
+
+    if [ "$gpu_count" -eq 1 ]; then
+      idx=$(jq -r '.[0]' <<<"$gpus")
+      envs="CUDA_VISIBLE_DEVICES=$idx"
+    elif [ "$gpu_count" -gt 1 ]; then
+      idx_csv=$(jq -r 'join(",")' <<<"$gpus")
+      envs="CUDA_VISIBLE_DEVICES=$idx_csv"
+      if [ "$tensorSplit" != "null" ]; then
+        split_csv=$(jq -r 'join(",")' <<<"$tensorSplit")
+      else
+        split_csv=$(jq -r '[range(length) | "1"] | join(",")' <<<"$gpus")
+      fi
+      args="$args --split-mode row --tensor-split $split_csv"
+    fi
+
+    args="$args -ngl 999"
+  fi
+
+  printf 'ENV:%s\n' "$envs"
+  printf 'ARGS:%s\n' "$args"
+}
+
+start_instance() {
+  local id="$1" inst="$2"
+  local built env_line args_line port
+
+  built="$(build_cmd "$inst")"
+  env_line="$(printf '%s\n' "$built" | sed -n 's/^ENV://p')"
+  args_line="$(printf '%s\n' "$built" | sed -n 's/^ARGS://p')"
+  port="$(jq -r '.port' <<<"$inst")"
+
+  if [ "$DRYRUN" = "1" ]; then
+    echo "[dryrun] instance '$id': ${env_line:+$env_line }$LLAMA_BIN $args_line"
+    # Placeholder process so the reconcile/crash-recovery loop still has a real PID
+    # to track, without needing llama-server or a GPU on this host.
+    sleep infinity &
+    PID_OF[$id]=$!
+  else
+    log "Starting instance '$id': ${env_line:+$env_line }$LLAMA_BIN $args_line"
+    if [ -n "$env_line" ]; then
+      # shellcheck disable=SC2086
+      env $env_line "$LLAMA_BIN" $args_line &
+    else
+      # shellcheck disable=SC2086
+      "$LLAMA_BIN" $args_line &
+    fi
+    PID_OF[$id]=$!
+    log "Instance '$id' started (pid ${PID_OF[$id]}, port $port)"
+  fi
+
+  PORT_OF[$id]="$port"
+  SIG_OF[$id]="$(jq -cS . <<<"$inst")"
+}
+
+stop_instance() {
+  local id="$1"
+  local pid="${PID_OF[$id]:-}"
+
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    log "Stopping instance '$id' (pid $pid, port ${PORT_OF[$id]:-?})"
+    kill -TERM "$pid" 2>/dev/null || true
+    local waited=0
+    while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$GRACE_SECS" ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      log "Instance '$id' (pid $pid) did not exit in ${GRACE_SECS}s; sending SIGKILL"
+      kill -KILL "$pid" 2>/dev/null || true
     fi
   fi
-  if [ -n "$fa_needed" ]; then
-    args="$args -fa on"
-  fi
 
-  # MoE expert offload to system RAM.
-  if [ -n "$n_cpu_moe" ]; then
-    args="$args --n-cpu-moe $n_cpu_moe"
-  fi
-
-  log "Starting llama-server: $LLAMA_BIN $args"
-  # shellcheck disable=SC2086
-  $LLAMA_BIN $args &
-  LLAMA_PID=$!
-  log "llama-server started (pid $LLAMA_PID)"
+  unset 'PID_OF[$id]'
+  unset 'SIG_OF[$id]'
+  unset 'PORT_OF[$id]'
 }
 
-get_file_hash() {
-  # md5sum is available on alpine
-  md5sum "$1" 2>/dev/null | cut -d' ' -f1
+stop_all() {
+  local id
+  for id in "${!PID_OF[@]}"; do
+    stop_instance "$id"
+  done
 }
 
-get_mtime() {
-  stat -c '%Y' "$1" 2>/dev/null || echo "0"
+# Reconcile the running process set against a normalized desired instance array.
+# Only instances whose canonical signature changed are stopped+restarted; unmatched
+# running instances are stopped; unchanged instances are left untouched.
+reconcile() {
+  local normalized="$1"
+  local count i inst id sig model_path
+
+  count=$(jq 'length' <<<"$normalized")
+
+  for i in $(seq 0 $((count - 1))); do
+    inst=$(jq -c ".[$i]" <<<"$normalized")
+    id=$(jq -r '.id' <<<"$inst")
+    model_path=$(jq -r '.modelPath' <<<"$inst")
+
+    if [ -z "$model_path" ] || [ "$model_path" = "null" ]; then
+      log "ERROR: instance '$id' missing modelPath; skipping"
+      continue
+    fi
+    if [ "$DRYRUN" != "1" ] && [ ! -f "$model_path" ]; then
+      log "ERROR: instance '$id' model file not found: $model_path; skipping"
+      continue
+    fi
+
+    sig=$(jq -cS . <<<"$inst")
+    if [ "${SIG_OF[$id]:-}" != "$sig" ]; then
+      log "Instance '$id' is new or changed; (re)starting"
+      [ -n "${PID_OF[$id]:-}" ] && stop_instance "$id"
+      start_instance "$id" "$inst"
+    fi
+  done
+
+  # Stop instances that are no longer in the desired set.
+  local existing_id still_desired
+  for existing_id in "${!PID_OF[@]}"; do
+    still_desired=$(jq --arg id "$existing_id" '[.[] | select(.id == $id)] | length' <<<"$normalized")
+    if [ "$still_desired" = "0" ]; then
+      log "Instance '$existing_id' removed from config"
+      stop_instance "$existing_id"
+    fi
+  done
+
+  DESIRED_JSON="$normalized"
 }
 
-# Trap signals to ensure clean shutdown
-trap 'log "Received shutdown signal"; stop_llama; exit 0' TERM INT
+trap 'log "Received shutdown signal"; stop_all; exit 0' TERM INT
 
 log "Watching ${CONFIG_FILE} for model configuration..."
+[ "$DRYRUN" = "1" ] && log "IL_SUPERVISOR_DRYRUN=1 — commands will be printed, not executed"
+
+LAST_MTIME=""
+LAST_HASH=""
 
 while true; do
   if [ -f "$CONFIG_FILE" ]; then
-    current_mtime="$(get_mtime "$CONFIG_FILE")"
-    current_hash="$(get_file_hash "$CONFIG_FILE")"
+    current_mtime="$(stat -c '%Y' "$CONFIG_FILE" 2>/dev/null || echo 0)"
+    current_hash="$(md5sum "$CONFIG_FILE" 2>/dev/null | cut -d' ' -f1)"
 
     if [ "$current_mtime" != "$LAST_MTIME" ] || [ "$current_hash" != "$LAST_HASH" ]; then
-      log "Config changed — reloading"
-      stop_llama
-
-      config="$(cat "$CONFIG_FILE")"
-      if start_llama "$config"; then
+      log "Config changed — reconciling"
+      config_content="$(cat "$CONFIG_FILE")"
+      jq_err=""
+      if normalized="$(normalize_config "$config_content" 2>/tmp/il-jq-err)"; then
+        reconcile "$normalized"
         LAST_MTIME="$current_mtime"
         LAST_HASH="$current_hash"
       else
-        log "Failed to start llama-server; will retry on next config change"
-        LAST_MTIME=""
-        LAST_HASH=""
+        log "ERROR: failed to parse ${CONFIG_FILE}: $(cat /tmp/il-jq-err 2>/dev/null)"
       fi
-    fi
-
-    # Restart if llama-server died unexpectedly
-    if [ -n "$LLAMA_PID" ] && ! kill -0 "$LLAMA_PID" 2>/dev/null; then
-      log "llama-server (pid $LLAMA_PID) exited unexpectedly; will restart on next poll"
-      LLAMA_PID=""
-      LAST_MTIME=""
-      LAST_HASH=""
     fi
   fi
 
-  sleep 2
+  # Crash recovery: restart dead instances alone, independent of file changes.
+  for id in "${!PID_OF[@]}"; do
+    pid="${PID_OF[$id]}"
+    if ! kill -0 "$pid" 2>/dev/null; then
+      log "Instance '$id' (pid $pid) exited unexpectedly; restarting alone"
+      unset 'PID_OF[$id]'
+      inst="$(jq -c --arg id "$id" '.[] | select(.id == $id)' <<<"$DESIRED_JSON")"
+      if [ -n "$inst" ]; then
+        start_instance "$id" "$inst"
+      else
+        unset 'SIG_OF[$id]'
+        unset 'PORT_OF[$id]'
+      fi
+    fi
+  done
+
+  touch "$HEARTBEAT_FILE" 2>/dev/null || true
+
+  sleep "$POLL_SECS"
 done

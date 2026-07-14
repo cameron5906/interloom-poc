@@ -1,0 +1,131 @@
+.il-opbind {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background:
+    radial-gradient(1100px 500px at 50% -10%, color-mix(in srgb, var(--il-accent) 6%, transparent), transparent),
+    var(--il-bg-page);
+}
+
+.il-opbind__frame {
+  width: 100%;
+  max-width: 440px;
+}
+
+.il-opbind__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+  justify-content: center;
+}
+.il-opbind__mark {
+  display: inline-flex;
+}
+.il-opbind__wordmark {
+  font-family: var(--il-font-display);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.il-opbind__tag {
+  font-family: var(--il-font-mono);
+  font-size: 11px;
+  color: var(--il-text-muted);
+  border-left: 1px solid var(--il-border-strong);
+  padding-left: 10px;
+}
+
+.il-opbind__card {
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  background: var(--il-bg-card);
+  box-shadow: var(--il-shadow-card);
+  padding: 32px 28px;
+  text-align: center;
+}
+
+.il-opbind__title {
+  font-family: var(--il-font-display);
+  font-size: 21px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  margin: 0 0 10px;
+}
+
+.il-opbind__lede {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--il-text-secondary);
+  margin: 0 0 26px;
+}
+
+.il-opbind__waiting {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  padding: 6px 4px;
+}
+.il-opbind__waiting-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.il-opbind__error {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--il-danger);
+}
+
+.il-opbind__retry {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--il-text-muted);
+  cursor: pointer;
+  margin-top: 14px;
+  min-height: 44px;
+  padding: 0 8px;
+}
+.il-opbind__retry:hover {
+  color: var(--il-text-primary);
+}
+
+.il-opbind__success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+.il-opbind__success-title {
+  font-family: var(--il-font-display);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.il-opbind__footnote {
+  margin: 20px 4px 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--il-text-faint);
+  text-align: center;
+}
+
+/* Buttons in this gate should be full-width and easy to hit on mobile. */
+.il-opbind__card .il-btn {
+  width: 100%;
+  min-height: 46px;
+}
+
+@media (max-width: 480px) {
+  .il-opbind__card {
+    padding: 26px 20px;
+  }
+}

@@ -4,7 +4,14 @@ import { z } from "zod";
 export const TUNNEL_VERSION = 1 as const;
 
 /** Tunnel RPC error codes (CONTRACTS §3). */
-export const TunnelErrorCode = z.enum(["E_VERSION", "E_AUTH", "E_METHOD", "E_INTERNAL", "E_BUSY"]);
+export const TunnelErrorCode = z.enum([
+  "E_VERSION",
+  "E_AUTH",
+  "E_METHOD",
+  "E_INTERNAL",
+  "E_BUSY",
+  "E_PENDING_APPROVAL",
+]);
 export type TunnelErrorCode = z.infer<typeof TunnelErrorCode>;
 
 export const TunnelError = z.object({
@@ -101,16 +108,26 @@ export const ToolCall = z.object({
 });
 export type ToolCall = z.infer<typeof ToolCall>;
 
+/** A single content part in a multi-part message (CONTRACTS §3 image attachments). */
+export const ContentPart = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({ type: z.literal("image_url"), image_url: z.object({ url: z.string() }) }),
+]);
+export type ContentPart = z.infer<typeof ContentPart>;
+
 /**
  * A chat turn on the wire. The `tool` role and `toolCalls` are additive and
  * only ever sent for models gated by `capabilities.tools` — strict chat
- * templates never receive them (CONTRACTS §3).
+ * templates never receive them (CONTRACTS §3). `contentParts` is additive:
+ * `content` always carries a text degrade (e.g. "[image attached]") so a
+ * stale host stays valid; a vision-capable host prefers `contentParts`.
  */
 export const InferenceMessage = z.object({
   role: z.enum(["system", "user", "assistant", "tool"]),
   content: z.string(),
   toolCalls: z.array(ToolCall).optional(),
   toolCallId: z.string().optional(),
+  contentParts: z.array(ContentPart).optional(),
 });
 export type InferenceMessage = z.infer<typeof InferenceMessage>;
 

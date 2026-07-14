@@ -9,12 +9,18 @@ import type {
   HostAgent,
   PlacementStatus,
   UpdateStatus,
+  LoadedModel,
+  AllocationView,
+  LoadModelBody,
+  ModelSettings,
+  ModelSettingsPatch,
 } from "@interloom/protocol";
 import { api } from "./client.js";
 import type {
   HostKeys,
-  NetworkSession,
-  NetworkLoginResult,
+  OperatorState,
+  OperatorIdentity,
+  OperatorLinkStart,
   ModelRegistryResponse,
   HfSearchResult,
   HfRepoDetail,
@@ -35,9 +41,13 @@ export const keys = {
   get: (signal?: AbortSignal) => api.get<HostKeys>("/api/keys", signal),
 };
 
-export const network = {
-  login: (email: string) => api.post<NetworkLoginResult>("/api/network/login", { email }),
-  session: (signal?: AbortSignal) => api.get<NetworkSession>("/api/network/session", signal),
+/** Operator binding (CONTRACTS §6) — the network identity gating this portal. */
+export const operatorBind = {
+  get: (signal?: AbortSignal) => api.get<OperatorState>("/api/operator", signal),
+  linkStart: () => api.post<OperatorLinkStart>("/api/operator/link/start"),
+  linkComplete: (grant: unknown) =>
+    api.post<{ bound: true; operator: OperatorIdentity }>("/api/operator/link/complete", { grant }),
+  signout: () => api.post<Record<string, never>>("/api/operator/signout"),
 };
 
 export const models = {
@@ -65,6 +75,17 @@ export const models = {
     }),
   active: (signal?: AbortSignal) => api.get<ActiveModel | null>("/api/models/active", signal),
   removeLocal: (path: string) => api.del<void>("/api/models/local", { path }),
+
+  // --- Multi-instance model loading (CONTRACTS §6) ---
+  loaded: (signal?: AbortSignal) => api.get<LoadedModel[]>("/api/models/loaded", signal),
+  allocation: (signal?: AbortSignal) =>
+    api.get<AllocationView>("/api/models/allocation", signal),
+  load: (body: LoadModelBody) => api.post<LoadedModel>("/api/models/load", body),
+  unload: (path: string) => api.post<void>("/api/models/unload", { path }),
+  settingsList: (signal?: AbortSignal) =>
+    api.get<ModelSettings[]>("/api/models/settings", signal),
+  patchSettings: (body: ModelSettingsPatch) =>
+    api.patch<ModelSettings>("/api/models/settings", body),
 };
 
 export const agents = {

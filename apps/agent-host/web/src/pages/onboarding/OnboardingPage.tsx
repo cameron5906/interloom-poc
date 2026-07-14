@@ -3,10 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { LoomGlyph } from "../../components/NavRail.js";
 import { StepHardware } from "./StepHardware.js";
 import { StepIdentity } from "./StepIdentity.js";
-import { StepNetwork } from "./StepNetwork.js";
 import "./onboarding.css";
 
-const STEPS = ["Hardware", "Identity", "Network"] as const;
+const STEPS = ["Hardware", "Identity"] as const;
 
 export function OnboardingPage({ onDone }: { onDone: () => void }) {
   const navigate = useNavigate();
@@ -52,8 +51,7 @@ export function OnboardingPage({ onDone }: { onDone: () => void }) {
 
         <div className="il-onb__panel">
           {step === 0 && <StepHardware onNext={() => setStep(1)} />}
-          {step === 1 && <StepIdentity onNext={() => setStep(2)} onBack={() => setStep(0)} />}
-          {step === 2 && <StepNetwork onDone={finish} onBack={() => setStep(1)} />}
+          {step === 1 && <StepIdentity onNext={finish} onBack={() => setStep(0)} />}
         </div>
       </div>
     </div>

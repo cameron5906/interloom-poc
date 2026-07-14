@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, Button, CapabilityBadges, Input, Modal, StatusPill, TextArea } from "@interloom/ui";
-import type { AgentGender, HostAgent, LocalModel, PlacementStatus } from "@interloom/protocol";
-import type { AgentDraft, ActiveModel, CatalogModel } from "../../api/types.js";
+import type { AgentGender, HostAgent, LoadedModel, LocalModel, PlacementStatus } from "@interloom/protocol";
+import type { AgentDraft, CatalogModel } from "../../api/types.js";
 import { EMPTY_AGENT_DRAFT } from "../../api/types.js";
-import { agents as agentsApi, models as modelsApi, placements as placementsApi } from "../../api/endpoints.js";
+import {
+  agents as agentsApi,
+  placements as placementsApi,
+  models as modelsApi,
+} from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
+import { CONTEXT_PRESETS } from "../../lib/constants.js";
 import { useToasts } from "../../components/Toasts.js";
 import { CharacterCustomizer } from "./CharacterCustomizer/index.js";
 import { SpecialtiesInput } from "./SpecialtiesInput.js";
@@ -16,10 +21,15 @@ import { rollCharacter, withGender, draftAvatarImageUrl, svgFor, renderPng } fro
 import { GenderPicker } from "./CharacterCustomizer/GenderPicker.js";
 import { signatureChanged } from "../../lib/signature.js";
 import { ApiError } from "../../api/client.js";
+import { useGuardedModelLoad } from "../../components/ModelLoadFlow/useGuardedModelLoad.js";
+import { SpillConfirmDialog } from "../../components/ModelLoadFlow/SpillConfirmDialog.js";
 
 interface AgentEditorProps {
   agent: HostAgent | null;
-  activeModel: ActiveModel | null;
+  /** Loaded-list world (CONTRACTS §6) — replaces the old single `activeModel`. */
+  loadedModels: LoadedModel[];
+  localModels: LocalModel[];
+  localModelsLoading: boolean;
   onSaved: (saved: HostAgent) => void;
   onDeleted: (id: string) => void;
   onDraftChange: (draft: AgentDraft) => void;
@@ -66,7 +76,15 @@ function buildPayload(draft: AgentDraft): AgentDraft {
   return { ...draft, capabilityBlurb: title ? title : draft.capabilityBlurb };
 }
 
-export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftChange }: AgentEditorProps) {
+export function AgentEditor({
+  agent,
+  loadedModels,
+  localModels,
+  localModelsLoading,
+  onSaved,
+  onDeleted,
+  onDraftChange,
+}: AgentEditorProps) {
   const toasts = useToasts();
   const [draft, setDraft] = useState<AgentDraft>(() => initialDraft(agent));
   const [syncState, setSyncState] = useState<SyncState>("idle");
@@ -80,7 +98,9 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
   const prevNameRef = useRef(draft.name);
   const uploadedCharacterRef = useRef(agent?.avatar.character);
 
-  const localModels = useAsync((s) => modelsApi.local(s), []);
+  // Curated catalog (theirs) — used to label installed models with their
+  // catalog name and to enrich the published ModelRef. `localModels` and
+  // `loadedModels` arrive as props (multi-instance loaded set, CONTRACTS §6).
   const registry = useAsync((s) => modelsApi.registry(s), []);
   const catalogModels = registry.data?.doc.catalog.models ?? [];
 
@@ -361,10 +381,10 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
         >
           <ModelPicker
             selected={draft.model?.filename ?? null}
-            localModels={localModels.data ?? []}
+            localModels={localModels}
+            loadedModels={loadedModels}
             catalogModels={catalogModels}
-            activeModel={activeModel}
-            loading={localModels.loading && localModels.initialLoad}
+            loading={localModelsLoading}
             onChange={(m) =>
               patch({
                 model: m
@@ -373,6 +393,13 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
               })
             }
           />
+          {draft.model ? (
+            <ModelStatusLine
+              filename={draft.model.filename}
+              loadedModels={loadedModels}
+              localModels={localModels}
+            />
+          ) : null}
           {!hasModel ? (
             <div className="il-field__note">
               Preview and Publish to Network are locked until a model is selected.
@@ -406,6 +433,13 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
               <span>creative</span>
             </div>
           </Field>
+
+          <ContextBudgetField
+            draft={draft}
+            loadedModels={loadedModels}
+            agentModelFilename={draft.model?.filename ?? null}
+            patch={patch}
+          />
         </div>
 
         <MarketplacePreview draft={draft} live={registered} />
@@ -507,15 +541,15 @@ function buildModelRef(
 function ModelPicker({
   selected,
   localModels,
+  loadedModels,
   catalogModels,
-  activeModel,
   loading,
   onChange,
 }: {
   selected: string | null;
   localModels: LocalModel[];
+  loadedModels: LoadedModel[];
   catalogModels: CatalogModel[];
-  activeModel: ActiveModel | null;
   loading: boolean;
   onChange: (model: LocalModel | null) => void;
 }) {
@@ -552,7 +586,7 @@ function ModelPicker({
             <option key={m.path} value={m.filename}>
               {label} · {bytesToGB(m.sizeBytes)} GB
               {capSuffix(m.capabilities)}
-              {activeModel?.filename === m.filename ? " · active" : ""}
+              {loadedModels.some((lm) => lm.path === m.path) ? " · loaded" : ""}
             </option>
           );
         })}
@@ -563,6 +597,121 @@ function ModelPicker({
       />
     </div>
   );
+}
+
+/** Status line + guarded load affordance next to the model picker (deliverable 3). */
+function ModelStatusLine({
+  filename,
+  loadedModels,
+  localModels,
+}: {
+  filename: string;
+  loadedModels: LoadedModel[];
+  localModels: LocalModel[];
+}) {
+  const toasts = useToasts();
+  const loadedEntry = loadedModels.find((m) => m.filename === filename);
+  const localEntry = localModels.find((m) => m.filename === filename);
+  const { loading, spillConfirm, attemptLoad, confirmSpillAndRetry, cancelSpillConfirm } =
+    useGuardedModelLoad();
+
+  const quickLoad = async () => {
+    if (!localEntry) {
+      toasts.error("This model isn't installed on this host yet.");
+      return;
+    }
+    await attemptLoad(localEntry.path, localEntry.filename);
+  };
+
+  return (
+    <>
+      <div className="il-model-status">
+        {loadedEntry ? (
+          <StatusPill tone="success" live>
+            Loaded · {fmtCtxLabel(loadedEntry.ctx)} ctx
+          </StatusPill>
+        ) : localEntry ? (
+          <>
+            <StatusPill tone="neutral">Not loaded</StatusPill>
+            <Button size="sm" variant="secondary" onClick={() => void quickLoad()} disabled={loading}>
+              {loading ? "Loading…" : "Load model"}
+            </Button>
+          </>
+        ) : (
+          <StatusPill tone="warning">Not installed on this host</StatusPill>
+        )}
+      </div>
+
+      {spillConfirm ? (
+        <SpillConfirmDialog
+          request={spillConfirm}
+          loading={loading}
+          onCancel={cancelSpillConfirm}
+          onConfirm={() => void confirmSpillAndRetry()}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function ContextBudgetField({
+  draft,
+  loadedModels,
+  agentModelFilename,
+  patch,
+}: {
+  draft: AgentDraft;
+  loadedModels: LoadedModel[];
+  agentModelFilename: string | null;
+  patch: (p: Partial<AgentDraft>) => void;
+}) {
+  const loadedEntry =
+    agentModelFilename != null ? loadedModels.find((m) => m.filename === agentModelFilename) : undefined;
+  const agentModelIsActive = !!loadedEntry;
+  const loadedCtx = loadedEntry?.ctx ?? null;
+
+  const presets = CONTEXT_PRESETS.filter((p) => loadedCtx == null || p.value <= loadedCtx);
+
+  const ctxLabel = loadedCtx != null ? fmtCtxLabel(loadedCtx) : null;
+
+  const fieldLabel = ctxLabel
+    ? `Prompt budget (within the model's ${ctxLabel} window)`
+    : "Prompt budget (within the model's context window)";
+
+  const cappedValue = loadedCtx != null
+    ? Math.min(draft.params.contextLength, loadedCtx)
+    : draft.params.contextLength;
+
+  return (
+    <Field label={fieldLabel}>
+      <div className="il-segmented" role="group" aria-label="Prompt budget">
+        {presets.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            className={`il-segmented__btn${
+              cappedValue === opt.value ? " il-segmented__btn--sel" : ""
+            }`}
+            onClick={() => patch({ params: { ...draft.params, contextLength: opt.value } })}
+            aria-pressed={cappedValue === opt.value}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {!agentModelIsActive ? (
+        <div className="il-field__hint" style={{ marginTop: 6 }}>
+          Capped by the context size chosen at activation.
+        </div>
+      ) : null}
+    </Field>
+  );
+}
+
+function fmtCtxLabel(ctx: number): string {
+  if (ctx >= 1024 && ctx % 1024 === 0) return `${ctx / 1024}k`;
+  if (ctx >= 1000) return `${Math.round(ctx / 1000)}k`;
+  return String(ctx);
 }
 
 function Field({

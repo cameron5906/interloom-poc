@@ -24,6 +24,33 @@ vi.mock("../telemetry/collector.js", () => ({
   recordTokensPerSec: vi.fn(),
 }));
 
+// The tunnel now routes to its agent's model's loaded instance (CONTRACTS §6
+// multi-instance loading) — provide a fixed agent/instance pair so the
+// existing handshake/inference flows keep exercising the fetch path.
+vi.mock("../agents/store.js", () => ({
+  getAgent: (id: string) =>
+    id === "a1" ? { agentId: "a1", model: { filename: "model.gguf" } } : undefined,
+}));
+
+vi.mock("../models/loaded.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../models/loaded.js")>();
+  return {
+    ...actual,
+    findInstanceByFilename: (filename: string) =>
+      filename === "model.gguf"
+        ? { id: "test", modelPath: "/models/model.gguf", ctx: 4096, port: 8080, gpus: [] }
+        : undefined,
+  };
+});
+
+vi.mock("../models/scan.js", () => ({
+  capabilitiesForFilename: () => undefined,
+}));
+
+vi.mock("../models/settingsStore.js", () => ({
+  isThinkingDisabled: () => false,
+}));
+
 const FETCH_MOCK_RESPONSE = {
   choices: [{ message: { role: "assistant", content: "Hello!" } }],
   usage: { prompt_tokens: 5, completion_tokens: 3 },

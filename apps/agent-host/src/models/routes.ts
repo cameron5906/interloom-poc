@@ -3,17 +3,42 @@ import os from "os";
 import path from "path";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { MODELS_DIR, INFERENCE_URL, FETCHER_URL } from "../config.js";
-import type { GpuInfo } from "@interloom/protocol";
-import { ContextOptions } from "@interloom/protocol";
+import { MODELS_DIR, FETCHER_URL } from "../config.js";
+import type { GpuInfo, ModelRef, LoadedModel, AllocationView } from "@interloom/protocol";
+import { ContextOptions, LoadModelBody, UnloadModelBody, ModelSettingsPatch } from "@interloom/protocol";
 import { getActiveModel } from "./active.js";
 import { parseGgufMeta } from "./gguf.js";
 import { scanLocalModels } from "./scan.js";
-import { computeAvailableVramMB, kvBytes, fitTier } from "./fit.js";
+import {
+  computeAvailableVramMB,
+  kvBytes,
+  fitTier,
+  computeGpuBudgets,
+  fitDecisionForNewInstance,
+  computeInstanceFootprintBytes,
+  pickBestFitGpu,
+  type InstanceFootprint,
+} from "./fit.js";
 import { buildContextPlans } from "./plans.js";
 import { getRegistry, refreshRegistry } from "./registry.js";
 import { computeRegistryFits } from "./registryFit.js";
 import { mapSearchRows, buildRepoDetail } from "./hf.js";
+import {
+  readInstances,
+  writeInstances,
+  nextPort,
+  findInstanceByPath,
+  findInstanceByFilename,
+  findBasenameConflict,
+  loadedFilenames,
+  toLoadedModel,
+  toLoadedModels,
+  pollInstanceHealth,
+  type InstanceRecord,
+  type InstanceHealth,
+} from "./loaded.js";
+import { listModelSettings, patchModelSettings, isThinkingDisabled } from "./settingsStore.js";
+import { drainInstance } from "../inference/gate.js";
 import {
   getHfStatus,
   connectHfToken,
@@ -22,6 +47,7 @@ import {
 } from "../settings.js";
 
 export { computeAvailableVramMB, kvBytes, fitTier, type FitTierInput } from "./fit.js";
+export { loadedFilenames } from "./loaded.js";
 
 const DownloadBody = z.object({
   repoId: z.string().min(1),
@@ -55,6 +81,170 @@ function assertInsideModelsDir(filePath: string): string {
     throw new Error("path is outside MODELS_DIR");
   }
   return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-instance model loading (CONTRACTS §6)
+// ---------------------------------------------------------------------------
+
+function instanceToFootprint(inst: InstanceRecord): InstanceFootprint {
+  return {
+    modelPath: inst.modelPath,
+    mmprojPath: inst.mmprojPath ?? null,
+    ctx: inst.ctx,
+    gpus: inst.gpus,
+    ...(inst.tensorSplit ? { tensorSplit: inst.tensorSplit } : {}),
+  };
+}
+
+/** Definitive ModelRef for a locally present filename, for LoadedModel/AllocationView responses. */
+export function modelRefForFilename(filename: string): ModelRef | undefined {
+  const local = scanLocalModels(MODELS_DIR).find((m) => m.filename === filename);
+  if (!local) return undefined;
+  return {
+    filename: local.filename,
+    displayName: local.filename,
+    sizeBytes: local.sizeBytes,
+    ...(local.capabilities ? { capabilities: local.capabilities } : {}),
+  };
+}
+
+type LoadOutcome =
+  | { kind: "not_found" }
+  | { kind: "wont_fit" }
+  | { kind: "needs_confirm"; fit: "spill" }
+  | { kind: "filename_conflict" }
+  | { kind: "timeout" }
+  | { kind: "ok"; loadedModel: LoadedModel };
+
+/**
+ * Shared load path for `POST /api/models/load` and `POST /api/models/activate`
+ * (CONTRACTS §6): resolves placement (best-fit single GPU when omitted),
+ * enforces fit against the REMAINING per-GPU budget of `othersOverride` (or
+ * the full current registry when omitted), auto-pairs a sibling mmproj,
+ * writes the instance (carrying `reasoningBudget: 0` when the model's
+ * settings disable thinking), then polls that instance's `/health` until
+ * ready (120s ceiling).
+ */
+async function loadModelInstance(opts: {
+  resolvedPath: string;
+  ctx?: number;
+  placement?: { gpus: number[]; tensorSplit?: number[] };
+  confirmSpill?: boolean;
+  kvCache?: "f16" | "q8_0";
+  nCpuMoe?: number;
+  othersOverride?: InstanceRecord[];
+  getSystemInfo: () => Promise<{ gpus: GpuInfo[]; unifiedMemoryMB?: number }>;
+}): Promise<LoadOutcome> {
+  const { resolvedPath, ctx, placement, confirmSpill, kvCache, nCpuMoe, getSystemInfo } = opts;
+
+  if (!fs.existsSync(resolvedPath)) return { kind: "not_found" };
+
+  const existing = opts.othersOverride ?? readInstances();
+
+  // Basename-collision guard (CONTRACTS §6): every routing key downstream of
+  // load (findInstanceByFilename, loadedFilenames, agent↔model binding) keys
+  // on FILENAME, not full path — two loaded models may never share a
+  // basename. Loading the same path again (an update-in-place) is exempt.
+  if (findBasenameConflict(resolvedPath, existing)) {
+    return { kind: "filename_conflict" };
+  }
+
+  const already = findInstanceByPath(resolvedPath, existing);
+  const others = already ? existing.filter((i) => i.id !== already.id) : existing;
+
+  const pairedModel = scanLocalModels(MODELS_DIR).find(
+    (m) => path.resolve(m.path) === resolvedPath,
+  );
+  const mmprojPath = pairedModel?.mmprojPath ?? null;
+
+  const { gpus, unifiedMemoryMB } = await getSystemInfo();
+  const stat = fs.statSync(resolvedPath);
+  const contextOptions = buildContextOptions(
+    resolvedPath,
+    stat.size,
+    gpus,
+    unifiedMemoryMB,
+    pairedModel?.mmprojBytes ?? 0,
+  );
+  const effectiveCtx = ctx ?? contextOptions.recommendedCtx;
+
+  const othersFootprints: InstanceFootprint[] = others.map(instanceToFootprint);
+
+  let candidateGpus = placement?.gpus;
+  if (!candidateGpus) {
+    const footprintForPick = computeInstanceFootprintBytes({
+      modelPath: resolvedPath,
+      mmprojPath,
+      ctx: effectiveCtx,
+      gpus: [],
+    });
+    const best = pickBestFitGpu(footprintForPick, gpus, othersFootprints);
+    candidateGpus = best !== null ? [best] : [];
+  }
+
+  const candidate: InstanceFootprint = {
+    modelPath: resolvedPath,
+    mmprojPath,
+    ctx: effectiveCtx,
+    gpus: candidateGpus,
+    ...(placement?.tensorSplit ? { tensorSplit: placement.tensorSplit } : {}),
+  };
+  const decision = fitDecisionForNewInstance(candidate, gpus, othersFootprints, unifiedMemoryMB);
+
+  if (decision === "no") return { kind: "wont_fit" };
+  if (decision === "spill" && !confirmSpill) return { kind: "needs_confirm", fit: "spill" };
+
+  const filename = path.basename(resolvedPath);
+  const disableThinking = isThinkingDisabled(filename);
+  const port = already?.port ?? nextPort(others);
+  const record: InstanceRecord = {
+    id: already?.id ?? crypto.randomUUID(),
+    modelPath: resolvedPath,
+    ctx: effectiveCtx,
+    port,
+    gpus: candidateGpus,
+    ...(placement?.tensorSplit ? { tensorSplit: placement.tensorSplit } : {}),
+    reasoningBudget: disableThinking ? 0 : null,
+    mmprojPath,
+    ...(kvCache !== undefined ? { kvCache } : {}),
+    ...(nCpuMoe !== undefined ? { nCpuMoe } : {}),
+    fit: decision,
+  };
+
+  writeInstances([...others, record]);
+
+  const deadline = Date.now() + 120_000;
+  let health: InstanceHealth = "down";
+  while (Date.now() < deadline) {
+    health = await pollInstanceHealth(port);
+    if (health === "ready") break;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (health !== "ready") return { kind: "timeout" };
+
+  const loadedModel = await toLoadedModel(record, modelRefForFilename(filename));
+  return { kind: "ok", loadedModel };
+}
+
+function sendLoadOutcome(
+  reply: import("fastify").FastifyReply,
+  outcome: LoadOutcome,
+): import("fastify").FastifyReply {
+  switch (outcome.kind) {
+    case "not_found":
+      return reply.status(404).send({ error: "model file not found" });
+    case "wont_fit":
+      return reply.status(409).send({ error: "wont_fit" });
+    case "needs_confirm":
+      return reply.status(409).send({ error: "needs_confirm", fit: outcome.fit });
+    case "filename_conflict":
+      return reply.status(409).send({ error: "filename_conflict" });
+    case "timeout":
+      return reply.status(408).send({ error: "inference did not become ready within 120s" });
+    case "ok":
+      return reply.send(outcome.loadedModel);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -349,9 +539,10 @@ export function registerModelsRoutes(
       return reply.status(400).send({ error: "invalid path" });
     }
 
-    // 409 if this file is the currently active model
-    const active = await getActiveModel();
-    if (active && path.resolve(active.path) === resolvedPath) {
+    // 409 if this file is among the currently LOADED instances (CONTRACTS §6:
+    // "409 model_active" now means "is among loaded", not just "is the single
+    // active model" — multi-instance loading may have it loaded on any port).
+    if (findInstanceByPath(resolvedPath)) {
       return reply.status(409).send({ error: "model_active" });
     }
 
@@ -405,6 +596,111 @@ export function registerModelsRoutes(
     return reply.send(result);
   });
 
+  // --- Multi-instance model loading (CONTRACTS §6) ---
+
+  app.post<{ Body: unknown }>("/api/models/load", async (req, reply) => {
+    const parsed = LoadModelBody.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
+
+    let resolvedPath: string;
+    try {
+      resolvedPath = assertInsideModelsDir(parsed.data.path);
+    } catch {
+      return reply.status(400).send({ error: "invalid path" });
+    }
+
+    const outcome = await loadModelInstance({
+      resolvedPath,
+      ctx: parsed.data.ctx,
+      placement: parsed.data.placement,
+      confirmSpill: parsed.data.confirmSpill,
+      kvCache: parsed.data.kvCache,
+      nCpuMoe: parsed.data.nCpuMoe,
+      getSystemInfo,
+    });
+
+    if (outcome.kind === "ok") triggerHeartbeat?.();
+    return sendLoadOutcome(reply, outcome);
+  });
+
+  app.post<{ Body: unknown }>("/api/models/unload", async (req, reply) => {
+    const parsed = UnloadModelBody.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
+
+    let resolvedPath: string;
+    try {
+      resolvedPath = assertInsideModelsDir(parsed.data.path);
+    } catch {
+      return reply.status(400).send({ error: "invalid path" });
+    }
+
+    const existing = readInstances();
+    const instance = findInstanceByPath(resolvedPath, existing);
+    if (!instance) {
+      return reply.status(404).send({ error: "not_loaded" });
+    }
+
+    writeInstances(existing.filter((i) => i.id !== instance.id));
+    drainInstance(instance.port);
+    triggerHeartbeat?.();
+
+    return reply.status(204).send();
+  });
+
+  app.get("/api/models/loaded", async (_req, reply) => {
+    const instances = readInstances();
+    const loaded = await toLoadedModels(instances, modelRefForFilename);
+    return reply.send(loaded);
+  });
+
+  app.get("/api/models/allocation", async (_req, reply) => {
+    const { gpus, unifiedMemoryMB } = await getSystemInfo();
+    const instances = readInstances();
+    const footprints = instances.map(instanceToFootprint);
+    const gpuBudgets = computeGpuBudgets(gpus, footprints);
+    const loaded = await toLoadedModels(instances, modelRefForFilename);
+    const allocation: AllocationView = {
+      gpus: gpuBudgets,
+      loaded,
+      maxConcurrentAgents: instances.length,
+    };
+    // unifiedMemoryMB isn't per-GPU (no discrete GPU set to enumerate) — the
+    // gpus[] array is empty in that case; loaded/maxConcurrentAgents still hold.
+    void unifiedMemoryMB;
+    return reply.send(allocation);
+  });
+
+  app.get("/api/models/settings", async (_req, reply) => {
+    return reply.send(listModelSettings());
+  });
+
+  app.patch<{ Body: unknown }>("/api/models/settings", async (req, reply) => {
+    const parsed = ModelSettingsPatch.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
+    const { filename, disableThinking } = parsed.data;
+    const updated = patchModelSettings(filename, { disableThinking });
+
+    // Currently loaded? Rewrite its instance entry so the supervisor restarts
+    // just that instance (CONTRACTS §6).
+    const existing = readInstances();
+    const instance = findInstanceByFilename(filename, existing);
+    if (instance) {
+      const reasoningBudget = updated.disableThinking === true ? 0 : null;
+      writeInstances(
+        existing.map((i) => (i.id === instance.id ? { ...i, reasoningBudget } : i)),
+      );
+      triggerHeartbeat?.();
+    }
+
+    return reply.send(updated);
+  });
+
   app.post<{ Body: unknown }>(
     "/api/models/activate",
     async (req, reply) => {
@@ -412,39 +708,41 @@ export function registerModelsRoutes(
       if (!parsed.success) {
         return reply.status(400).send({ error: parsed.error.message });
       }
-      const { path: modelPath, ctx, kvCache, nCpuMoe } = parsed.data;
-      const inferenceDir = path.join(MODELS_DIR, ".interloom");
-      fs.mkdirSync(inferenceDir, { recursive: true });
-      const inferenceJson = path.join(inferenceDir, "inference.json");
-      const config: Record<string, unknown> = { modelPath };
-      if (ctx !== undefined) config["ctx"] = ctx;
-      if (kvCache !== undefined) {
-        config["cacheTypeK"] = kvCache;
-        config["cacheTypeV"] = kvCache;
-      }
-      if (nCpuMoe !== undefined) config["nCpuMoe"] = nCpuMoe;
-      const pairedModel = scanLocalModels(MODELS_DIR).find(
-        (m) => path.resolve(m.path) === path.resolve(modelPath),
-      );
-      if (pairedModel?.mmprojPath) config["mmprojPath"] = pairedModel.mmprojPath;
-      const tmp = inferenceJson + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify(config, null, 2), "utf8");
-      fs.renameSync(tmp, inferenceJson);
 
-      const deadline = Date.now() + 120_000;
-      while (Date.now() < deadline) {
-        try {
-          const res = await fetch(`${INFERENCE_URL}/health`);
-          if (res.ok) {
-            triggerHeartbeat?.();
-            return reply.send({ status: "ready" });
-          }
-        } catch {
-          // inference not ready yet
-        }
-        await new Promise((r) => setTimeout(r, 2000));
+      let resolvedPath: string;
+      try {
+        resolvedPath = assertInsideModelsDir(parsed.data.path);
+      } catch {
+        return reply.status(400).send({ error: "invalid path" });
       }
-      return reply.status(408).send({ error: "inference did not become ready within 120s" });
+      if (!fs.existsSync(resolvedPath)) {
+        return reply.status(404).send({ error: "model file not found" });
+      }
+
+      // "Load this as the sole model" — unload every currently loaded
+      // instance first (CONTRACTS §6), then load fresh onto 8080 (the only
+      // port `nextPort([])` can assign once every instance is gone). The
+      // rig-optimizer plan flags (kvCache/nCpuMoe) ride the load onto the
+      // instance record — the direct v1 inference.json write is gone (the
+      // supervisor is v2 multi-instance).
+      for (const inst of readInstances()) {
+        drainInstance(inst.port);
+      }
+
+      const outcome = await loadModelInstance({
+        resolvedPath,
+        ctx: parsed.data.ctx,
+        kvCache: parsed.data.kvCache,
+        nCpuMoe: parsed.data.nCpuMoe,
+        othersOverride: [],
+        getSystemInfo,
+      });
+
+      if (outcome.kind === "ok") {
+        triggerHeartbeat?.();
+        return reply.send({ status: "ready" });
+      }
+      return sendLoadOutcome(reply, outcome);
     },
   );
 }

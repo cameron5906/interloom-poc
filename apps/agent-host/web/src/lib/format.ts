@@ -56,13 +56,6 @@ export function clockTime(epochMs: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-/** Short-code a base64url pubkey for the nav footer, e.g. "aQ8f…kZ2p". */
-export function shortCode(pubKey: string | undefined): string {
-  if (!pubKey) return "—";
-  if (pubKey.length <= 10) return pubKey;
-  return `${pubKey.slice(0, 4)}…${pubKey.slice(-4)}`;
-}
-
 /** ISO date → "Jul 12, 2026". */
 export function formatDate(iso: string | undefined): string {
   if (!iso) return "—";

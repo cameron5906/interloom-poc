@@ -25,6 +25,9 @@ export type { TextAreaProps } from "./components/TextArea.js";
 export { Modal } from "./components/Modal.js";
 export type { ModalProps } from "./components/Modal.js";
 
+export { OverlayPanel } from "./components/OverlayPanel.js";
+export type { OverlayPanelProps } from "./components/OverlayPanel.js";
+
 export { Spinner } from "./components/Spinner.js";
 export type { SpinnerProps, SpinnerSize } from "./components/Spinner.js";
 

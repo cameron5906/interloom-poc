@@ -1,5 +1,5 @@
-import type { DownloadJob, LocalModel } from "@interloom/protocol";
-import type { ActiveModel, CatalogModel, RegistryFit } from "../../../api/types.js";
+import type { DownloadJob, LoadedModel, LocalModel } from "@interloom/protocol";
+import type { CatalogModel, RegistryFit } from "../../../api/types.js";
 import { CatalogCapabilityChips } from "./CatalogCapabilityChips.js";
 import { CatalogFitBadge } from "./CatalogFitBadge.js";
 import { ModalityIcons } from "./ModalityIcons.js";
@@ -10,7 +10,7 @@ interface CatalogCardProps {
   fit: RegistryFit | undefined;
   downloads: DownloadJob[];
   localModels: LocalModel[];
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onOpen: () => void;
 }
 
@@ -19,10 +19,10 @@ export function CatalogCard({
   fit,
   downloads,
   localModels,
-  activeModel,
+  loadedModels,
   onOpen,
 }: CatalogCardProps) {
-  const state = catalogCardState(model, downloads, localModels, activeModel);
+  const state = catalogCardState(model, downloads, localModels, loadedModels);
 
   return (
     <button type="button" className="il-catcard" onClick={onOpen}>
@@ -42,8 +42,8 @@ export function CatalogCard({
 
       <div className="il-catcard__foot">
         <CatalogFitBadge verdict={fit?.verdict} note={fit?.note} />
-        {state === "active" ? (
-          <span className="il-catcard__state il-catcard__state--active">Active</span>
+        {state === "loaded" ? (
+          <span className="il-catcard__state il-catcard__state--active">Loaded</span>
         ) : state === "installed" ? (
           <span className="il-catcard__state il-catcard__state--installed">Installed</span>
         ) : state === "downloading" || state === "queued" ? (

@@ -1,57 +1,38 @@
 import type { TelemetryFrame } from "@interloom/protocol";
-import { ProgressBar } from "@interloom/ui";
 import { Sparkline } from "../../components/Sparkline.js";
-import { mbToGB } from "../../lib/format.js";
-import type { ActiveModel } from "../../api/types.js";
+import { GpuTiles } from "./GpuTiles.js";
 
 interface StatTilesProps {
   frame: TelemetryFrame | undefined;
   tokensHistory: number[];
   connected: boolean;
-  /** Polled from /api/models/active — carries the optional ctx field. */
-  activeModel?: ActiveModel | null;
 }
 
-export function StatTiles({ frame, tokensHistory, connected, activeModel }: StatTilesProps) {
-  const gpu = frame?.gpus[0];
-  const hasGpu = !!gpu;
-  const util = gpu ? Math.round(gpu.utilPct) : 0;
-  const vramFrac = gpu && gpu.vramTotalMB > 0 ? gpu.vramUsedMB / gpu.vramTotalMB : 0;
+/**
+ * Deliverable 4 (multi-model correctness sweep): renders every detected GPU,
+ * not just `frame.gpus[0]` — a two-3090 host used to lose its second card
+ * entirely. The "loaded models" tile prefers the additive
+ * `inference.models` list and falls back to the legacy singular
+ * `inference.activeModel` field when a stale daemon hasn't shipped it yet.
+ */
+export function StatTiles({ frame, tokensHistory, connected }: StatTilesProps) {
+  const gpus = frame?.gpus ?? [];
+  const hasGpu = gpus.length > 0;
   const tps = frame ? Math.round(frame.tokensPerSec) : 0;
   const tunnelCount = frame ? frame.tunnels.filter((t) => t.status === "connected").length : 0;
   const inference = frame?.inference;
+  const loadedModels = inference?.models;
+  const totalQueueDepth = loadedModels
+    ? loadedModels.reduce((sum, m) => sum + m.queueDepth, 0)
+    : (inference?.queueDepth ?? 0);
 
   return (
     <div className="il-tiles">
-      <Tile label="GPU utilization">
+      <Tile label="GPU" wide={hasGpu}>
         {hasGpu ? (
-          <>
-            <div className="il-tile__value">
-              {util}
-              <span className="il-tile__unit">%</span>
-            </div>
-            <div className="il-tile__spark">
-              <UtilBar value={util / 100} />
-            </div>
-          </>
+          <GpuTiles gpus={gpus} />
         ) : (
           <div className="il-tile__empty">CPU mode · no GPU</div>
-        )}
-      </Tile>
-
-      <Tile label="VRAM used">
-        {hasGpu ? (
-          <>
-            <div className="il-tile__value">
-              {mbToGB(gpu.vramUsedMB)}
-              <span className="il-tile__unit"> / {mbToGB(gpu.vramTotalMB)} GB</span>
-            </div>
-            <div className="il-tile__spark">
-              <ProgressBar value={vramFrac} tone={vramFrac > 0.9 ? "warning" : "accent"} />
-            </div>
-          </>
-        ) : (
-          <div className="il-tile__empty">—</div>
         )}
       </Tile>
 
@@ -80,19 +61,24 @@ export function StatTiles({ frame, tokensHistory, connected, activeModel }: Stat
 
       {connected && inference ? (
         <>
-          <Tile label="Active model">
-            {inference.activeModel ? (
-              <>
-                <div className="il-tile__value il-tile__value--sm">
-                  {inference.activeModel.filename}
-                </div>
-                <div className="il-tile__spark il-tile__spark--muted">
-                  {inference.activeModel.quant ? inference.activeModel.quant : null}
-                  {activeModel?.ctx ? (
-                    <span className="il-mono">
-                      {inference.activeModel.quant ? " · " : ""}@ {fmtCtx(activeModel.ctx)} ctx
+          <Tile label="Loaded models" wide={!!loadedModels && loadedModels.length > 1}>
+            {loadedModels ? (
+              loadedModels.length > 0 ? (
+                <div className="il-tile__models">
+                  {loadedModels.map((m) => (
+                    <span key={m.filename} className="il-tile__model-chip il-mono" title={m.filename}>
+                      {m.filename} <span className="il-tile__model-ctx">@ {fmtCtx(m.ctx)}</span>
                     </span>
-                  ) : null}
+                  ))}
+                </div>
+              ) : (
+                <div className="il-tile__empty">no models loaded</div>
+              )
+            ) : inference.activeModel ? (
+              <>
+                <div className="il-tile__value il-tile__value--sm">{inference.activeModel.filename}</div>
+                <div className="il-tile__spark il-tile__spark--muted">
+                  {inference.activeModel.quant ?? null}
                 </div>
               </>
             ) : (
@@ -101,11 +87,11 @@ export function StatTiles({ frame, tokensHistory, connected, activeModel }: Stat
           </Tile>
 
           <Tile label="Queue depth">
-            <div className="il-tile__value">{inference.queueDepth}</div>
+            <div className="il-tile__value">{totalQueueDepth}</div>
             <div className="il-tile__spark il-tile__spark--muted">
-              {inference.queueDepth === 0
+              {totalQueueDepth === 0
                 ? "inference idle"
-                : `${inference.queueDepth} request${inference.queueDepth === 1 ? "" : "s"} queued`}
+                : `${totalQueueDepth} request${totalQueueDepth === 1 ? "" : "s"} queued`}
             </div>
           </Tile>
         </>
@@ -114,20 +100,11 @@ export function StatTiles({ frame, tokensHistory, connected, activeModel }: Stat
   );
 }
 
-function Tile({ label, children }: { label: string; children: React.ReactNode }) {
+function Tile({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
   return (
-    <div className="il-tile">
+    <div className={`il-tile${wide ? " il-tile--wide" : ""}`}>
       <div className="il-tile__label">{label}</div>
       {children}
-    </div>
-  );
-}
-
-function UtilBar({ value }: { value: number }) {
-  const pct = Math.max(0, Math.min(1, value)) * 100;
-  return (
-    <div className="il-utilbar">
-      <div className="il-utilbar__fill" style={{ width: `${pct}%` }} />
     </div>
   );
 }

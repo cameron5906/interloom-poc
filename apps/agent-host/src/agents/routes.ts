@@ -1,12 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { HostAgent } from "@interloom/protocol";
-import { INFERENCE_URL } from "../config.js";
+import { MODELS_DIR } from "../config.js";
 import { addRequestLogEntry } from "../telemetry/collector.js";
 import { normalizeMessages } from "../inference/normalize.js";
 import { resolvePreviewOptions, buildPreviewMessages, type PreviewBody } from "./preview.js";
-import { getActiveModel, findLocalModelPath } from "../models/active.js";
+import { findLocalModelPath } from "../models/active.js";
+import { findInstanceByFilename, instanceBaseUrl } from "../models/loaded.js";
+import { capabilitiesForFilename } from "../models/scan.js";
+import { isThinkingDisabled } from "../models/settingsStore.js";
 import { enqueueInference } from "../inference/gate.js";
 import { clampMaxTokens } from "../inference/limits.js";
+import { ThinkStripper } from "../inference/thinkStripper.js";
 import { registerAgentOnNetwork } from "./register.js";
 import { uploadAgentAvatar } from "./avatar.js";
 import {
@@ -83,18 +87,23 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         return reply.status(400).send({ error: "model_required" });
       }
 
-      // model_not_active: the agent's model must be the currently loaded model
-      const active = await getActiveModel();
-      if (!active || active.filename !== agent.model.filename) {
+      // model_not_active: the agent's model must be among the LOADED instances
+      // (CONTRACTS §6 multi-instance loading — same error name/shape as before).
+      const instance = findInstanceByFilename(agent.model.filename);
+      if (!instance) {
         const localPath = agent.model.filename ? findLocalModelPath(agent.model.filename) : null;
         return reply.status(409).send({ error: "model_not_active", model: agent.model, path: localPath });
       }
 
       const { persona, temperature } = resolvePreviewOptions(req.body, agent);
       const { messages, hasImages } = buildPreviewMessages(persona, req.body.messages ?? []);
-      if (hasImages && !active.mmprojPath) {
+      if (hasImages && !instance.mmprojPath) {
         return reply.status(400).send({ error: "vision_not_supported" });
       }
+
+      const capabilities = capabilitiesForFilename(MODELS_DIR, agent.model.filename);
+      const thinkingDisabled = isThinkingDisabled(agent.model.filename);
+      const thinkingActive = capabilities?.thinking === true && !thinkingDisabled;
 
       reply.raw.writeHead(200, {
         "content-type": "text/event-stream",
@@ -102,8 +111,15 @@ export function registerAgentRoutes(app: FastifyInstance): void {
         connection: "keep-alive",
       });
 
+      // NOTE: `req.raw` ("close") fires once the REQUEST body has been fully
+      // read — normal for a small POST — not when the client disconnects.
+      // `reply.raw` ("close") is the response/connection close, which is what
+      // "client walked away mid-stream" actually means; using the wrong one
+      // here meant the abort flag fired before the first chunk was ever
+      // written, so preview never streamed anything to a real HTTP client
+      // (only Fastify's synthetic `.inject()` masked it in tests).
       let aborted = false;
-      req.raw.on("close", () => {
+      reply.raw.on("close", () => {
         aborted = true;
       });
 
@@ -112,18 +128,21 @@ export function registerAgentRoutes(app: FastifyInstance): void {
       let tokensPerSec = 0;
 
       try {
-        await enqueueInference("preview", async () => {
+        await enqueueInference(instance.port, "preview", async (signal) => {
           let inferenceRes: Response;
           try {
-            inferenceRes = await fetch(`${INFERENCE_URL}/v1/chat/completions`, {
+            inferenceRes = await fetch(`${instanceBaseUrl(instance.port)}/v1/chat/completions`, {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
                 messages: normalizeMessages(messages),
                 stream: true,
+                stream_options: { include_usage: true },
                 temperature,
-                max_tokens: clampMaxTokens(undefined, active.ctx),
+                max_tokens: clampMaxTokens(undefined, instance.ctx, thinkingActive),
+                ...(thinkingDisabled ? { chat_template_kwargs: { enable_thinking: false } } : {}),
               }),
+              signal,
             });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -139,6 +158,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
           const reader = inferenceRes.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
+          const stripper = new ThinkStripper();
 
           try {
             while (!aborted) {
@@ -153,13 +173,21 @@ export function registerAgentRoutes(app: FastifyInstance): void {
                 if (data === "[DONE]") continue;
                 try {
                   const chunk = JSON.parse(data) as {
-                    choices?: Array<{ delta?: { content?: string }; finish_reason?: string }>;
+                    choices?: Array<{
+                      delta?: { content?: string; reasoning_content?: string };
+                      finish_reason?: string;
+                    }>;
                     usage?: { prompt_tokens?: number; completion_tokens?: number };
                     timings?: { predicted_per_second?: number };
                   };
-                  const delta = chunk.choices?.[0]?.delta?.content;
-                  if (delta) {
-                    reply.raw.write(`data: ${JSON.stringify({ delta })}\n\n`);
+                  // reasoning_content is separated by the engine (--reasoning-format
+                  // deepseek) — never concatenated into visible content (CONTRACTS §6.1).
+                  const raw = chunk.choices?.[0]?.delta?.content;
+                  if (raw) {
+                    const delta = stripper.push(raw);
+                    if (delta) {
+                      reply.raw.write(`data: ${JSON.stringify({ delta })}\n\n`);
+                    }
                   }
                   if (chunk.usage?.prompt_tokens !== undefined) {
                     promptTokens = chunk.usage.prompt_tokens;
@@ -174,6 +202,10 @@ export function registerAgentRoutes(app: FastifyInstance): void {
                   // skip malformed SSE lines
                 }
               }
+            }
+            const tail = stripper.flush();
+            if (tail && !aborted) {
+              reply.raw.write(`data: ${JSON.stringify({ delta: tail })}\n\n`);
             }
           } finally {
             reader.cancel().catch(() => undefined);

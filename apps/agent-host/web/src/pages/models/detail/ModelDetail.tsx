@@ -1,7 +1,6 @@
 import { useEffect } from "react";
-import type { DownloadJob, LocalModel, SystemInfo } from "@interloom/protocol";
+import type { DownloadJob, LoadedModel, LocalModel, SystemInfo } from "@interloom/protocol";
 import type {
-  ActiveModel,
   CatalogModel,
   CatalogTaxonomy,
   RegistryFit,
@@ -24,7 +23,7 @@ interface ModelDetailProps {
   rig: SystemInfo | null;
   downloads: DownloadJob[];
   localModels: LocalModel[];
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onClose: () => void;
   onRefresh: () => void;
   onGoToSearch?: () => void;
@@ -41,7 +40,7 @@ export function ModelDetail({
   rig,
   downloads,
   localModels,
-  activeModel,
+  loadedModels,
   onClose,
   onRefresh,
   onGoToSearch,
@@ -110,7 +109,7 @@ export function ModelDetail({
               model={model}
               downloads={downloads}
               localModels={localModels}
-              activeModel={activeModel}
+              loadedModels={loadedModels}
               onRefresh={onRefresh}
               onGoToSearch={onGoToSearch}
             />

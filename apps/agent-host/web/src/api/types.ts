@@ -14,15 +14,30 @@ export interface HostKeys {
   createdAt: string;
 }
 
-/** `GET /api/network/session` — owner network-session status. */
-export interface NetworkSession {
-  signedIn: boolean;
-  email?: string;
+/** The bound operator identity (CONTRACTS §6 "Operator binding"). */
+export interface OperatorIdentity {
+  identityKey: string;
+  displayName: string;
+  avatarSha?: string;
+  /** Convenience field the daemon resolves once at bind time — not part of
+   * the pinned wire shape, safe to ignore if absent. */
+  avatarUrl?: string;
+  boundAt: string;
 }
 
-/** `POST /api/network/login` — proxied magic-link stub response. */
-export interface NetworkLoginResult {
-  loginUrl: string;
+/** `GET /api/operator` — whether this host is bound to a network identity.
+ * `staleGrant` (bound only) means the network revoked this identity's grants
+ * since binding (a revoke-all bumped its session_epoch) — re-registers now
+ * 403 until the operator reconnects. */
+export type OperatorState =
+  | { bound: false }
+  | { bound: true; operator: OperatorIdentity; staleGrant?: boolean };
+
+/** `POST /api/operator/link/start` — everything the portal needs to open `/authorize`. */
+export interface OperatorLinkStart {
+  networkUrl: string;
+  hostPubKey: string;
+  nonce: string;
 }
 
 // --- Curated model registry (CONTRACTS §4/§6, Local LLM Atlas v2 verbatim) ---

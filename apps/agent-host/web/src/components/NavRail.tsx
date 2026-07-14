@@ -1,18 +1,17 @@
 import { useId } from "react";
 import { NavLink } from "react-router-dom";
-import { StatusPill } from "@interloom/ui";
-import type { NetworkSession } from "../api/types.js";
-import type { HostKeys } from "../api/types.js";
-import { shortCode } from "../lib/format.js";
+import { StatusPill, Avatar } from "@interloom/ui";
+import type { OperatorState } from "../api/types.js";
 import { sessionPillState } from "../lib/sessionState.js";
 import "./NavRail.css";
 
 interface NavRailProps {
-  session: NetworkSession | undefined;
-  hostKeys: HostKeys | undefined;
+  operator: OperatorState | undefined;
   daemonOnline: boolean;
   updateAvailable: boolean;
   version: string | undefined;
+  /** Active-download summary (deliverable 2) — renders a footer pill when non-null. */
+  downloads?: { count: number; pct: number } | null;
 }
 
 export const NAV = [
@@ -23,8 +22,15 @@ export const NAV = [
   { to: "/settings", label: "Settings", end: false, icon: SettingsIcon },
 ];
 
-export function NavRail({ session, hostKeys, daemonOnline, updateAvailable, version }: NavRailProps) {
-  const sessionState = sessionPillState(daemonOnline, session);
+export function NavRail({
+  operator,
+  daemonOnline,
+  updateAvailable,
+  version,
+  downloads,
+}: NavRailProps) {
+  const sessionState = sessionPillState(daemonOnline, operator);
+  const identity = operator?.bound ? operator.operator : undefined;
 
   return (
     <nav className="il-nav" aria-label="Primary">
@@ -56,16 +62,29 @@ export function NavRail({ session, hostKeys, daemonOnline, updateAvailable, vers
       </ul>
 
       <div className="il-nav__footer">
+        {downloads && downloads.count > 0 && (
+          <NavLink to="/models" className="il-nav__downloads">
+            <span className="il-nav__downloads-spinner" aria-hidden />
+            {downloads.count} download{downloads.count === 1 ? "" : "s"} · {Math.round(downloads.pct * 100)}%
+          </NavLink>
+        )}
         {updateAvailable && (
           <NavLink to="/settings" className="il-nav__update">
             <span className="il-nav__update-dot" aria-hidden />
             Update available
           </NavLink>
         )}
-        <div className="il-nav__pubkey" title={hostKeys?.pubKey ?? "host key not yet generated"}>
-          <span className="il-nav__pubkey-label">host</span>
-          <span className="il-mono il-nav__pubkey-code">{shortCode(hostKeys?.pubKey)}</span>
-        </div>
+        {identity ? (
+          <NavLink to="/settings" className="il-nav__operator" title={identity.identityKey}>
+            <Avatar
+              name={identity.displayName}
+              isAgent={false}
+              imageUrl={identity.avatarUrl}
+              size="sm"
+            />
+            <span className="il-nav__operator-name">{identity.displayName}</span>
+          </NavLink>
+        ) : null}
         <StatusPill tone={sessionState.tone} live={sessionState.live}>
           {sessionState.label}
         </StatusPill>

@@ -23,13 +23,18 @@ async function detectGpus(): Promise<GpuInfo[]> {
         return;
       }
       const gpus: GpuInfo[] = [];
+      // `index` is the nvidia-smi device ordinal — the query doesn't request
+      // it explicitly, so it's the CSV line order (CONTRACTS §6: "the same
+      // number used in placement gpus: number[] and CUDA_VISIBLE_DEVICES").
+      let index = 0;
       for (const line of stdout.trim().split("\n")) {
         const parts = line.split(",").map((p) => p.trim());
         if (parts.length < 4) continue;
         const [name, vramRaw, , driver] = parts;
         const vramMB = parseInt(vramRaw?.replace(/[^0-9]/g, "") ?? "0", 10);
         if (!name) continue;
-        gpus.push({ name, vramMB: isNaN(vramMB) ? 0 : vramMB, kind: "cuda", driver });
+        gpus.push({ name, vramMB: isNaN(vramMB) ? 0 : vramMB, kind: "cuda", driver, index });
+        index++;
       }
       resolve(gpus);
     });

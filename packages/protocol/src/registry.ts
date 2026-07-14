@@ -2,6 +2,7 @@ import { z } from "zod";
 import { signedEnvelope } from "./envelope.js";
 import { ModelRef } from "./model.js";
 import { AgentGender } from "./avatar.js";
+import { IdentityGrant, WorkspaceAssociation } from "./identity.js";
 
 /** Agent avatar descriptor (CONTRACTS §4). `imageUrl` is a network-hosted asset URL (§4 Assets). */
 export const AgentAvatar = z.object({
@@ -12,13 +13,17 @@ export const AgentAvatar = z.object({
 export type AgentAvatar = z.infer<typeof AgentAvatar>;
 
 /**
- * The operator behind a published agent (CONTRACTS §4). The host key IS the
- * operator identity — one keypair per host signs all its agents, so the
- * network verifies `operator.pubKey === envelope.key` when present.
+ * The operator behind a published agent (CONTRACTS §4/§6). The host key
+ * remains the machine key; `grant` (present when the operator identity is
+ * bound via a host-operator grant) lets `operator.pubKey` be the NETWORK
+ * identity rather than the host key — the network verifies the grant chain
+ * (`verifyGrant`, §2) instead of `operator.pubKey === envelope.key` when it is
+ * present. Absent `grant` keeps the old rule for backward compat.
  */
 export const AgentOperator = z.object({
   pubKey: z.string(),
   displayName: z.string().min(1).max(60).optional(),
+  grant: signedEnvelope(IdentityGrant).optional(),
 });
 export type AgentOperator = z.infer<typeof AgentOperator>;
 
@@ -155,6 +160,8 @@ export type AvatarAssetUpload = z.infer<typeof AvatarAssetUpload>;
 /**
  * `POST /api/identities` body — a self-signed envelope's payload
  * (CONTRACTS §4). `envelope.key === payload.pubKey` is required by the server.
+ * `avatarSha`/`workspaces` are additive: the server upserts `meta.avatarSha`
+ * and replaces `meta.workspaces` on write.
  */
 export const IdentityPublish = z.object({
   kind: z.enum(["operator", "user"]),
@@ -162,6 +169,8 @@ export const IdentityPublish = z.object({
   displayName: z.string().min(1).max(60),
   workspaceName: z.string().max(80).optional(),
   ts: z.number(),
+  avatarSha: z.string().optional(),
+  workspaces: z.array(WorkspaceAssociation).optional(),
 });
 export type IdentityPublish = z.infer<typeof IdentityPublish>;
 
@@ -175,5 +184,9 @@ export const IdentityRecord = z.object({
   updatedAt: z.string(),
   /** Operators only — joined from agents.pubKey. */
   agents: z.array(z.object({ agentId: z.string(), name: z.string() })).optional(),
+  avatarUrl: z.string().optional(),
+  workspaces: z
+    .array(z.object({ instanceUrl: z.string(), instanceName: z.string(), joinedAt: z.number() }))
+    .optional(),
 });
 export type IdentityRecord = z.infer<typeof IdentityRecord>;

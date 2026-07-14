@@ -1,0 +1,313 @@
+/* ---- GPU allocation planner (deliverable 1) ---- */
+.il-planner {
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--il-border-soft);
+}
+.il-planner__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.il-planner__concurrency {
+  margin: 4px 0 0;
+  max-width: 56ch;
+}
+.il-planner__loading {
+  padding: 18px;
+}
+
+/* GPU bars + bridge */
+.il-planner__gpus {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 18px;
+}
+.il-planner__gpu-slot {
+  display: flex;
+  flex-direction: column;
+}
+.il-planner__gpu-gap {
+  height: 10px;
+}
+
+.il-gpubar {
+  background: var(--il-bg-card);
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  box-shadow: var(--il-shadow-card);
+  padding: 13px 16px;
+}
+.il-gpubar__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+.il-gpubar__name {
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+.il-gpubar__index {
+  font-family: var(--il-font-mono);
+  color: var(--il-text-muted);
+  font-weight: 500;
+  margin-right: 4px;
+}
+.il-gpubar__free {
+  font-size: 11px;
+  flex: none;
+}
+.il-gpubar__free--accent {
+  color: var(--il-text-muted);
+}
+.il-gpubar__free--warning {
+  color: var(--il-warning-deep);
+}
+.il-gpubar__free--danger {
+  color: var(--il-danger-deep);
+}
+.il-gpubar__track {
+  position: relative;
+  height: 16px;
+  border-radius: var(--il-radius-pill);
+  background: var(--il-bg-system);
+  overflow: hidden;
+}
+.il-gpubar__committed {
+  position: relative;
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}
+.il-gpubar__segment {
+  height: 100%;
+  border-right: 1.5px solid var(--il-bg-card);
+}
+.il-gpubar__segment:last-child {
+  border-right: none;
+}
+.il-gpubar__segment--fused {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.35) 0,
+    rgba(255, 255, 255, 0.35) 3px,
+    transparent 3px,
+    transparent 7px
+  );
+}
+.il-gpubar__meta {
+  margin-top: 6px;
+}
+
+/* Fused bridge connector between two adjacent GPU bars */
+.il-gpubridge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 24px;
+}
+.il-gpubridge__line {
+  flex: 1;
+  height: 2px;
+  background: var(--il-bridge-color, var(--il-accent));
+  opacity: 0.55;
+}
+.il-gpubridge__pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--il-bridge-color, var(--il-accent));
+  background: color-mix(in srgb, var(--il-bridge-color, var(--il-accent)) 14%, transparent);
+  border: 1px solid var(--il-bridge-color, var(--il-accent));
+  border-radius: var(--il-radius-pill);
+  padding: 3px 10px;
+  white-space: nowrap;
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.il-gpubridge__icon {
+  font-size: 11px;
+}
+
+/* Loaded model list */
+.il-planner__empty {
+  margin-top: 4px;
+}
+.il-planner__loaded-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.il-planner__loaded-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  background: var(--il-bg-card);
+  box-shadow: var(--il-shadow-card);
+}
+.il-planner__loaded-main {
+  min-width: 0;
+  flex: 1;
+}
+.il-planner__loaded-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.il-planner__loaded-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.il-planner__loaded-sub {
+  margin-top: 4px;
+}
+.il-planner__totals {
+  margin-top: 14px;
+  text-align: right;
+}
+
+/* Thinking toggle */
+.il-think-toggle {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--il-border-hairline);
+}
+.il-think-toggle__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.il-think-toggle__hint {
+  margin: 3px 0 0 22px;
+  line-height: 1.5;
+}
+
+/* Load wizard */
+.il-load-wizard__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 380px;
+}
+.il-load-wizard__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.il-load-wizard__preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--il-border-soft);
+}
+.il-load-wizard__preview-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 767px) {
+  .il-load-wizard__body {
+    min-width: 0;
+  }
+}
+
+/* Placement picker */
+.il-placement-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.il-placement-picker__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-sm);
+  background: var(--il-bg-card);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+  min-height: 44px;
+}
+.il-placement-picker__row:hover {
+  border-color: var(--il-border-card-hover);
+  background: var(--il-bg-system);
+}
+.il-placement-picker__row--sel {
+  border-color: var(--il-accent);
+  background: linear-gradient(0deg, var(--il-accent-tint), var(--il-accent-tint)), var(--il-bg-card);
+}
+.il-placement-picker__label {
+  font-weight: 600;
+}
+.il-placement-picker__fit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* Spill confirm dialog */
+.il-spill-confirm__body {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  color: var(--il-warning-deep);
+  background: var(--il-warning-tint);
+  border: 1px solid color-mix(in srgb, var(--il-warning) 30%, var(--il-warning-tint));
+  border-radius: var(--il-radius-sm);
+  padding: 12px 14px;
+}
+.il-spill-confirm__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 767px) {
+  .il-planner__head {
+    align-items: stretch;
+  }
+  .il-planner__loaded-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

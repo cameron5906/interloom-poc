@@ -9,9 +9,12 @@ import path from "path";
 import Fastify from "fastify";
 import type { GpuInfo } from "@interloom/protocol";
 
-const { TMP } = vi.hoisted(() => {
-  const base = process.env["TMPDIR"] ?? process.env["TEMP"] ?? process.env["TMP"] ?? ".";
-  return { TMP: `${base}/il-registry-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+const { TMP } = await vi.hoisted(async () => {
+  const os = await import("os");
+  const path = await import("path");
+  // os.tmpdir() is always absolute — env fallbacks can yield "." and leave
+  // stray relative temp dirs in the package cwd on CI runners.
+  return { TMP: path.join(os.tmpdir(), `il-registry-${Date.now()}-${Math.random().toString(36).slice(2)}`) };
 });
 
 vi.mock("../config.js", () => ({

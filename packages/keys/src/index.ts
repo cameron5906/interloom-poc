@@ -7,3 +7,9 @@ export {
   type AgentSignatureInput,
   type AgentSignatureModel,
 } from "./agentSignature.js";
+export {
+  verifyGrant,
+  type GrantPayload,
+  type GrantScope,
+  type VerifyGrantOptions,
+} from "./grant.js";

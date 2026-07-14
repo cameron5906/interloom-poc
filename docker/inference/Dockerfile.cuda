@@ -1,11 +1,24 @@
 # syntax=docker/dockerfile:1
 # Interloom inference container — CUDA variant (amd64 only).
 # Uses the CUDA-enabled llama.cpp server image.
-# GPU ngl flag is passed when inference.json contains "ngl".
+# GPU offload is image-decided (IL_GPU=1 below): the supervisor adds "-ngl 999" plus
+# CUDA_VISIBLE_DEVICES / --split-mode row --tensor-split per instance placement.
+# inference.json never carries "ngl" — the daemon does not write it.
 
-FROM ghcr.io/ggml-org/llama.cpp:server-cuda
+# Pinned 2026-07-13 from ghcr.io/ggml-org/llama.cpp:server-cuda (amd64, verified on
+# RTX 4090 per docs/CONTRACTS.md §7; Spark CUDA-arm64 is a known gap, see LEARNINGS §4.1).
+# Verified via `llama-server --help`: --reasoning-format and --reasoning-budget both
+# present, plus --mmproj, --jinja, --metrics, --split-mode, --tensor-split.
+FROM ghcr.io/ggml-org/llama.cpp@sha256:7b3d7834fc7307cb54f24f8869b67bfff276404c416452a48d11321bc36a81be
 
 ENV MODELS_DIR=/models
+ENV IL_GPU=1
+
+# jq drives the supervisor's v2 inference.json parsing (arrays of instances, gpus,
+# tensorSplit) — sed/grep can't parse that cleanly.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends jq \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY supervisor.sh /supervisor.sh
 RUN chmod +x /supervisor.sh
@@ -13,6 +26,11 @@ RUN chmod +x /supervisor.sh
 VOLUME /models
 
 EXPOSE 8080
+
+# Reflects "supervisor process alive", not any one instance's port — per-instance
+# health lives at http://inference:<port>/health and is polled by the daemon.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
+    CMD test $(( $(date +%s) - $(stat -c %Y /tmp/supervisor-heartbeat 2>/dev/null || echo 0) )) -lt 30
 
 ENTRYPOINT []
 CMD ["/supervisor.sh"]

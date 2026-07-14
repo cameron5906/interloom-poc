@@ -4,7 +4,7 @@ import { HeartbeatResponse as HeartbeatResponseSchema } from "@interloom/protoco
 import { getKeypair } from "./keys.js";
 import { listAgents } from "./agents/store.js";
 import { networkHeartbeat } from "./network/client.js";
-import { getConfiguredModelFilename } from "./models/active.js";
+import { readInstances, loadedFilenames } from "./models/loaded.js";
 import type { TunnelManager } from "./tunnel/manager.js";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -28,19 +28,18 @@ export function triggerHeartbeat(): void {
 
 export function startHeartbeatLoop(tunnelManager: TunnelManager): void {
   const run = async (): Promise<void> => {
-    const activeModelFilename = getConfiguredModelFilename();
+    // Multi-instance loading (CONTRACTS §6): agents of ALL loaded models get
+    // tunnels — "the active model" is now "the loaded SET".
+    const loaded = loadedFilenames(readInstances());
 
-    // Only heartbeat registered agents whose model matches the active model
+    // Only heartbeat registered agents whose model is in the loaded set.
     const agents = listAgents().filter(
-      (a) =>
-        a.registered &&
-        a.model !== undefined &&
-        (activeModelFilename === null || a.model.filename === activeModelFilename),
+      (a) => a.registered && a.model !== undefined && loaded.has(a.model.filename),
     );
 
     if (agents.length === 0) {
       // Still apply placements diff to close any stale tunnels
-      tunnelManager.applyPlacements([], activeModelFilename);
+      tunnelManager.applyPlacements([], loaded);
       return;
     }
 
@@ -71,7 +70,7 @@ export function startHeartbeatLoop(tunnelManager: TunnelManager): void {
     }
 
     currentPlacements = allPlacements;
-    tunnelManager.applyPlacements(allPlacements, activeModelFilename);
+    tunnelManager.applyPlacements(allPlacements, loaded);
   };
 
   heartbeatRunFn = run;

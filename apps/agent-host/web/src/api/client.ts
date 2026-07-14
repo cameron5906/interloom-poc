@@ -33,6 +33,26 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
+/** The two 401 slugs the portal auth gate can return (CONTRACTS §6). */
+export type UnauthorizedSlug = "operator_not_bound" | "portal_auth_required";
+
+const unauthorizedListeners = new Set<(slug: UnauthorizedSlug) => void>();
+
+/**
+ * Subscribe to portal-auth 401s from any request, anywhere — the operator
+ * bind gate uses this to react immediately (e.g. a session expiring mid-use)
+ * instead of every call site checking `err.status === 401` by hand. Returns
+ * an unsubscribe function.
+ */
+export function onUnauthorized(listener: (slug: UnauthorizedSlug) => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => unauthorizedListeners.delete(listener);
+}
+
+function isUnauthorizedSlug(value: unknown): value is UnauthorizedSlug {
+  return value === "operator_not_bound" || value === "portal_auth_required";
+}
+
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, signal } = opts;
 
@@ -63,6 +83,12 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
       }
     } catch {
       /* non-JSON error body — keep the default message */
+    }
+    if (res.status === 401) {
+      const slug = parsed && typeof parsed === "object" ? (parsed as { error?: unknown }).error : undefined;
+      if (isUnauthorizedSlug(slug)) {
+        for (const listener of unauthorizedListeners) listener(slug);
+      }
     }
     throw new ApiError(message, res.status, parsed);
   }

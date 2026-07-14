@@ -1,3 +1,4 @@
+import path from "path";
 import WebSocket from "ws";
 import { sign } from "@interloom/keys";
 import {
@@ -8,13 +9,18 @@ import {
   type TunnelFrame,
 } from "@interloom/protocol";
 import type { Placement } from "@interloom/protocol";
-import { INFERENCE_URL } from "../config.js";
+import { MODELS_DIR } from "../config.js";
 import { addRequestLogEntry, recordTokensPerSec } from "../telemetry/collector.js";
 import { normalizeMessages } from "../inference/normalize.js";
 import { toLlamaMessages } from "../inference/llamaMessages.js";
 import { enqueueInference } from "../inference/gate.js";
 import { readInferenceCtx } from "../models/active.js";
+import { findInstanceByFilename, instanceBaseUrl, type InstanceRecord } from "../models/loaded.js";
+import { capabilitiesForFilename } from "../models/scan.js";
+import { isThinkingDisabled } from "../models/settingsStore.js";
 import { clampMaxTokens } from "../inference/limits.js";
+import { ThinkStripper, stripThinkTags } from "../inference/thinkStripper.js";
+import { getAgent } from "../agents/store.js";
 import {
   newToolCallAccumulator,
   aggregateToolCallDelta,
@@ -38,11 +44,98 @@ interface PendingReq {
   reject: (err: Error) => void;
 }
 
+/** A content part on the wire (CONTRACTS §3 image attachments) — mirrors `@interloom/protocol`'s ContentPart. */
+type WireContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+interface WireInferenceMessage {
+  role: string;
+  content: string;
+  contentParts?: WireContentPart[];
+  toolCalls?: unknown[];
+  toolCallId?: string;
+}
+
 function buildTunnelUrl(instanceUrl: string): string {
   return instanceUrl
     .replace(/^https:\/\//, "wss://")
     .replace(/^http:\/\//, "ws://")
     .replace(/\/$/, "") + "/tunnel";
+}
+
+const IMAGE_FETCH_TIMEOUT_MS = 10_000;
+const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Resolve one `image_url` to a data URL the inference container can consume
+ * directly (CONTRACTS §3: "the inference container never fetches remote
+ * URLs"). `data:` URLs pass through untouched (the preview path already
+ * sends these from the browser). `http(s)` URLs are fetched HOST-side with a
+ * 10s timeout and 8 MB cap; the response content-type must start with
+ * `image/`. Returns null on ANY failure (timeout, cap, wrong type, network
+ * error, unsupported scheme) — callers degrade the whole message, never the
+ * request.
+ */
+export async function inlineImageUrl(url: string): Promise<string | null> {
+  if (url.startsWith("data:")) return url;
+  if (!/^https?:\/\//i.test(url)) return null;
+
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
+    if (!res.ok) return null;
+
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().startsWith("image/")) return null;
+
+    const contentLength = res.headers.get("content-length");
+    if (contentLength && Number(contentLength) > IMAGE_MAX_BYTES) return null;
+
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > IMAGE_MAX_BYTES) return null;
+
+    const base64 = Buffer.from(buf).toString("base64");
+    return `data:${contentType};base64,${base64}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the wire message's effective content for llama-server: `contentParts`
+ * (image attachments) only when the model's loaded instance has an mmproj
+ * loaded — otherwise the plain `content` string, which ALREADY carries the
+ * text degrade (e.g. "[image attached]") the instance chose (CONTRACTS §3 —
+ * never invent a degrade here). Every `image_url` part is inlined to a data
+ * URL before this returns (CONTRACTS §3 host-side inlining); if ANY part
+ * fails to inline, the whole message degrades to its plain `content` string
+ * — never the request.
+ */
+export async function resolveWireContent(m: WireInferenceMessage, visionCapable: boolean): Promise<string | WireContentPart[]> {
+  if (!visionCapable || !m.contentParts || m.contentParts.length === 0) {
+    return m.content;
+  }
+
+  const resolved: WireContentPart[] = [];
+  for (const part of m.contentParts) {
+    if (part.type === "text") {
+      resolved.push(part);
+      continue;
+    }
+    const inlined = await inlineImageUrl(part.image_url.url);
+    if (inlined === null) {
+      console.warn(`[tunnel] image attachment failed to inline (${part.image_url.url.slice(0, 64)}…) — degrading message to text`);
+      return m.content;
+    }
+    resolved.push({ type: "image_url", image_url: { url: inlined } });
+  }
+  return resolved;
+}
+
+interface ResolvedInstance {
+  instance: InstanceRecord;
+  thinkingActive: boolean;
+  visionCapable: boolean;
 }
 
 export class TunnelClient {
@@ -90,6 +183,26 @@ export class TunnelClient {
     this.destroyed = true;
     this.ws?.close();
     this.ws = null;
+  }
+
+  /**
+   * Look up the loaded instance for THIS tunnel's agent's model (CONTRACTS §6
+   * multi-instance loading — a tunnel routes to its agent's model's instance,
+   * not a single global "active model"). Returns null when the agent has no
+   * model or its model isn't currently loaded (the tunnel shouldn't be open
+   * in that case — heartbeat.ts closes it within ~30s — but a request can
+   * race the close, so callers must degrade to an error frame, never throw).
+   */
+  private resolveInstance(): ResolvedInstance | null {
+    const agentId = this.placement.voucher.payload.agentId;
+    const agent = getAgent(agentId);
+    if (!agent?.model) return null;
+    const instance = findInstanceByFilename(agent.model.filename);
+    if (!instance) return null;
+    const capabilities = capabilitiesForFilename(MODELS_DIR, agent.model.filename);
+    const thinkingActive = capabilities?.thinking === true && !isThinkingDisabled(agent.model.filename);
+    const visionCapable = Boolean(instance.mmprojPath);
+    return { instance, thinkingActive, visionCapable };
   }
 
   private connect(): void {
@@ -226,7 +339,10 @@ export class TunnelClient {
     }
 
     const sig = sign(nonce, this.agentPrivKey);
-    const ctx = readInferenceCtx();
+    // This agent's model's instance ctx when resolvable; falls back to the
+    // first-loaded-instance ctx (back-compat) if the model isn't loaded yet —
+    // the tunnel will error future requests until it is.
+    const ctx = this.resolveInstance()?.instance.ctx ?? readInferenceCtx();
     const reqId = crypto.randomUUID();
     this.authReqId = reqId;
 
@@ -272,7 +388,7 @@ export class TunnelClient {
     frame: Extract<TunnelFrame, { kind: "req" }>,
   ): Promise<void> {
     const params = frame.params as {
-      messages?: Array<{ role: string; content: string }>;
+      messages?: WireInferenceMessage[];
       params?: {
         temperature?: number;
         maxTokens?: number;
@@ -282,19 +398,37 @@ export class TunnelClient {
       };
     };
 
+    const resolved = this.resolveInstance();
+    if (!resolved) {
+      this.send(makeErr(frame.id, "E_INTERNAL", "agent's model is not currently loaded"));
+      return;
+    }
+    const { instance, thinkingActive, visionCapable } = resolved;
+    const thinkingDisabled = isThinkingDisabled(path.basename(instance.modelPath));
+
     const agentId = this.placement.voucher.payload.agentId;
     const priority = params.params?.priority ?? "interactive";
 
-    await enqueueInference(agentId, async () => {
+    await enqueueInference(instance.port, agentId, async (signal) => {
       try {
-        const res = await fetch(`${INFERENCE_URL}/v1/chat/completions`, {
+        const wireMessages = await Promise.all(
+          (params.messages ?? []).map(async (m) => ({
+            role: m.role,
+            content: await resolveWireContent(m, visionCapable),
+            ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
+            ...(m.toolCallId !== undefined ? { toolCallId: m.toolCallId } : {}),
+          })),
+        );
+
+        const res = await fetch(`${instanceBaseUrl(instance.port)}/v1/chat/completions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            messages: toLlamaMessages(normalizeMessages(params.messages ?? [])),
+            messages: toLlamaMessages(normalizeMessages(wireMessages)),
             stream: false,
             temperature: params.params?.temperature,
-            max_tokens: clampMaxTokens(params.params?.maxTokens, readInferenceCtx()),
+            max_tokens: clampMaxTokens(params.params?.maxTokens, instance.ctx, thinkingActive),
+            ...(thinkingDisabled ? { chat_template_kwargs: { enable_thinking: false } } : {}),
             ...(params.params?.tools && params.params.tools.length > 0
               ? {
                   tools: (params.params.tools as Array<{ name: string; description: string; parameters: unknown }>).map(
@@ -304,7 +438,7 @@ export class TunnelClient {
                 }
               : {}),
           }),
-          signal: AbortSignal.timeout(120_000),
+          signal,
         });
 
         if (!res.ok) {
@@ -325,6 +459,10 @@ export class TunnelClient {
         };
 
         const message = data.choices?.[0]?.message ?? { role: "assistant", content: "" };
+        // Backstop stripper (CONTRACTS §6.1) — the engine already separates
+        // reasoning via --reasoning-format deepseek for families it knows;
+        // this catches inline <think> content for families it doesn't.
+        const strippedContent = stripThinkTags(message.content ?? "");
         const promptTokens = data.usage?.prompt_tokens ?? 0;
         const completionTokens = data.usage?.completion_tokens ?? 0;
         const tokensPerSec = data.timings?.predicted_per_second ?? 0;
@@ -351,11 +489,15 @@ export class TunnelClient {
 
         this.send(
           makeRes(frame.id, {
-            message: { ...message, ...(toolCalls ? { toolCalls } : {}) },
+            message: { ...message, content: strippedContent, ...(toolCalls ? { toolCalls } : {}) },
             usage: { promptTokens, completionTokens, tokensPerSec },
           }),
         );
       } catch (err) {
+        if (signal.aborted) {
+          this.send(makeErr(frame.id, "E_INTERNAL", "inference run timed out"));
+          return;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         this.send(makeErr(frame.id, "E_INTERNAL", msg));
       }
@@ -366,7 +508,7 @@ export class TunnelClient {
     frame: Extract<TunnelFrame, { kind: "req" }>,
   ): Promise<void> {
     const params = frame.params as {
-      messages?: Array<{ role: string; content: string }>;
+      messages?: WireInferenceMessage[];
       params?: {
         temperature?: number;
         maxTokens?: number;
@@ -376,22 +518,42 @@ export class TunnelClient {
       };
     };
 
+    const resolved = this.resolveInstance();
+    if (!resolved) {
+      this.send(makeErr(frame.id, "E_INTERNAL", "agent's model is not currently loaded"));
+      return;
+    }
+    const { instance, thinkingActive, visionCapable } = resolved;
+    const thinkingDisabled = isThinkingDisabled(path.basename(instance.modelPath));
+
     const agentId = this.placement.voucher.payload.agentId;
     const priority = params.params?.priority ?? "interactive";
-    const ac = new AbortController();
-    this.inflight.set(frame.id, ac);
+    const closeAc = new AbortController();
+    this.inflight.set(frame.id, closeAc);
 
-    await enqueueInference(agentId, async () => {
+    await enqueueInference(instance.port, agentId, async (watchdogSignal) => {
+      const signal = AbortSignal.any([closeAc.signal, watchdogSignal]);
       let inferenceRes: Response;
       try {
-        inferenceRes = await fetch(`${INFERENCE_URL}/v1/chat/completions`, {
+        const wireMessages = await Promise.all(
+          (params.messages ?? []).map(async (m) => ({
+            role: m.role,
+            content: await resolveWireContent(m, visionCapable),
+            ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
+            ...(m.toolCallId !== undefined ? { toolCallId: m.toolCallId } : {}),
+          })),
+        );
+
+        inferenceRes = await fetch(`${instanceBaseUrl(instance.port)}/v1/chat/completions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            messages: toLlamaMessages(normalizeMessages(params.messages ?? [])),
+            messages: toLlamaMessages(normalizeMessages(wireMessages)),
             stream: true,
+            stream_options: { include_usage: true },
             temperature: params.params?.temperature,
-            max_tokens: clampMaxTokens(params.params?.maxTokens, readInferenceCtx()),
+            max_tokens: clampMaxTokens(params.params?.maxTokens, instance.ctx, thinkingActive),
+            ...(thinkingDisabled ? { chat_template_kwargs: { enable_thinking: false } } : {}),
             ...(params.params?.tools && params.params.tools.length > 0
               ? {
                   tools: (params.params.tools as Array<{ name: string; description: string; parameters: unknown }>).map(
@@ -401,11 +563,11 @@ export class TunnelClient {
                 }
               : {}),
           }),
-          signal: ac.signal,
+          signal,
         });
       } catch (err) {
         this.inflight.delete(frame.id);
-        if (ac.signal.aborted) return;
+        if (signal.aborted) return;
         const msg = err instanceof Error ? err.message : String(err);
         this.send(makeErr(frame.id, "E_INTERNAL", msg));
         return;
@@ -424,7 +586,14 @@ export class TunnelClient {
       let completionTokens = 0;
       let tokensPerSec = 0;
       let tunnelClosed = false;
+      // Watchdog abort mid-stream (gate.ts RUN_TIMEOUT_MS) is distinct from a
+      // real WS close — both abort the combined `signal`, but only a close
+      // means there's nobody to hear a terminal frame. Check the WATCHDOG's
+      // own signal (not the combined one) plus live WS state to tell them
+      // apart, mirroring the complete path's timeout handling (:441-443).
+      let watchdogTimedOut = false;
       const toolAcc = newToolCallAccumulator();
+      const stripper = new ThinkStripper();
 
       try {
         while (true) {
@@ -436,7 +605,11 @@ export class TunnelClient {
           try {
             readResult = await reader.read();
           } catch {
-            tunnelClosed = ac.signal.aborted;
+            if (watchdogSignal.aborted && !closeAc.signal.aborted && this.ws?.readyState === WebSocket.OPEN) {
+              watchdogTimedOut = true;
+            } else {
+              tunnelClosed = true;
+            }
             break;
           }
           const { done, value } = readResult;
@@ -452,15 +625,21 @@ export class TunnelClient {
             try {
               const parsed = JSON.parse(data) as {
                 choices?: Array<{
-                  delta?: { content?: string; tool_calls?: ToolCallDelta[] };
+                  delta?: { content?: string; reasoning_content?: string; tool_calls?: ToolCallDelta[] };
                   finish_reason?: string;
                 }>;
                 usage?: { prompt_tokens?: number; completion_tokens?: number };
                 timings?: { predicted_per_second?: number };
               };
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                this.send(makeEvt("inference.chunk", { delta }, frame.id));
+              // reasoning_content is the engine's separated think channel
+              // (--reasoning-format deepseek) — NEVER concatenated into
+              // visible content (CONTRACTS §6.1).
+              const raw = parsed.choices?.[0]?.delta?.content;
+              if (raw) {
+                const delta = stripper.push(raw);
+                if (delta) {
+                  this.send(makeEvt("inference.chunk", { delta }, frame.id));
+                }
               }
               const toolCallDeltas = parsed.choices?.[0]?.delta?.tool_calls;
               if (toolCallDeltas) {
@@ -487,7 +666,16 @@ export class TunnelClient {
         this.inflight.delete(frame.id);
       }
 
+      if (watchdogTimedOut) {
+        this.send(makeErr(frame.id, "E_INTERNAL", "inference run timed out"));
+        return;
+      }
       if (tunnelClosed) return;
+
+      const tail = stripper.flush();
+      if (tail) {
+        this.send(makeEvt("inference.chunk", { delta: tail }, frame.id));
+      }
 
       addRequestLogEntry({
         ts: Date.now(),

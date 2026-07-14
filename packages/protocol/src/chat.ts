@@ -3,6 +3,28 @@ import { ModelRef } from "./model.js";
 import { AgentGender } from "./avatar.js";
 import { AgentManifest, AgentOperator } from "./registry.js";
 
+/** An image attachment persisted on a chat message (CONTRACTS §5). */
+export const Attachment = z.object({
+  id: z.string(),
+  kind: z.literal("image"),
+  url: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+});
+export type Attachment = z.infer<typeof Attachment>;
+
+/** An attachment reference sent by the client on `message.send` (CONTRACTS §5) — pre-uploaded via REST. */
+export const AttachmentRef = z.object({
+  url: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+});
+export type AttachmentRef = z.infer<typeof AttachmentRef>;
+
 /** A chat message (CONTRACTS §5). `mentions` holds member ids. */
 export const ChatMessage = z.object({
   id: z.string(),
@@ -15,6 +37,8 @@ export const ChatMessage = z.object({
   createdAt: z.string(),
   /** Client-synthesized announce line (e.g. "X added Y"); never persisted. */
   system: z.boolean().optional(),
+  /** Image attachments uploaded via REST before send (CONTRACTS §5). */
+  attachments: z.array(Attachment).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
@@ -61,8 +85,23 @@ export const Member = z.object({
   joinedAt: z.number().optional(),
   /** The model this agent runs on (from its manifest); agent members only. */
   model: ModelRef.optional(),
+  /** Membership acceptance state (CONTRACTS §5). Absent ⇒ active — legacy-safe. */
+  status: z.enum(["active", "pending", "rejected"]).optional(),
+  /** The network identity key, for human members imported from the network (CONTRACTS §5). */
+  identityKey: z.string().optional(),
 });
 export type Member = z.infer<typeof Member>;
+
+/** A pending workspace join request awaiting acceptance (CONTRACTS §5). */
+export const MemberRequest = z.object({
+  memberId: z.string(),
+  displayName: z.string(),
+  avatarUrl: z.string().optional(),
+  joinMessage: z.string().optional(),
+  identityKey: z.string().optional(),
+  requestedAt: z.string(),
+});
+export type MemberRequest = z.infer<typeof MemberRequest>;
 
 /**
  * A pending agent signature change awaiting workspace approval (CONTRACTS §5).
@@ -96,6 +135,8 @@ export const ClientWsMessage = z.discriminatedUnion("type", [
     text: z.string(),
     /** Member ids the sender confirmed to add to the channel (auto-join). */
     addMemberIds: z.array(z.string()).optional(),
+    /** Image attachments uploaded via REST before send (CONTRACTS §5). */
+    attachments: z.array(AttachmentRef).optional(),
   }),
   z.object({
     type: z.literal("typing.start"),
@@ -157,6 +198,15 @@ export const ServerWsEvent = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("agent.change.resolved"),
+    memberId: z.string(),
+    accepted: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("member.request.created"),
+    request: MemberRequest,
+  }),
+  z.object({
+    type: z.literal("member.request.resolved"),
     memberId: z.string(),
     accepted: z.boolean(),
   }),

@@ -1,7 +1,4 @@
 import { useTelemetry } from "../../hooks/useTelemetry.js";
-import { usePoll } from "../../hooks/usePoll.js";
-import { models as modelsApi } from "../../api/endpoints.js";
-import type { ActiveModel } from "../../api/types.js";
 import { StatTiles } from "./StatTiles.js";
 import { RequestLog } from "./RequestLog.js";
 import { TunnelsPanel } from "./TunnelsPanel.js";
@@ -10,9 +7,6 @@ import "./overview.css";
 export function OverviewPage() {
   const { frame, status, tokensHistory } = useTelemetry(60);
   const connected = status === "open";
-
-  const activePoll = usePoll<ActiveModel | null>((s) => modelsApi.active(s), 5000, true);
-  const activeModel = activePoll.data ?? null;
 
   return (
     <div className="il-page-scroll il-scroll-fade">
@@ -33,7 +27,7 @@ export function OverviewPage() {
           </div>
         )}
 
-        <StatTiles frame={frame} tokensHistory={tokensHistory} connected={connected} activeModel={activeModel} />
+        <StatTiles frame={frame} tokensHistory={tokensHistory} connected={connected} />
 
         <div className="il-overview-grid">
           <RequestLog entries={frame?.requestLog ?? []} connected={connected} />

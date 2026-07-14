@@ -1,0 +1,102 @@
+/*
+ * Generic overlay primitive: anchored floating panel on desktop, bottom
+ * sheet on mobile (design spec's single 768px breakpoint). Content-agnostic —
+ * product compositions (e.g. a profile popover) style their own children.
+ */
+.il-overlay__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: transparent;
+}
+
+.il-overlay__panel {
+  background: var(--il-bg-card);
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  box-shadow: var(--il-shadow-hover);
+  font-family: var(--il-font-ui);
+  overflow: hidden;
+  animation: il-overlay-in 320ms cubic-bezier(0.3, 0.7, 0.25, 1);
+  transform-origin: top left;
+}
+
+.il-overlay__panel--above {
+  transform-origin: bottom left;
+}
+
+.il-overlay__panel--closing {
+  animation: il-overlay-out 320ms cubic-bezier(0.3, 0.7, 0.25, 1);
+}
+
+@keyframes il-overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes il-overlay-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+/* Mobile: bottom sheet — full-width, pinned bottom, rounded top corners. */
+@media (max-width: 767px) {
+  .il-overlay__scrim {
+    background: rgba(28, 27, 24, 0.32);
+    display: flex;
+    align-items: flex-end;
+    justify-content: stretch;
+  }
+
+  .il-overlay__panel {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 48px);
+    border-radius: var(--il-radius-lg) var(--il-radius-lg) 0 0;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: il-overlay-sheet-in 320ms cubic-bezier(0.3, 0.7, 0.25, 1);
+  }
+
+  .il-overlay__panel--closing {
+    animation: il-overlay-sheet-out 320ms cubic-bezier(0.3, 0.7, 0.25, 1);
+  }
+}
+
+@keyframes il-overlay-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes il-overlay-sheet-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .il-overlay__panel,
+  .il-overlay__panel--closing {
+    animation: none;
+  }
+}

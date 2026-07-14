@@ -3,9 +3,8 @@
  * No JSX — formatting, honest fit language, capability-chip classification, and
  * the GGUF repo-id joins that tie catalog entries to local files and downloads.
  */
-import type { DownloadJob, LocalModel } from "@interloom/protocol";
+import type { DownloadJob, LoadedModel, LocalModel } from "@interloom/protocol";
 import type {
-  ActiveModel,
   CatalogArchitecture,
   CatalogCapabilities,
   CatalogModel,
@@ -267,18 +266,20 @@ export function recommendedQuantFile(files: HfDetailFile[]): HfDetailFile | unde
 
 // --- Card-level install state (aggregated across a model's GGUF repos) ---
 
-export type CatalogCardState = "not-installed" | "queued" | "downloading" | "installed" | "active";
+export type CatalogCardState = "not-installed" | "queued" | "downloading" | "installed" | "loaded";
 
 /**
  * Aggregate install state for a catalog card: a model counts as installed when
- * any local file traces back to one of its GGUF repos, active when that file is
- * the loaded one, and downloading when a job targets one of its repos.
+ * any local file traces back to one of its GGUF repos, loaded when that file is
+ * among the loaded instances (CONTRACTS §6 — N models load at once, so this is a
+ * membership check against the loaded set), and downloading when a job targets
+ * one of its repos.
  */
 export function catalogCardState(
   model: CatalogModel,
   downloads: DownloadJob[],
   localModels: LocalModel[],
-  activeModel: ActiveModel | null | undefined,
+  loadedModels: LoadedModel[],
 ): CatalogCardState {
   const repoIds = catalogGgufRepoIds(model).map((r) => r.toLowerCase());
   if (repoIds.length === 0) return "not-installed";
@@ -296,7 +297,7 @@ export function catalogCardState(
     return r != null && repoIds.includes(r.toLowerCase());
   });
   if (local) {
-    if (activeModel && activeModel.filename === local.filename) return "active";
+    if (loadedModels.some((m) => m.path === local.path)) return "loaded";
     return "installed";
   }
   return "not-installed";

@@ -6,6 +6,7 @@ import "@interloom/ui/styles.css";
 import "./styles/app.css";
 import { App } from "./App.js";
 import { ToastProvider } from "./components/Toasts.js";
+import { DownloadsProvider } from "./state/DownloadsContext.js";
 
 registerSW({ immediate: true });
 
@@ -16,7 +17,9 @@ createRoot(container).render(
   <React.StrictMode>
     <BrowserRouter>
       <ToastProvider>
-        <App />
+        <DownloadsProvider>
+          <App />
+        </DownloadsProvider>
       </ToastProvider>
     </BrowserRouter>
   </React.StrictMode>,

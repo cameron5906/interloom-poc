@@ -1,35 +1,37 @@
 import { useState } from "react";
 import { Button, Modal } from "@interloom/ui";
-import type { LocalModel } from "@interloom/protocol";
-import type { ActiveModel } from "../../api/types.js";
+import type { LoadedModel, LocalModel } from "@interloom/protocol";
 import { models as modelsApi } from "../../api/endpoints.js";
 import { useToasts } from "../../components/Toasts.js";
 import { ApiError } from "../../api/client.js";
 
 interface RemoveModelModalProps {
   model: LocalModel;
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onClose: () => void;
   onRemoved: () => void;
+  /** Fires after an inline unload succeeds, so callers can refresh their own loaded/allocation state. */
+  onUnloaded?: () => void;
 }
 
 /**
- * Confirm-before-remove modal. Handles the 409 model_active case by explaining
- * that the model must be deactivated first (the user does that by activating a
- * different model from the Installed tab).
+ * Confirm-before-remove modal. Deletion is blocked (409 `model_active`,
+ * CONTRACTS §6) while the model is one of the loaded instances — in the
+ * multi-load world that's just a membership check, not "some other model
+ * must be active instead." The blocked state offers an inline "unload and
+ * remove" action that chains `POST /api/models/unload` straight into the
+ * retry so the user doesn't have to leave the modal.
  */
-export function RemoveModelModal({ model, activeModel, onClose, onRemoved }: RemoveModelModalProps) {
+export function RemoveModelModal({ model, loadedModels, onClose, onRemoved, onUnloaded }: RemoveModelModalProps) {
   const toasts = useToasts();
   const [removing, setRemoving] = useState(false);
-  const [activeError, setActiveError] = useState(false);
+  const [unloading, setUnloading] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
-  const isCurrentlyActive = activeModel?.filename === model.filename;
+  const isCurrentlyLoaded = loadedModels.some((m) => m.path === model.path);
+  const busy = removing || unloading;
 
-  const remove = async () => {
-    if (isCurrentlyActive) {
-      setActiveError(true);
-      return;
-    }
+  const attemptRemove = async () => {
     setRemoving(true);
     try {
       await modelsApi.removeLocal(model.path);
@@ -37,7 +39,7 @@ export function RemoveModelModal({ model, activeModel, onClose, onRemoved }: Rem
       onRemoved();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setActiveError(true);
+        setBlocked(true);
       } else {
         toasts.error(
           err instanceof ApiError && err.isOffline
@@ -50,6 +52,31 @@ export function RemoveModelModal({ model, activeModel, onClose, onRemoved }: Rem
     }
   };
 
+  const remove = async () => {
+    if (isCurrentlyLoaded) {
+      setBlocked(true);
+      return;
+    }
+    await attemptRemove();
+  };
+
+  const unloadThenRemove = async () => {
+    setUnloading(true);
+    try {
+      await modelsApi.unload(model.path);
+      onUnloaded?.();
+      setBlocked(false);
+    } catch (err) {
+      toasts.error(
+        err instanceof ApiError && err.isOffline ? "Daemon unreachable — can't unload." : "Unload failed.",
+      );
+      return;
+    } finally {
+      setUnloading(false);
+    }
+    await attemptRemove();
+  };
+
   return (
     <Modal
       open
@@ -57,34 +84,33 @@ export function RemoveModelModal({ model, activeModel, onClose, onRemoved }: Rem
       title={<span className="il-remove-modal__title">Remove model?</span>}
       footer={
         <div className="il-remove-modal__actions">
-          {activeError ? (
-            <Button variant="primary" onClick={onClose}>
-              Got it
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          {blocked ? (
+            <Button variant="primary" onClick={() => void unloadThenRemove()} disabled={busy}>
+              {unloading ? "Unloading…" : "Unload and remove"}
             </Button>
           ) : (
-            <>
-              <Button variant="secondary" onClick={onClose} disabled={removing}>
-                Cancel
-              </Button>
-              <Button variant="danger" onClick={remove} disabled={removing}>
-                {removing ? "Removing…" : "Remove"}
-              </Button>
-            </>
+            <Button variant="danger" onClick={() => void remove()} disabled={busy}>
+              {removing ? "Removing…" : "Remove"}
+            </Button>
           )}
         </div>
       }
     >
-      {activeError ? (
+      {blocked ? (
         <p className="il-remove-modal__warn">
-          <strong>{model.filename}</strong> is currently active. To remove it, first activate
-          a different model from the Installed tab — that will bring its agents offline and free
-          this model for deletion.
+          <strong>{model.filename}</strong> is currently loaded — unload it first to free it for
+          deletion. Agents assigned to this model will go offline until you load it again.
         </p>
       ) : (
         <p className="il-remove-modal__body">
           This will permanently delete{" "}
           <span className="il-mono">{model.filename}</span> from your models directory.
-          Agents assigned to this model will go offline until you activate another model.
+          {isCurrentlyLoaded
+            ? " It's currently loaded — you'll be offered the option to unload it first."
+            : null}
         </p>
       )}
     </Modal>

@@ -4,11 +4,15 @@ import { MobileTabBar } from "@interloom/ui";
 import { NavRail, NAV } from "./components/NavRail.js";
 import { MobileTopBar } from "./components/MobileTopBar.js";
 import { useToasts } from "./components/Toasts.js";
-import { keys as keysApi, network as networkApi, agents as agentsApi } from "./api/endpoints.js";
+import { operatorBind as operatorBindApi, agents as agentsApi } from "./api/endpoints.js";
+import { onUnauthorized, type UnauthorizedSlug } from "./api/client.js";
 import { useAsync } from "./hooks/useAsync.js";
 import { useDaemonHealth } from "./hooks/useDaemonHealth.js";
 import { useUpdateStatus } from "./hooks/useUpdateStatus.js";
+import { useDownloads } from "./state/DownloadsContext.js";
 import { ONBOARDING_DONE_KEY, UPDATE_NOTIFIED_KEY } from "./lib/constants.js";
+import { OperatorBindGate } from "./pages/operator/OperatorBindGate.js";
+import { OperatorStaleGrantBanner } from "./pages/operator/OperatorStaleGrantBanner.js";
 import { OnboardingPage } from "./pages/onboarding/OnboardingPage.js";
 import { OverviewPage } from "./pages/overview/OverviewPage.js";
 import { ModelsPage } from "./pages/models/ModelsPage.js";
@@ -27,11 +31,27 @@ export function App() {
   const navigate = useNavigate();
   const daemonOnline = useDaemonHealth();
 
-  const hostKeys = useAsync((s) => keysApi.get(s), []);
-  const session = useAsync((s) => networkApi.session(s), []);
+  const operator = useAsync((s) => operatorBindApi.get(s), []);
 
   const toasts = useToasts();
   const { status: updateStatus } = useUpdateStatus();
+  const { active: activeDownloads, aggregatePct } = useDownloads();
+  const downloadsSummary =
+    activeDownloads.length > 0 ? { count: activeDownloads.length, pct: aggregatePct } : null;
+
+  // Full-screen bind gate state. Starts at "none" and flips the moment we
+  // either learn the host is unbound (GET /api/operator) or ANY request
+  // 401s with a portal-auth slug (e.g. a session expiring mid-use) — see
+  // `onUnauthorized` in api/client.ts.
+  const [authGate, setAuthGate] = useState<"none" | UnauthorizedSlug>("none");
+
+  useEffect(() => onUnauthorized((slug) => setAuthGate(slug)), []);
+
+  useEffect(() => {
+    if (operator.data && operator.data.bound === false) {
+      setAuthGate("operator_not_bound");
+    }
+  }, [operator.data]);
 
   const availableVersion = updateStatus?.updateAvailable
     ? updateStatus.latest?.version
@@ -44,6 +64,22 @@ export function App() {
   }, [availableVersion, toasts]);
 
   const isOnboarding = location.pathname === "/onboarding";
+
+  // Nothing renders until we know the bind state — avoids a flash of the
+  // app shell (or the onboarding flow) for a host that turns out unbound.
+  if (operator.loading && operator.initialLoad) return null;
+
+  if (authGate !== "none") {
+    return (
+      <OperatorBindGate
+        mode={authGate === "operator_not_bound" ? "unbound" : "unauthenticated"}
+        onBound={() => {
+          setAuthGate("none");
+          operator.reload();
+        }}
+      />
+    );
+  }
 
   if (isOnboarding) {
     return (
@@ -58,19 +94,22 @@ export function App() {
   return (
     <div className="il-app">
       <NavRail
-        session={session.data}
-        hostKeys={hostKeys.data}
+        operator={operator.data}
         daemonOnline={daemonOnline}
         updateAvailable={updateStatus?.updateAvailable ?? false}
         version={updateStatus?.current.version}
+        downloads={downloadsSummary}
       />
-      <MobileTopBar session={session.data} daemonOnline={daemonOnline} />
+      <MobileTopBar operator={operator.data} daemonOnline={daemonOnline} />
       <main className="il-content-outer">
         {!daemonOnline && (
           <div className="il-offline-banner" role="alert">
             <span className="il-offline-banner__dot" />
             The Agent Host daemon is unreachable on port 7420 — reconnecting…
           </div>
+        )}
+        {operator.data?.bound && operator.data.staleGrant && (
+          <OperatorStaleGrantBanner onReconnected={() => operator.reload()} />
         )}
         <OnboardingGate>
           <Routes>
@@ -88,6 +127,7 @@ export function App() {
           key: to,
           label,
           icon: <Icon />,
+          badge: to === "/models" ? activeDownloads.length : undefined,
         }))}
         activeKey={activeNavKey(location.pathname)}
         onSelect={(key) => navigate(key)}

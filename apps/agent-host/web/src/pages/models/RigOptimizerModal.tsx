@@ -32,8 +32,9 @@ export function RigOptimizerModal({
   onClose,
   onConfirm,
 }: RigOptimizerModalProps) {
+  // Loading is additive (CONTRACTS §6) — bringing this model up never evicts
+  // another loaded model, so only the "coming online" side is shown.
   const goingOnline = allAgents.filter((a) => a.model?.filename === model.filename);
-  const goingOffline = allAgents.filter((a) => a.model && a.model.filename !== model.filename);
 
   const [ctxData, setCtxData] = useState<ContextOptions | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -98,7 +99,7 @@ export function RigOptimizerModal({
     <Modal
       open
       onClose={onClose}
-      title={<span>Activate {model.filename}?</span>}
+      title={<span>Load {model.filename}?</span>}
       footer={
         <div className="il-impact-modal__actions">
           <Button variant="secondary" onClick={onClose} disabled={loading}>
@@ -109,7 +110,7 @@ export function RigOptimizerModal({
             onClick={() => effectiveOpts && onConfirm(effectiveOpts)}
             disabled={loading || !ready || !effectiveOpts}
           >
-            {loading ? "Activating…" : "Activate"}
+            {loading ? "Loading…" : "Load"}
           </Button>
         </div>
       }
@@ -150,7 +151,7 @@ export function RigOptimizerModal({
           )}
         </div>
 
-        <AgentImpact goingOnline={goingOnline} goingOffline={goingOffline} />
+        <AgentImpact goingOnline={goingOnline} />
       </div>
     </Modal>
   );
@@ -354,13 +355,7 @@ function PlanFit({
   return <span className={`il-ctx-fit il-ctx-fit--${fit}`}>{label}</span>;
 }
 
-function AgentImpact({
-  goingOnline,
-  goingOffline,
-}: {
-  goingOnline: HostAgent[];
-  goingOffline: HostAgent[];
-}) {
+function AgentImpact({ goingOnline }: { goingOnline: HostAgent[] }) {
   return (
     <>
       {goingOnline.length > 0 ? (
@@ -382,27 +377,6 @@ function AgentImpact({
           No agents are assigned to this model yet.
         </p>
       )}
-
-      {goingOffline.length > 0 ? (
-        <div className="il-impact-modal__section il-impact-modal__section--spaced">
-          <div className="il-impact-modal__label il-impact-modal__label--offline">
-            {goingOffline.length} agent{goingOffline.length === 1 ? "" : "s"} will go offline
-          </div>
-          <ul className="il-impact-modal__list">
-            {goingOffline.map((a) => (
-              <li key={a.agentId} className="il-impact-modal__item">
-                <span className="il-impact-modal__dot il-impact-modal__dot--off" />
-                {a.name}
-                {a.model ? <span className="il-meta"> · on {a.model.filename}</span> : null}
-              </li>
-            ))}
-          </ul>
-          <p className="il-impact-modal__note">
-            Their mentions will queue in their instance inboxes and drain when you reactivate their
-            model.
-          </p>
-        </div>
-      ) : null}
     </>
   );
 }

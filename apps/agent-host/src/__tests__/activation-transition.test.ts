@@ -145,4 +145,89 @@ describe("activation-transition: diffPlacements with active model filter", () =>
     expect(toOpen.map((p) => p.placementId)).toContain("p-a");
     expect(toClose).toHaveLength(0);
   });
+
+  // --- multi-load (CONTRACTS §6 multi-instance loading): agents of ALL
+  // loaded models get tunnels — the filter takes the whole loaded SET. ---
+
+  it("multi-load: opens tunnels for agents of EVERY loaded model, not just one", () => {
+    agentStore.set("agent-a", { model: { filename: "qwen.gguf" } });
+    agentStore.set("agent-b", { model: { filename: "llama.gguf" } });
+    agentStore.set("agent-c", { model: { filename: "mistral.gguf" } }); // not loaded
+
+    const current = makeClientMap([]);
+    const incoming = [
+      makePlacement("p-a", "agent-a"),
+      makePlacement("p-b", "agent-b"),
+      makePlacement("p-c", "agent-c"),
+    ];
+
+    const loaded = new Set(["qwen.gguf", "llama.gguf"]);
+    const { toOpen, toClose } = diffPlacements(current, incoming, loaded);
+    expect(toOpen.map((p) => p.placementId).sort()).toEqual(["p-a", "p-b"]);
+    expect(toClose).toHaveLength(0);
+  });
+
+  it("multi-load: unloading one of two models closes only that model's agents' tunnels", () => {
+    agentStore.set("agent-a", { model: { filename: "qwen.gguf" } });
+    agentStore.set("agent-b", { model: { filename: "llama.gguf" } });
+
+    // Both were loaded and tunneled; llama.gguf gets unloaded.
+    const current = makeClientMap(["p-a", "p-b"]);
+    const incoming = [makePlacement("p-a", "agent-a"), makePlacement("p-b", "agent-b")];
+
+    const loaded = new Set(["qwen.gguf"]); // llama.gguf left the loaded set
+    const { toOpen, toClose } = diffPlacements(current, incoming, loaded);
+    expect(toClose).toEqual(["p-b"]);
+    expect(toOpen).toHaveLength(0);
+  });
+
+  it("multi-load: loading a second model opens tunnels for its agents without closing the first model's", () => {
+    agentStore.set("agent-a", { model: { filename: "qwen.gguf" } });
+    agentStore.set("agent-b", { model: { filename: "llama.gguf" } });
+
+    // qwen.gguf already tunneled; llama.gguf just finished loading.
+    const current = makeClientMap(["p-a"]);
+    const incoming = [makePlacement("p-a", "agent-a"), makePlacement("p-b", "agent-b")];
+
+    const loaded = new Set(["qwen.gguf", "llama.gguf"]);
+    const { toOpen, toClose } = diffPlacements(current, incoming, loaded);
+    expect(toOpen.map((p) => p.placementId)).toEqual(["p-b"]);
+    expect(toClose).toHaveLength(0);
+  });
+
+  it("multi-load: an empty loaded set (everything unloaded) closes every agent-gated tunnel", () => {
+    agentStore.set("agent-a", { model: { filename: "qwen.gguf" } });
+    agentStore.set("agent-b", { model: { filename: "llama.gguf" } });
+
+    const current = makeClientMap(["p-a", "p-b"]);
+    const incoming = [makePlacement("p-a", "agent-a"), makePlacement("p-b", "agent-b")];
+
+    const loaded = new Set<string>();
+    const { toOpen, toClose } = diffPlacements(current, incoming, loaded);
+    expect(toClose.sort()).toEqual(["p-a", "p-b"]);
+    expect(toOpen).toHaveLength(0);
+  });
+
+  it("multi-load: null loaded set (nothing loaded, distinct from undefined = no filter) closes everything", () => {
+    agentStore.set("agent-a", { model: { filename: "qwen.gguf" } });
+
+    const current = makeClientMap(["p-a"]);
+    const incoming = [makePlacement("p-a", "agent-a")];
+
+    const { toOpen, toClose } = diffPlacements(current, incoming, null);
+    expect(toClose).toEqual(["p-a"]);
+    expect(toOpen).toHaveLength(0);
+  });
+
+  it("multi-load: single-string filter (legacy activate-style callers) still works", () => {
+    agentStore.set("agent-a", { model: { filename: "qwen.gguf" } });
+    agentStore.set("agent-b", { model: { filename: "llama.gguf" } });
+
+    const current = makeClientMap([]);
+    const incoming = [makePlacement("p-a", "agent-a"), makePlacement("p-b", "agent-b")];
+
+    const { toOpen, toClose } = diffPlacements(current, incoming, "qwen.gguf");
+    expect(toOpen.map((p) => p.placementId)).toEqual(["p-a"]);
+    expect(toClose).toHaveLength(0);
+  });
 });

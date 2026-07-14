@@ -1,3 +1,4 @@
+import path from "path";
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "@fastify/websocket";
 import type { TelemetryFrame, ModelRef } from "@interloom/protocol";
@@ -7,7 +8,8 @@ import {
   getRollingTokensPerSec,
   getRequestLog,
 } from "./collector.js";
-import { getActiveModel } from "../models/active.js";
+import { readInstances, type InstanceRecord } from "../models/loaded.js";
+import { modelRefForFilename } from "../models/routes.js";
 import { getServingLane, getQueueDepth } from "../inference/gate.js";
 
 type GetTunnelInfosFn = () => Array<{
@@ -24,18 +26,17 @@ let broadcastTimer: ReturnType<typeof setInterval> | null = null;
 
 async function buildFrame(getTunnelInfos: GetTunnelInfosFn): Promise<TelemetryFrame> {
   const gpus = await collectTelemetryGpus();
-  const active = await getActiveModel();
-  const activeFilename = active?.filename ?? null;
-  const servingLane = getServingLane();
-
-  // Build a set of agentIds that have active tunnels
-  const activeTunnelAgentIds = new Set(getTunnelInfos().map((t) => t.agentId));
+  const instances = readInstances();
+  const instanceByFilename = new Map<string, InstanceRecord>(
+    instances.map((i) => [path.basename(i.modelPath), i]),
+  );
 
   const agents = listAgents().map((a) => {
     let status: "idle" | "serving" | "offline";
-    if (!a.model || !activeFilename || a.model.filename !== activeFilename) {
+    const instance = a.model ? instanceByFilename.get(a.model.filename) : undefined;
+    if (!a.model || !instance) {
       status = "offline";
-    } else if (servingLane === a.agentId) {
+    } else if (getServingLane(instance.port) === a.agentId) {
       status = "serving";
     } else {
       status = "idle";
@@ -50,19 +51,12 @@ async function buildFrame(getTunnelInfos: GetTunnelInfosFn): Promise<TelemetryFr
     };
   });
 
-  const activeModel: ModelRef | null = active
-    ? {
-        filename: active.filename,
-        displayName: active.filename,
-        ...((() => {
-          // Try to find the model ref from a registered agent using this model
-          const agentWithModel = listAgents().find(
-            (a) => a.model?.filename === active.filename,
-          );
-          return agentWithModel?.model ?? {};
-        })()),
-      }
-    : null;
+  const first = instances[0];
+  const firstFilename = first ? path.basename(first.modelPath) : null;
+  const activeModel: ModelRef | null =
+    first && firstFilename
+      ? modelRefForFilename(firstFilename) ?? { filename: firstFilename, displayName: firstFilename }
+      : null;
 
   const tunnelInfos = getTunnelInfos();
 
@@ -79,8 +73,17 @@ async function buildFrame(getTunnelInfos: GetTunnelInfosFn): Promise<TelemetryFr
     })),
     agents,
     inference: {
+      // Back-compat: describe the FIRST loaded instance (CONTRACTS §6).
       activeModel,
-      queueDepth: getQueueDepth(),
+      queueDepth: first ? getQueueDepth(first.port) : 0,
+      // Additive: every loaded instance.
+      models: instances.map((i) => ({
+        filename: path.basename(i.modelPath),
+        port: i.port,
+        ctx: i.ctx,
+        queueDepth: getQueueDepth(i.port),
+        gpus: i.gpus,
+      })),
     },
   };
 }

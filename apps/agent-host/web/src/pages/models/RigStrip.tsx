@@ -1,17 +1,17 @@
-import type { SystemInfo } from "@interloom/protocol";
-import type { ActiveModel } from "../../api/types.js";
+import type { LoadedModel, SystemInfo } from "@interloom/protocol";
 import { mbToGB } from "../../lib/format.js";
 import { Skeleton } from "../../components/States.js";
 
 interface RigStripProps {
   rig: SystemInfo | null;
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   loading: boolean;
 }
 
 /** The persistent frame of reference for every fit badge on the page: what the
- * operator's rig is, and what's loaded right now. */
-export function RigStrip({ rig, activeModel, loading }: RigStripProps) {
+ * operator's rig is, and what's loaded right now (CONTRACTS §6 — N models may be
+ * loaded at once). */
+export function RigStrip({ rig, loadedModels, loading }: RigStripProps) {
   if (loading && !rig) {
     return (
       <div className="il-rigstrip">
@@ -89,20 +89,28 @@ export function RigStrip({ rig, activeModel, loading }: RigStripProps) {
         </RigTile>
       ) : null}
 
-      <RigTile label="Active model">
-        {activeModel ? (
+      <RigTile label={loadedModels.length > 1 ? "Loaded models" : "Loaded model"}>
+        {loadedModels.length > 0 ? (
           <>
-            <div className="il-rigtile__value il-rigtile__value--sm il-mono" title={activeModel.filename}>
-              {activeModel.filename}
+            <div
+              className="il-rigtile__value il-rigtile__value--sm il-mono"
+              title={loadedModels.map((m) => m.filename).join(", ")}
+            >
+              {loadedModels[0]!.filename}
+              {loadedModels.length > 1 ? ` +${loadedModels.length - 1}` : ""}
             </div>
             <div className="il-rigtile__sub il-meta">
-              {activeModel.ctx ? `${fmtCtx(activeModel.ctx)} context loaded` : "serving inference"}
+              {loadedModels.length > 1
+                ? `${loadedModels.length} models serving`
+                : loadedModels[0]!.ctx
+                  ? `${fmtCtx(loadedModels[0]!.ctx)} context loaded`
+                  : "serving inference"}
             </div>
           </>
         ) : (
           <>
             <div className="il-rigtile__value il-rigtile__value--muted">No model loaded</div>
-            <div className="il-rigtile__sub il-meta">activate one from Installed</div>
+            <div className="il-rigtile__sub il-meta">load one from Installed</div>
           </>
         )}
       </RigTile>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CapabilityBadges, EmptyState, Input, Spinner } from "@interloom/ui";
-import type { DownloadJob, LocalModel } from "@interloom/protocol";
-import type { HfSearchResult, ActiveModel } from "../../api/types.js";
+import type { DownloadJob, LoadedModel, LocalModel } from "@interloom/protocol";
+import type { HfSearchResult } from "../../api/types.js";
 import { models as modelsApi } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
 import { useDebounced } from "../../hooks/useDebounced.js";
@@ -14,11 +14,11 @@ type SortKey = "relevance" | "downloads" | "ctx";
 interface SearchTabProps {
   downloads: DownloadJob[];
   localModels: LocalModel[];
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onRefresh: () => void;
 }
 
-export function SearchTab({ downloads, localModels, activeModel, onRefresh }: SearchTabProps) {
+export function SearchTab({ downloads, localModels, loadedModels, onRefresh }: SearchTabProps) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("relevance");
   const [selected, setSelected] = useState<string | null>(null);
@@ -119,7 +119,7 @@ export function SearchTab({ downloads, localModels, activeModel, onRefresh }: Se
                 repoId={selected}
                 downloads={downloads}
                 localModels={localModels}
-                activeModel={activeModel}
+                loadedModels={loadedModels}
                 onRefresh={onRefresh}
               />
             ) : null}

@@ -64,6 +64,10 @@ async function pollGpuMetrics(): Promise<TelemetryGpu[]> {
         return;
       }
       const gpus: TelemetryGpu[] = [];
+      // Same nvidia-smi CSV line order as system.ts's detectGpus — array
+      // position here lines up with GpuInfo.index (CONTRACTS §6) even though
+      // `TelemetryGpu` itself carries no `index` field in the current
+      // protocol schema (out of this slice's ownership to add).
       for (const line of stdout.trim().split("\n")) {
         const parts = line.split(",").map((p) => p.trim());
         if (parts.length < 4) continue;

@@ -8,6 +8,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { enqueueInference, getQueueDepth, resetGateForTests } from "../inference/gate.js";
 
+const PORT = 8080;
+
 describe("inference gate — priority classes", () => {
   beforeEach(() => {
     resetGateForTests();
@@ -20,7 +22,7 @@ describe("inference gate — priority classes", () => {
     let unblockInteractive!: () => void;
     const interactiveBlocked = new Promise<void>((r) => { unblockInteractive = r; });
 
-    const blocker = enqueueInference("agent-1", async () => {
+    const blocker = enqueueInference(PORT, "agent-1", async () => {
       order.push("interactive-1-start");
       await interactiveBlocked;
       order.push("interactive-1-end");
@@ -30,12 +32,12 @@ describe("inference gate — priority classes", () => {
     await new Promise<void>((r) => setTimeout(r, 5));
 
     // Queue a maintenance job while interactive is running
-    const maintenance = enqueueInference("agent-1", async () => {
+    const maintenance = enqueueInference(PORT, "agent-1", async () => {
       order.push("maintenance");
     }, "maintenance");
 
     // Queue a second interactive job AFTER the maintenance job
-    const interactive2 = enqueueInference("agent-2", async () => {
+    const interactive2 = enqueueInference(PORT, "agent-2", async () => {
       order.push("interactive-2");
     }, "interactive");
 
@@ -56,7 +58,7 @@ describe("inference gate — priority classes", () => {
     const order: string[] = [];
 
     // No interactive jobs queued — maintenance should run right away
-    await enqueueInference("agent-1", async () => {
+    await enqueueInference(PORT, "agent-1", async () => {
       order.push("maintenance-only");
     }, "maintenance");
 
@@ -70,15 +72,15 @@ describe("inference gate — priority classes", () => {
     let unblock!: () => void;
     const held = new Promise<void>((r) => { unblock = r; });
 
-    const blocker = enqueueInference("blocker", async () => {
+    const blocker = enqueueInference(PORT, "blocker", async () => {
       await held;
     }, "interactive");
 
     await new Promise<void>((r) => setTimeout(r, 5));
 
     // Queue two maintenance jobs
-    const m1 = enqueueInference("maint-1", async () => { order.push("m1"); }, "maintenance");
-    const m2 = enqueueInference("maint-2", async () => { order.push("m2"); }, "maintenance");
+    const m1 = enqueueInference(PORT, "maint-1", async () => { order.push("m1"); }, "maintenance");
+    const m2 = enqueueInference(PORT, "maint-2", async () => { order.push("m2"); }, "maintenance");
 
     unblock();
     await Promise.all([blocker, m1, m2]);
@@ -95,7 +97,7 @@ describe("inference gate — priority classes", () => {
     const maintHeld = new Promise<void>((r) => { unblockMaint = r; });
 
     // First, let maintenance be the in-flight job (no interactive waiting)
-    const maintInFlight = enqueueInference("maint", async () => {
+    const maintInFlight = enqueueInference(PORT, "maint", async () => {
       order.push("maint-start");
       await maintHeld;
       order.push("maint-end");
@@ -104,8 +106,8 @@ describe("inference gate — priority classes", () => {
     await new Promise<void>((r) => setTimeout(r, 5));
 
     // Now queue a second maintenance and an interactive — interactive should go first
-    const maint2 = enqueueInference("maint-2", async () => { order.push("maint-2"); }, "maintenance");
-    const interactive = enqueueInference("agent-x", async () => { order.push("interactive"); }, "interactive");
+    const maint2 = enqueueInference(PORT, "maint-2", async () => { order.push("maint-2"); }, "maintenance");
+    const interactive = enqueueInference(PORT, "agent-x", async () => { order.push("interactive"); }, "interactive");
 
     unblockMaint();
     await Promise.all([maintInFlight, maint2, interactive]);
@@ -120,15 +122,15 @@ describe("inference gate — priority classes", () => {
     let unblock!: () => void;
     const held = new Promise<void>((r) => { unblock = r; });
 
-    const blocker = enqueueInference("blocker", async () => {
+    const blocker = enqueueInference(PORT, "blocker", async () => {
       await held;
     }); // no priority arg → default "interactive"
 
     await new Promise<void>((r) => setTimeout(r, 5));
 
-    const maint = enqueueInference("maint", async () => { order.push("maint"); }, "maintenance");
+    const maint = enqueueInference(PORT, "maint", async () => { order.push("maint"); }, "maintenance");
     // queue another default-priority job — should jump ahead of maint
-    const defaultPrio = enqueueInference("default", async () => { order.push("default"); });
+    const defaultPrio = enqueueInference(PORT, "default", async () => { order.push("default"); });
 
     unblock();
     await Promise.all([blocker, maint, defaultPrio]);
@@ -140,11 +142,11 @@ describe("inference gate — priority classes", () => {
     let unblock!: () => void;
     const held = new Promise<void>((r) => { unblock = r; });
 
-    const blocker = enqueueInference("blocker", async () => {
-      enqueueInference("i1", async () => {}, "interactive");
-      enqueueInference("m1", async () => {}, "maintenance");
+    const blocker = enqueueInference(PORT, "blocker", async () => {
+      enqueueInference(PORT, "i1", async () => {}, "interactive");
+      enqueueInference(PORT, "m1", async () => {}, "maintenance");
       // Depth should be 2 while blocker still holds gate
-      expect(getQueueDepth()).toBe(2);
+      expect(getQueueDepth(PORT)).toBe(2);
       await held;
     }, "interactive");
 
@@ -158,14 +160,14 @@ describe("inference gate — priority classes", () => {
     let unblock!: () => void;
     const held = new Promise<void>((r) => { unblock = r; });
 
-    const blocker = enqueueInference("blocker", async () => {
+    const blocker = enqueueInference(PORT, "blocker", async () => {
       await held;
     }, "interactive");
 
     await new Promise<void>((r) => setTimeout(r, 5));
 
-    const aMaint = enqueueInference("A", async () => { order.push("A-maintenance"); }, "maintenance");
-    const bInteractive = enqueueInference("B", async () => { order.push("B-interactive"); }, "interactive");
+    const aMaint = enqueueInference(PORT, "A", async () => { order.push("A-maintenance"); }, "maintenance");
+    const bInteractive = enqueueInference(PORT, "B", async () => { order.push("B-interactive"); }, "interactive");
 
     unblock();
     await Promise.all([blocker, aMaint, bInteractive]);

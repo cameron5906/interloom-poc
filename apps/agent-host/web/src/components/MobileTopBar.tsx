@@ -1,11 +1,11 @@
 import { StatusPill } from "@interloom/ui";
-import type { NetworkSession } from "../api/types.js";
+import type { OperatorState } from "../api/types.js";
 import { LoomGlyph } from "./NavRail.js";
 import { sessionPillState } from "../lib/sessionState.js";
 import "./MobileTopBar.css";
 
 interface MobileTopBarProps {
-  session: NetworkSession | undefined;
+  operator: OperatorState | undefined;
   daemonOnline: boolean;
 }
 
@@ -14,8 +14,8 @@ interface MobileTopBarProps {
  * Same brand mark + session-state pill as the desktop rail footer, kept in
  * sync via `sessionPillState` so the two surfaces never disagree.
  */
-export function MobileTopBar({ session, daemonOnline }: MobileTopBarProps) {
-  const sessionState = sessionPillState(daemonOnline, session);
+export function MobileTopBar({ operator, daemonOnline }: MobileTopBarProps) {
+  const sessionState = sessionPillState(daemonOnline, operator);
 
   return (
     <header className="il-topbar">

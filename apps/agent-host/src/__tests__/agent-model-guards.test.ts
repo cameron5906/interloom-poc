@@ -58,17 +58,48 @@ vi.mock("../agents/store.js", () => ({
   deleteAgent: vi.fn(),
 }));
 
-// Controlled active model
-let mockActiveModel: { path: string; filename: string; ctx: number } | null = null;
+// Controlled loaded instance (CONTRACTS §6 multi-instance loading — preview
+// now routes via the loaded registry, not a single "active model").
+let mockLoadedInstance: { filename: string; port: number; ctx: number; mmprojPath?: string | null } | null = null;
 
 vi.mock("../models/active.js", () => ({
-  getActiveModel: async () => mockActiveModel,
-  getConfiguredModelFilename: () => mockActiveModel?.filename ?? null,
+  getActiveModel: async () =>
+    mockLoadedInstance
+      ? { path: `/models/${mockLoadedInstance.filename}`, filename: mockLoadedInstance.filename, ctx: mockLoadedInstance.ctx }
+      : null,
+  getConfiguredModelFilename: () => mockLoadedInstance?.filename ?? null,
   findLocalModelPath: vi.fn().mockReturnValue(null),
 }));
 
+vi.mock("../models/loaded.js", () => ({
+  findInstanceByFilename: (filename: string) =>
+    mockLoadedInstance && mockLoadedInstance.filename === filename
+      ? {
+          id: "test",
+          modelPath: `/models/${filename}`,
+          ctx: mockLoadedInstance.ctx,
+          port: mockLoadedInstance.port,
+          gpus: [],
+          mmprojPath: mockLoadedInstance.mmprojPath ?? null,
+        }
+      : undefined,
+  instanceBaseUrl: (port: number) => `http://localhost:${port}`,
+}));
+
+vi.mock("../models/scan.js", () => ({
+  capabilitiesForFilename: () => undefined,
+}));
+
+vi.mock("../models/settingsStore.js", () => ({
+  isThinkingDisabled: () => false,
+}));
+
 vi.mock("../inference/gate.js", () => ({
-  enqueueInference: async (_lane: string, run: () => Promise<void>) => run(),
+  enqueueInference: async (
+    _port: number,
+    _lane: string,
+    run: (signal: AbortSignal) => Promise<void>,
+  ) => run(new AbortController().signal),
   getServingLane: () => null,
   getQueueDepth: () => 0,
   drainLane: vi.fn(),
@@ -102,7 +133,7 @@ describe("agent model guards", () => {
 
   beforeEach(async () => {
     mockAgents = new Map();
-    mockActiveModel = null;
+    mockLoadedInstance = null;
     fetchCalls = [];
 
     app = Fastify({ logger: false });
@@ -154,8 +185,8 @@ describe("agent model guards", () => {
       model: { filename: "llama.gguf", displayName: "LLaMA" },
     });
 
-    // Active model is a different file
-    mockActiveModel = { path: "/models/qwen.gguf", filename: "qwen.gguf", ctx: 4096 };
+    // Loaded model is a different file
+    mockLoadedInstance = { filename: "qwen.gguf", port: 8080, ctx: 4096 };
 
     const res = await app.inject({
       method: "POST",
@@ -183,7 +214,7 @@ describe("agent model guards", () => {
       model: { filename: "llama.gguf", displayName: "LLaMA" },
     });
 
-    mockActiveModel = null; // no model loaded
+    mockLoadedInstance = null; // no model loaded
 
     const res = await app.inject({
       method: "POST",
@@ -208,7 +239,7 @@ describe("agent model guards", () => {
       capabilityBlurb: "does stuff",
       model: { filename: "qwen.gguf", displayName: "Qwen" },
     });
-    mockActiveModel = { path: "/models/qwen.gguf", filename: "qwen.gguf", ctx: 4096 };
+    mockLoadedInstance = { filename: "qwen.gguf", port: 8080, ctx: 4096 };
 
     const res = await app.inject({
       method: "POST",
@@ -227,6 +258,53 @@ describe("agent model guards", () => {
     const body = inferenceCall?.body as { max_tokens?: number; messages?: unknown[] };
     expect(body.max_tokens).toBe(512); // min(1024, 512) = 512
     expect(body.max_tokens).not.toBe(32768); // NOT contextLength
+  });
+
+  it("preview requests stream_options.include_usage and propagates usage into the SSE done event", async () => {
+    mockAgents.set("a1", {
+      agentId: "a1",
+      name: "Ada",
+      persona: "helpful",
+      params: { temperature: 0.7, contextLength: 4096 },
+      registered: false,
+      avatar: { emoji: "🤖", bg: "#fff" },
+      capabilityBlurb: "does stuff",
+      model: { filename: "qwen.gguf", displayName: "Qwen" },
+    });
+    mockLoadedInstance = { filename: "qwen.gguf", port: 8080, ctx: 4096 };
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/agents/a1/preview",
+      payload: { messages: [{ role: "user", content: "hello" }] },
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    // The mocked upstream stream (see the module-level fetch stub above)
+    // returns a usage chunk with no `choices` field at all — the shape
+    // llama-server sends only when the request opts in via
+    // stream_options.include_usage. Confirm the request actually asked for it.
+    const streamCall = fetchCalls.find(
+      (c) => c.body !== undefined && typeof c.body === "object" && c.body !== null && "stream_options" in (c.body as Record<string, unknown>),
+    );
+    expect(streamCall).toBeDefined();
+    const sentBody = streamCall?.body as { stream?: boolean; stream_options?: { include_usage?: boolean } };
+    expect(sentBody.stream).toBe(true);
+    expect(sentBody.stream_options).toEqual({ include_usage: true });
+
+    // Confirm the terminal SSE "done" event carries the parsed usage through.
+    const doneLine = res.body
+      .split("\n")
+      .find((line) => line.startsWith("data: ") && line.includes('"done":true'));
+    expect(doneLine).toBeDefined();
+    const donePayload = JSON.parse(doneLine!.slice(6)) as {
+      done: boolean;
+      usage: { promptTokens: number; completionTokens: number; tokensPerSec: number };
+    };
+    expect(donePayload.usage.promptTokens).toBe(5);
+    expect(donePayload.usage.completionTokens).toBe(3);
+    expect(donePayload.usage.tokensPerSec).toBe(42);
   });
 
   // --- register guards ---

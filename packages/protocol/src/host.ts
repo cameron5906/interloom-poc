@@ -9,6 +9,8 @@ export const GpuInfo = z.object({
   vramMB: z.number(),
   kind: z.enum(["cuda", "metal", "none"]),
   driver: z.string().optional(),
+  /** `nvidia-smi` device ordinal — the same number used in placement `gpus: number[]` and `CUDA_VISIBLE_DEVICES`. */
+  index: z.number().int().optional(),
 });
 export type GpuInfo = z.infer<typeof GpuInfo>;
 
@@ -128,6 +130,18 @@ export const TelemetryFrame = z.object({
     .object({
       activeModel: ModelRef.nullable(),
       queueDepth: z.number(),
+      /** Additive: one entry per loaded instance (multi-instance model loading, CONTRACTS §6). */
+      models: z
+        .array(
+          z.object({
+            filename: z.string(),
+            port: z.number(),
+            ctx: z.number(),
+            queueDepth: z.number(),
+            gpus: z.array(z.number()),
+          }),
+        )
+        .optional(),
     })
     .optional(),
 });
@@ -174,6 +188,84 @@ export const ContextOptions = z.object({
   recommendedPlan: ContextPlan.nullable().optional(),
 });
 export type ContextOptions = z.infer<typeof ContextOptions>;
+
+// --- Multi-instance model loading (CONTRACTS §6) ---
+
+/** A concurrently loaded model instance — one `llama-server` process on its own port. */
+export const LoadedModel = z.object({
+  path: z.string(),
+  filename: z.string(),
+  model: ModelRef.optional(),
+  ctx: z.number(),
+  port: z.number(),
+  gpus: z.array(z.number()),
+  tensorSplit: z.array(z.number()).optional(),
+  fit: z.enum(["fast", "spill"]),
+  reasoningBudget: z.number().nullable().optional(),
+  mmprojPath: z.string().nullable().optional(),
+  /** KV-cache precision this instance was loaded with (rig-optimizer plan, CONTRACTS §6). Absent = f16 default. */
+  kvCache: z.enum(["f16", "q8_0"]).optional(),
+  /** Expert layers parked in system RAM (`--n-cpu-moe`, MoE offload plan, CONTRACTS §6). */
+  nCpuMoe: z.number().optional(),
+  health: z.enum(["ready", "loading", "down"]),
+});
+export type LoadedModel = z.infer<typeof LoadedModel>;
+
+/** Per-GPU VRAM budget as tracked by the allocation planner (CONTRACTS §6). */
+export const GpuBudget = z.object({
+  index: z.number(),
+  name: z.string(),
+  vramTotalMB: z.number(),
+  vramCommittedMB: z.number(),
+  vramFreeMB: z.number(),
+});
+export type GpuBudget = z.infer<typeof GpuBudget>;
+
+/** `GET /api/models/allocation` — server-truthed planner surface (CONTRACTS §6). */
+export const AllocationView = z.object({
+  gpus: z.array(GpuBudget),
+  loaded: z.array(LoadedModel),
+  maxConcurrentAgents: z.number(),
+});
+export type AllocationView = z.infer<typeof AllocationView>;
+
+/** `POST /api/models/load` body (CONTRACTS §6). */
+export const LoadModelBody = z.object({
+  path: z.string(),
+  ctx: z.number().optional(),
+  placement: z
+    .object({
+      gpus: z.array(z.number()),
+      tensorSplit: z.array(z.number()).optional(),
+    })
+    .optional(),
+  confirmSpill: z.boolean().optional(),
+  /** Rig-optimizer plan: KV-cache precision (`--cache-type-k/v`, CONTRACTS §6/§7). */
+  kvCache: z.enum(["f16", "q8_0"]).optional(),
+  /** Rig-optimizer plan: expert layers to keep in system RAM (`--n-cpu-moe`, CONTRACTS §6/§7). */
+  nCpuMoe: z.number().int().positive().max(999).optional(),
+});
+export type LoadModelBody = z.infer<typeof LoadModelBody>;
+
+/** `POST /api/models/unload` body (CONTRACTS §6). */
+export const UnloadModelBody = z.object({
+  path: z.string(),
+});
+export type UnloadModelBody = z.infer<typeof UnloadModelBody>;
+
+/** A model's persisted settings, keyed by filename (`DATA_DIR/model-settings.json`, CONTRACTS §6). */
+export const ModelSettings = z.object({
+  filename: z.string(),
+  disableThinking: z.boolean().optional(),
+});
+export type ModelSettings = z.infer<typeof ModelSettings>;
+
+/** `PATCH /api/models/settings` body — same shape as `ModelSettings` with `filename` required (CONTRACTS §6). */
+export const ModelSettingsPatch = z.object({
+  filename: z.string(),
+  disableThinking: z.boolean().optional(),
+});
+export type ModelSettingsPatch = z.infer<typeof ModelSettingsPatch>;
 
 /** A placement plus the host's current tunnel status for it (CONTRACTS §6). */
 export const PlacementStatus = Placement.extend({

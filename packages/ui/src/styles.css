@@ -29,6 +29,7 @@
 @import "./components/Input.css";
 @import "./components/TextArea.css";
 @import "./components/Modal.css";
+@import "./components/OverlayPanel.css";
 @import "./components/Spinner.css";
 @import "./components/EmptyState.css";
 @import "./components/TypingDots.css";

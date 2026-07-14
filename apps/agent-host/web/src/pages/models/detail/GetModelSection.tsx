@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Badge, Button, EmptyState, Spinner } from "@interloom/ui";
-import type { DownloadJob, LocalModel } from "@interloom/protocol";
-import type { ActiveModel, CatalogModel, HfDetailFile } from "../../../api/types.js";
+import type { DownloadJob, LoadedModel, LocalModel } from "@interloom/protocol";
+import type { CatalogModel, HfDetailFile } from "../../../api/types.js";
 import { models as modelsApi } from "../../../api/endpoints.js";
 import { useAsync } from "../../../hooks/useAsync.js";
 import { useToasts } from "../../../components/Toasts.js";
@@ -16,7 +16,7 @@ interface GetModelSectionProps {
   model: CatalogModel;
   downloads: DownloadJob[];
   localModels: LocalModel[];
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onRefresh: () => void;
   onGoToSearch?: () => void;
 }
@@ -25,7 +25,7 @@ export function GetModelSection({
   model,
   downloads,
   localModels,
-  activeModel,
+  loadedModels,
   onRefresh,
   onGoToSearch,
 }: GetModelSectionProps) {
@@ -96,7 +96,7 @@ export function GetModelSection({
         repoId={repo!.repoId}
         downloads={downloads}
         localModels={localModels}
-        activeModel={activeModel}
+        loadedModels={loadedModels}
         onRefresh={onRefresh}
       />
     </div>
@@ -107,13 +107,13 @@ function RepoFiles({
   repoId,
   downloads,
   localModels,
-  activeModel,
+  loadedModels,
   onRefresh,
 }: {
   repoId: string;
   downloads: DownloadJob[];
   localModels: LocalModel[];
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onRefresh: () => void;
 }) {
   const detail = useAsync((s) => modelsApi.hfDetail(repoId, s), [repoId]);
@@ -155,7 +155,7 @@ function RepoFiles({
             recommended={recommended?.filename === f.filename}
             downloads={downloads}
             localModels={localModels}
-            activeModel={activeModel}
+            loadedModels={loadedModels}
             onRefresh={onRefresh}
           />
         ))}
@@ -171,7 +171,7 @@ function FileRow({
   recommended,
   downloads,
   localModels,
-  activeModel,
+  loadedModels,
   onRefresh,
 }: {
   file: HfDetailFile;
@@ -180,14 +180,14 @@ function FileRow({
   recommended: boolean;
   downloads: DownloadJob[];
   localModels: LocalModel[];
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onRefresh: () => void;
 }) {
   const toasts = useToasts();
   const [busy, setBusy] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<LocalModel | null>(null);
 
-  const ms = deriveModelState(repoId, file.filename, downloads, localModels, activeModel);
+  const ms = deriveModelState(repoId, file.filename, downloads, localModels, loadedModels);
   const job = ms.job;
   const pct = job && job.bytesTotal > 0 ? Math.round((job.bytesDone / job.bytesTotal) * 100) : 0;
 
@@ -223,8 +223,8 @@ function FileRow({
           </span>
         </div>
         <div className="il-getmodel__file-action">
-          {ms.state === "active" ? (
-            <Badge variant="success">Active</Badge>
+          {ms.state === "loaded" ? (
+            <Badge variant="success">Loaded</Badge>
           ) : ms.state === "installed" ? (
             <div className="il-getmodel__file-actions">
               <Badge variant="success">Installed</Badge>
@@ -253,8 +253,9 @@ function FileRow({
       {removeTarget ? (
         <RemoveModelModal
           model={removeTarget}
-          activeModel={activeModel}
+          loadedModels={loadedModels}
           onClose={() => setRemoveTarget(null)}
+          onUnloaded={onRefresh}
           onRemoved={() => {
             setRemoveTarget(null);
             onRefresh();

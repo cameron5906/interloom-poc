@@ -3,7 +3,8 @@ import { signEnvelope } from "@interloom/keys";
 import { MODELS_DIR } from "../config.js";
 import { getKeypair } from "../keys.js";
 import { getOperatorDisplayName } from "../settings.js";
-import { networkRegisterAgent } from "../network/client.js";
+import { getOperatorBinding, setOperatorGrantStale } from "../operatorBind.js";
+import { networkRegisterAgent, NetworkApiError } from "../network/client.js";
 import { capabilitiesForFilename } from "../models/scan.js";
 import { listAgents, updateAgent, type Agent } from "./store.js";
 
@@ -19,12 +20,19 @@ const localLookup: CapabilityLookup = (filename) =>
  * recipe (§12) stays host-side — only the rendered `imageUrl` travels.
  * When `title` is set it's mirrored into `capabilityBlurb` so legacy card
  * renderers (that only know `capabilityBlurb`) stay truthful.
+ *
+ * `operator` reflects the bound network identity when this host has
+ * completed operator binding (`operator: { pubKey: identityKey, displayName,
+ * grant }`, `operator.pubKey ≠` the manifest-signing host key — the network
+ * verifies the grant chain instead). An unbound host keeps the legacy rule
+ * (`operator.pubKey === envelope.key`, no grant) so old hosts keep working.
  */
 export function buildAgentManifest(
   agent: Agent,
   pubKey: string,
   lookup: CapabilityLookup = localLookup,
   operatorDisplayName: string = getOperatorDisplayName(),
+  operatorBinding: ReturnType<typeof getOperatorBinding> = getOperatorBinding(),
 ): AgentManifest {
   if (!agent.model) {
     throw new Error("agent has no model — cannot register");
@@ -48,7 +56,13 @@ export function buildAgentManifest(
     ...(agent.title ? { title: agent.title } : {}),
     ...(agent.gender ? { gender: agent.gender } : {}),
     ...(agent.specialties && agent.specialties.length > 0 ? { specialties: agent.specialties } : {}),
-    operator: { pubKey, displayName: operatorDisplayName },
+    operator: operatorBinding
+      ? {
+          pubKey: operatorBinding.identityKey,
+          displayName: operatorBinding.displayName,
+          grant: operatorBinding.grant,
+        }
+      : { pubKey, displayName: operatorDisplayName },
   };
 }
 
@@ -56,7 +70,19 @@ export async function registerAgentOnNetwork(agent: Agent): Promise<void> {
   const keypair = getKeypair();
   const manifest = buildAgentManifest(agent, keypair.publicKey);
   const envelope = signEnvelope(manifest, keypair.privateKey, keypair.publicKey);
-  await networkRegisterAgent(envelope);
+  try {
+    await networkRegisterAgent(envelope);
+  } catch (err) {
+    // Surface a stale operator grant (CONTRACTS §11.7 — the network revoked
+    // all grants for this identity since it was issued) on the binding state
+    // instead of letting it disappear into a per-call catch/log — this is
+    // the ONE place every register/re-register path funnels through.
+    if (err instanceof NetworkApiError && err.status === 403 && err.body.includes("operator grant epoch stale")) {
+      setOperatorGrantStale(true);
+    }
+    throw err;
+  }
+  setOperatorGrantStale(false);
   if (
     manifest.model.capabilities &&
     JSON.stringify(manifest.model.capabilities) !== JSON.stringify(agent.model?.capabilities)

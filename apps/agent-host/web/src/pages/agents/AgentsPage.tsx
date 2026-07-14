@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Avatar, Badge, Button, StatusPill } from "@interloom/ui";
-import type { HostAgent } from "@interloom/protocol";
+import type { HostAgent, LoadedModel, LocalModel } from "@interloom/protocol";
 import { agents as agentsApi, models as modelsApi } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
 import { usePoll } from "../../hooks/usePoll.js";
@@ -12,18 +12,24 @@ import { AgentEditor } from "./AgentEditor.js";
 import { PreviewChat } from "./PreviewChat.js";
 import { EMPTY_AGENT_DRAFT } from "../../api/types.js";
 import type { AgentDraft } from "../../api/types.js";
-import type { ActiveModel } from "../../api/types.js";
 import "./agents.css";
 
 export function AgentsPage() {
   const list = useAsync((s) => agentsApi.list(s), []);
-  const activePoll = usePoll<ActiveModel | null>((s) => modelsApi.active(s), 3000, true);
+  // Loaded-list world (CONTRACTS §6 multi-instance loading) — an agent is
+  // online iff its model is among the loaded set, not iff it equals "the"
+  // active model. Local models are fetched once here and shared down so the
+  // editor's model picker and the preview chat's quick-load button don't each
+  // run their own copy.
+  const loadedPoll = usePoll<LoadedModel[]>((s) => modelsApi.loaded(s), 2500, true);
+  const localModelsAsync = useAsync<LocalModel[]>((s) => modelsApi.local(s), []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
   const [liveDraft, setLiveDraft] = useState<AgentDraft>(EMPTY_AGENT_DRAFT);
 
   const agents = list.data ?? [];
-  const activeModel = activePoll.data ?? null;
+  const loadedModels = loadedPoll.data ?? [];
+  const localModels = localModelsAsync.data ?? [];
 
   // Auto-select the first agent once loaded (unless the user is creating one).
   useEffect(() => {
@@ -36,8 +42,6 @@ export function AgentsPage() {
     creatingNew || selectedId === null
       ? null
       : (agents.find((a) => a.agentId === selectedId) ?? null);
-
-  const modelActive = activeModel !== null;
 
   const handleSaved = useCallback(
     (saved: HostAgent) => {
@@ -112,7 +116,7 @@ export function AgentsPage() {
               </li>
             ) : null}
             {agents.map((a) => {
-              const isOnline = !!(a.model && activeModel?.filename === a.model.filename);
+              const isOnline = !!(a.model && loadedModels.some((m) => m.filename === a.model!.filename));
               return (
                 <li key={a.agentId}>
                   <button
@@ -144,7 +148,7 @@ export function AgentsPage() {
                       {a.model && !isOnline ? (
                         <span className="il-agents__offline-hint">
                           <Link to="/models" className="il-agents__offline-link">
-                            Activate {a.model.filename}
+                            Load {a.model.filename}
                           </Link>{" "}
                           to bring online
                         </span>
@@ -167,7 +171,9 @@ export function AgentsPage() {
       <AgentEditor
         key={creatingNew ? "new" : (selectedId ?? "none")}
         agent={selected}
-        activeModel={activeModel}
+        loadedModels={loadedModels}
+        localModels={localModels}
+        localModelsLoading={localModelsAsync.loading && localModelsAsync.initialLoad}
         onSaved={handleSaved}
         onDeleted={handleDeleted}
         onDraftChange={setLiveDraft}
@@ -176,8 +182,9 @@ export function AgentsPage() {
       <PreviewChat
         agentId={selected?.agentId ?? null}
         draft={liveDraft}
-        modelActive={modelActive}
-        activeModel={activeModel}
+        loadedModels={loadedModels}
+        localModels={localModels}
+        onModelLoaded={() => loadedPoll.refresh()}
       />
     </div>
   );

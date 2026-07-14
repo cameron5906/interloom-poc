@@ -1,0 +1,60 @@
+.il-stale-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--il-warning-tint);
+  border-bottom: 1px solid color-mix(in srgb, var(--il-warning) 30%, var(--il-warning-tint));
+  color: var(--il-warning-deep);
+  font-size: 12.5px;
+}
+
+.il-stale-banner__body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.il-stale-banner__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--il-warning);
+}
+
+.il-stale-banner__text {
+  min-width: 0;
+}
+
+.il-stale-banner__title {
+  font-weight: 600;
+}
+
+.il-stale-banner__error {
+  margin-top: 2px;
+  color: var(--il-accent-deep);
+}
+
+.il-stale-banner__busy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .il-stale-banner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .il-stale-banner__body {
+    align-items: center;
+  }
+}

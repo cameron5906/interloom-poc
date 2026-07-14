@@ -1,21 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { Avatar, Button, Modal, TextArea, TypingDots } from "@interloom/ui";
+import { Avatar, Button, TextArea, TypingDots } from "@interloom/ui";
+import type { LoadedModel, LocalModel } from "@interloom/protocol";
 import { streamPreview } from "../../api/preview.js";
-import { models as modelsApi } from "../../api/endpoints.js";
 import type { PreviewMessage } from "../../api/preview.js";
-import type { AgentDraft, ActiveModel } from "../../api/types.js";
+import type { AgentDraft } from "../../api/types.js";
 import { useToasts } from "../../components/Toasts.js";
 import { ApiError } from "../../api/client.js";
 import { downscaleToDataUrl } from "../../lib/image.js";
 import { parseThinkSegments } from "../../lib/think.js";
 import { draftAvatarImageUrl } from "../../lib/character.js";
+import { useGuardedModelLoad } from "../../components/ModelLoadFlow/useGuardedModelLoad.js";
+import { SpillConfirmDialog } from "../../components/ModelLoadFlow/SpillConfirmDialog.js";
 
 interface PreviewChatProps {
   agentId: string | null;
   draft: AgentDraft;
-  modelActive: boolean;
-  activeModel: ActiveModel | null;
+  /** Loaded-list world (CONTRACTS §6) — an agent's model is either in this set or it isn't. */
+  loadedModels: LoadedModel[];
+  localModels: LocalModel[];
+  onModelLoaded: () => void;
 }
 
 interface ChatTurn {
@@ -33,6 +36,7 @@ interface StartStreamOptions {
 
 const INTRO_USER_PROMPT = "You've just been configured. Briefly introduce yourself to the team.";
 const INTRO_DEBOUNCE_MS = 1200;
+const CANNED_TYPING_MS = 1000;
 
 /** Persona + identity preamble for the auto-intro re-ping (CONTRACTS §6 "Intro re-ping"). */
 function buildIntroPersona(draft: AgentDraft): string {
@@ -50,32 +54,48 @@ function buildIntroPersona(draft: AgentDraft): string {
   return `${draft.persona}\n\n${lines.join("\n")}`;
 }
 
+type CannedKind = "no-model" | "not-loaded" | null;
+
 /**
- * Right-rail live preview. Streams the CURRENT unsaved persona against the
- * active local model. Handles 400 model_required (picker hint) and
- * 409 model_not_active (offers activation then retries). Also drives the
- * "intro re-ping" — a debounced self-introduction whenever a personality
- * field changes, so the agent's character feels alive while you edit it.
+ * Right-rail live preview. Streams the CURRENT unsaved persona against a
+ * loaded model instance. When the agent has no model, or its model isn't
+ * among the loaded set, the chat shows an animated in-character canned
+ * message with an inline guarded "Load model" action instead of a bare
+ * disabled state (deliverable 3). Handles 400 model_required and 409
+ * model_not_active by driving the same guarded load flow, then auto-retries
+ * whatever preview message triggered it.
  */
-export function PreviewChat({ agentId, draft, modelActive, activeModel }: PreviewChatProps) {
+export function PreviewChat({ agentId, draft, loadedModels, localModels, onModelLoaded }: PreviewChatProps) {
   const toasts = useToasts();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [awaitingFirst, setAwaitingFirst] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activationModal, setActivationModal] = useState<{
-    modelPath: string;
-    modelFilename: string;
-    pendingMessages: PreviewMessage[];
-  } | null>(null);
+  const [, setPendingMessages] = useState<PreviewMessage[] | null>(null);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [pendingAttach, setPendingAttach] = useState(0);
+  const [cannedPhase, setCannedPhase] = useState<"typing" | "shown">("typing");
   const abortRef = useRef<(() => void) | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentAgentRef = useRef(agentId);
   const introKeyRef = useRef<string | null>(null);
   const introTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cannedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadedEntry = draft.model ? loadedModels.find((m) => m.filename === draft.model!.filename) : undefined;
+  const noModel = !draft.model;
+  const modelLoaded = !!loadedEntry;
+  const disabled = noModel || !modelLoaded || agentId === null;
+
+  const { loading: loadFlowLoading, spillConfirm, attemptLoad, confirmSpillAndRetry, cancelSpillConfirm } =
+    useGuardedModelLoad(() => {
+      onModelLoaded();
+      setPendingMessages((pending) => {
+        if (pending) startStream(pending);
+        return null;
+      });
+    });
 
   // Reset the conversation when switching agents.
   useEffect(() => {
@@ -83,6 +103,7 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
     setTurns([]);
     setError(null);
     setAttachments([]);
+    setPendingMessages(null);
     abortRef.current?.();
     setStreaming(false);
     setAwaitingFirst(false);
@@ -93,13 +114,33 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [turns, awaitingFirst]);
+  }, [turns, awaitingFirst, cannedPhase]);
 
   useEffect(() => () => abortRef.current?.(), []);
 
-  const noModel = !draft.model;
-  const disabled = noModel || !modelActive || agentId === null;
-  const visionReady = Boolean(draft.model?.capabilities?.vision && activeModel?.mmprojPath);
+  // Canned-message animation: whenever the pane renders in a no-model/
+  // not-loaded state with an empty conversation, run a ~1s typing beat
+  // before the message appears — same cadence as a real reply.
+  const cannedKind: CannedKind =
+    agentId !== null && turns.length === 0 && !awaitingFirst
+      ? noModel
+        ? "no-model"
+        : !modelLoaded
+          ? "not-loaded"
+          : null
+      : null;
+
+  useEffect(() => {
+    if (cannedTimerRef.current) clearTimeout(cannedTimerRef.current);
+    if (!cannedKind) return;
+    setCannedPhase("typing");
+    cannedTimerRef.current = setTimeout(() => setCannedPhase("shown"), CANNED_TYPING_MS);
+    return () => {
+      if (cannedTimerRef.current) clearTimeout(cannedTimerRef.current);
+    };
+  }, [cannedKind, agentId]);
+
+  const visionReady = Boolean(draft.model?.capabilities?.vision && loadedEntry?.mmprojPath);
   const headerAvatarUrl = draftAvatarImageUrl(draft.avatar);
 
   const startStream = (messages: PreviewMessage[], opts?: StartStreamOptions) => {
@@ -150,7 +191,7 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
           }
           if (apiErr.status === 400 && body?.error === "vision_not_supported") {
             setError(
-              "The active model can't see images — activate the vision build (with its projector) to use attachments.",
+              "This agent's loaded model can't see images — load the vision build (with its projector) to use attachments.",
             );
             return;
           }
@@ -158,7 +199,8 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
             const filename = body?.model?.filename;
             const localPath = body?.path;
             if (filename && localPath) {
-              setActivationModal({ modelPath: localPath, modelFilename: filename, pendingMessages: messages });
+              setPendingMessages(messages);
+              void attemptLoad(localPath, filename);
               return;
             }
             if (filename && !localPath) {
@@ -178,7 +220,7 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
   useEffect(() => {
     const gender = draft.gender ?? draft.avatar.character?.gender;
     const eligible =
-      !!agentId && modelActive && !!draft.model && draft.name.trim().length > 0 && !!gender;
+      !!agentId && modelLoaded && !!draft.model && draft.name.trim().length > 0 && !!gender;
 
     if (!eligible) {
       introKeyRef.current = null;
@@ -217,7 +259,7 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
     };
   }, [
     agentId,
-    modelActive,
+    modelLoaded,
     draft.model,
     draft.name,
     draft.title,
@@ -263,66 +305,21 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
     startStream(messages);
   };
 
-  const handleActivate = async () => {
-    if (!activationModal) return;
-    const { modelPath, modelFilename, pendingMessages } = activationModal;
-    setActivationModal(null);
-    try {
-      const result = await modelsApi.activate(modelPath);
-      if (result.status === "ready") {
-        toasts.success(`${modelFilename} is now active`);
-        startStream(pendingMessages);
-      } else {
-        toasts.error("Model failed to load — can't preview.");
-      }
-    } catch (err) {
-      toasts.error(
-        err instanceof ApiError && err.isOffline
-          ? "Daemon unreachable — can't activate."
-          : "Activation failed.",
-      );
+  /** The inline "Load model" action under the canned not-loaded bubble. */
+  const loadFromCanned = () => {
+    if (!draft.model) return;
+    const local = localModels.find((m) => m.filename === draft.model!.filename);
+    if (!local) {
+      toasts.error("That model isn't installed on this host — download it from the Models page first.");
+      return;
     }
+    void attemptLoad(local.path, local.filename);
   };
-
-  let disabledReason: React.ReactNode = null;
-  if (agentId === null) {
-    disabledReason = (
-      <>
-        <div className="il-preview__empty-title">Save to preview</div>
-        <p>Create the agent first, then chat with it here to test the persona.</p>
-      </>
-    );
-  } else if (noModel) {
-    disabledReason = (
-      <>
-        <div className="il-preview__empty-title">No model selected</div>
-        <p>Assign a model to this agent in the editor to enable preview.</p>
-      </>
-    );
-  } else if (!modelActive) {
-    disabledReason = (
-      <>
-        <div className="il-preview__empty-title">No model is active</div>
-        <p>
-          Preview runs on your own GPU. Activate{" "}
-          {draft.model ? (
-            <strong>{draft.model.filename}</strong>
-          ) : (
-            "a local model"
-          )}{" "}
-          to chat with {draft.name || "this agent"}.
-        </p>
-        <Link className="il-preview__link" to="/models">
-          Activate a model →
-        </Link>
-      </>
-    );
-  }
 
   const composerPlaceholder = noModel
     ? "Assign a model to preview"
-    : !modelActive
-      ? "Activate a model to preview"
+    : !modelLoaded
+      ? "Load the model to preview"
       : agentId === null
         ? "Save the agent first"
         : "Message this agent…";
@@ -344,14 +341,54 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
 
         <div className="il-preview__body il-scroll-fade" ref={scrollRef}>
           {turns.length === 0 && !awaitingFirst ? (
-            <div className="il-preview__empty">
-              {disabledReason ?? (
-                <>
-                  <div className="il-preview__empty-title">Try your persona</div>
-                  <p>Send a message to see how {draft.name || "your agent"} responds — live, on your GPU.</p>
-                </>
-              )}
-            </div>
+            agentId === null ? (
+              <div className="il-preview__empty">
+                <div className="il-preview__empty-title">Save to preview</div>
+                <p>Create the agent first, then chat with it here to test the persona.</p>
+              </div>
+            ) : cannedKind ? (
+              <div className="il-preview__turns">
+                <div className="il-preview__agent-turn">
+                  <Avatar
+                    name={draft.name || "Agent"}
+                    isAgent
+                    emoji={draft.avatar.emoji}
+                    bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+                    imageUrl={headerAvatarUrl}
+                    size="sm"
+                  />
+                  {cannedPhase === "typing" ? (
+                    <div className="il-preview__bubble il-preview__bubble--typing">
+                      <TypingDots />
+                    </div>
+                  ) : (
+                    <div className="il-preview__canned">
+                      <div className="il-preview__bubble">
+                        {cannedKind === "no-model"
+                          ? "I don't have a model yet — pick one for me in the editor and I'll be ready to chat."
+                          : `My model (${draft.model?.filename}) isn't loaded right now. Load it and I'll wake right up.`}
+                      </div>
+                      {cannedKind === "not-loaded" ? (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          className="il-preview__canned-action"
+                          onClick={loadFromCanned}
+                          disabled={loadFlowLoading}
+                        >
+                          {loadFlowLoading ? "Loading…" : "Load model"}
+                        </Button>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="il-preview__empty">
+                <div className="il-preview__empty-title">Try your persona</div>
+                <p>Send a message to see how {draft.name || "your agent"} responds — live, on your GPU.</p>
+              </div>
+            )
           ) : (
             <div className="il-preview__turns">
               {turns.map((t, i) =>
@@ -456,60 +493,15 @@ export function PreviewChat({ agentId, draft, modelActive, activeModel }: Previe
         </div>
       </aside>
 
-      {activationModal ? (
-        <ActivateForPreviewModal
-          modelFilename={activationModal.modelFilename}
-          draftModelFilename={draft.model?.filename}
-          onClose={() => setActivationModal(null)}
-          onActivate={handleActivate}
-          activeModel={activeModel}
+      {spillConfirm ? (
+        <SpillConfirmDialog
+          request={spillConfirm}
+          loading={loadFlowLoading}
+          onCancel={cancelSpillConfirm}
+          onConfirm={() => void confirmSpillAndRetry()}
         />
       ) : null}
     </>
-  );
-}
-
-function ActivateForPreviewModal({
-  modelFilename,
-  draftModelFilename,
-  activeModel,
-  onClose,
-  onActivate,
-}: {
-  modelFilename: string;
-  draftModelFilename?: string;
-  activeModel: ActiveModel | null;
-  onClose: () => void;
-  onActivate: () => void;
-}) {
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={<span>Activate model to preview?</span>}
-      footer={
-        <div className="il-preview-activate__actions">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={onActivate}>
-            Activate {modelFilename}
-          </Button>
-        </div>
-      }
-    >
-      <div className="il-preview-activate__body">
-        <p>
-          This agent runs on <strong>{draftModelFilename ?? modelFilename}</strong>, but the
-          currently active model is{" "}
-          {activeModel ? <strong>{activeModel.filename}</strong> : "none"}.
-        </p>
-        <p>
-          Activating <strong>{modelFilename}</strong> will swap the inference server to that
-          model. Agents on the current model will go offline temporarily.
-        </p>
-      </div>
-    </Modal>
   );
 }
 

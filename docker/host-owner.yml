@@ -39,12 +39,8 @@ services:
       MODELS_DIR: /models
     volumes:
       - il_models:/models
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
+    # health: image HEALTHCHECK (supervisor heartbeat) — a port-8080 probe would
+    # report unhealthy in the legal zero-loaded-models state
 
   model-fetcher:
     image: ${DOCKER_ORG:-cameron59061}/interloom-model-fetcher:${TAG:-latest}

@@ -4,7 +4,6 @@ import fastifyCookie from "@fastify/cookie";
 import { PORT } from "./config.js";
 import { loadOrCreateKeypair, registerKeysRoutes } from "./keys.js";
 import { registerSystemRoutes, getSystemInfo } from "./system.js";
-import { registerNetworkSessionRoutes } from "./network/session.js";
 import { registerModelsRoutes } from "./models/routes.js";
 import { registerAgentRoutes } from "./agents/routes.js";
 import { registerUpdateRoutes } from "./update/routes.js";
@@ -12,6 +11,8 @@ import { startUpdateCheckLoop } from "./update/checker.js";
 import { startRegistryLoop } from "./models/registry.js";
 import { backfillCapabilities } from "./agents/register.js";
 import { registerOperatorRoutes, publishOperatorIdentity } from "./operator.js";
+import { registerOperatorBindRoutes, isOperatorBound } from "./operatorBind.js";
+import { registerPortalAuthGate } from "./portalAuth.js";
 import { registerTelemetryWs } from "./telemetry/ws.js";
 import { registerStatic } from "./static.js";
 import { startHeartbeatLoop, triggerHeartbeat } from "./heartbeat.js";
@@ -29,11 +30,13 @@ async function main(): Promise<void> {
   await app.register(fastifyCookie);
   await app.register(fastifyWebsocket);
 
+  registerPortalAuthGate(app, isOperatorBound);
+
   const tunnelManager = new TunnelManager();
 
   registerSystemRoutes(app);
   registerKeysRoutes(app);
-  registerNetworkSessionRoutes(app);
+  registerOperatorBindRoutes(app);
   registerModelsRoutes(app, getSystemInfo, triggerHeartbeat);
   registerAgentRoutes(app);
   registerOperatorRoutes(app);

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, EmptyState } from "@interloom/ui";
-import type { DownloadJob, LocalModel, SystemInfo } from "@interloom/protocol";
-import type { ActiveModel, CatalogModel } from "../../../api/types.js";
+import type { DownloadJob, LoadedModel, LocalModel, SystemInfo } from "@interloom/protocol";
+import type { CatalogModel } from "../../../api/types.js";
 import { models as modelsApi } from "../../../api/endpoints.js";
 import { useAsync } from "../../../hooks/useAsync.js";
 import { Skeleton } from "../../../components/States.js";
@@ -15,7 +15,7 @@ interface CatalogTabProps {
   rig: SystemInfo | null;
   downloads: DownloadJob[];
   localModels: LocalModel[];
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onGoToSearch: () => void;
   onRefresh: () => void;
 }
@@ -31,7 +31,7 @@ export function CatalogTab({
   rig,
   downloads,
   localModels,
-  activeModel,
+  loadedModels,
   onGoToSearch,
   onRefresh,
 }: CatalogTabProps) {
@@ -159,7 +159,7 @@ export function CatalogTab({
               fit={fitMap[m.id]}
               downloads={downloads}
               localModels={localModels}
-              activeModel={activeModel}
+              loadedModels={loadedModels}
               onOpen={() => setSelectedId(m.id)}
             />
           ))}
@@ -174,7 +174,7 @@ export function CatalogTab({
           rig={rig}
           downloads={downloads}
           localModels={localModels}
-          activeModel={activeModel}
+          loadedModels={loadedModels}
           onClose={() => setSelectedId(null)}
           onRefresh={onRefresh}
           onGoToSearch={onGoToSearch}

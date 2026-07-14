@@ -15,16 +15,31 @@ export interface LiveTunnel {
 
 /**
  * Pure function: compute which placements to open/close.
- * Accepts an optional activeModelFilename to filter out agents whose model
- * doesn't match the loaded model (CONTRACTS §6 activation semantics).
+ *
+ * `loadedFilenames` filters out agents whose model isn't in the LOADED SET
+ * (CONTRACTS §6 multi-instance loading — agents of ALL loaded models get
+ * tunnels, not just a single "active model"). Accepts:
+ *  - `undefined` — no filter, every non-revoked placement is eligible
+ *    (back-compat for callers that haven't loaded the registry yet).
+ *  - `null` — nothing is loaded; every agent-gated placement closes.
+ *  - a single filename `string` — back-compat single-model filter (legacy
+ *    callers / existing tests).
+ *  - a `Set<string>` — the multi-instance loaded set.
  */
 export function diffPlacements(
   current: Map<string, LiveTunnel>,
   incoming: Placement[],
-  activeModelFilename?: string | null,
+  loadedFilenames?: string | Set<string> | null,
 ): PlacementsDiff {
   const toOpen: Placement[] = [];
   const toClose: string[] = [];
+
+  const isLoaded = (filename: string): boolean => {
+    if (loadedFilenames === undefined) return true;
+    if (loadedFilenames === null) return false;
+    if (typeof loadedFilenames === "string") return filename === loadedFilenames;
+    return loadedFilenames.has(filename);
+  };
 
   for (const placement of incoming) {
     if (placement.revoked) {
@@ -34,10 +49,10 @@ export function diffPlacements(
       continue;
     }
 
-    if (activeModelFilename !== undefined && activeModelFilename !== null) {
+    if (loadedFilenames !== undefined) {
       const agentId = placement.voucher.payload.agentId;
       const agent = getAgent(agentId);
-      if (!agent?.model || agent.model.filename !== activeModelFilename) {
+      if (!agent?.model || !isLoaded(agent.model.filename)) {
         if (current.has(placement.placementId)) {
           toClose.push(placement.placementId);
         }
@@ -69,8 +84,8 @@ export function diffPlacements(
 export class TunnelManager {
   private tunnels = new Map<string, TunnelClient>();
 
-  applyPlacements(placements: Placement[], activeModelFilename?: string | null): void {
-    const { toOpen, toClose } = diffPlacements(this.tunnels, placements, activeModelFilename);
+  applyPlacements(placements: Placement[], loadedFilenames?: string | Set<string> | null): void {
+    const { toOpen, toClose } = diffPlacements(this.tunnels, placements, loadedFilenames);
     const keypair = getKeypair();
 
     for (const id of toClose) {

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { MODELS_DIR, INFERENCE_URL } from "../config.js";
+import { MODELS_DIR } from "../config.js";
+import { readInstances, pollInstanceHealth } from "./loaded.js";
 
 export interface ActiveModel {
   path: string;
@@ -11,53 +12,34 @@ export interface ActiveModel {
   mmprojPath?: string;
 }
 
-function inferenceJsonPath(): string {
-  return path.join(MODELS_DIR, ".interloom", "inference.json");
-}
-
-function readInferenceJson(): { modelPath?: string; ctx?: number; mmprojPath?: string } | null {
-  const p = inferenceJsonPath();
-  if (!fs.existsSync(p)) return null;
-  try {
-    const raw = JSON.parse(fs.readFileSync(p, "utf8")) as unknown;
-    if (typeof raw === "object" && raw !== null) {
-      return raw as { modelPath?: string; ctx?: number; mmprojPath?: string };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Read the configured context window from inference.json.
- * Returns the stored ctx value, or the default 4096 if not set.
+ * Read the configured context window of the FIRST loaded instance (back-compat —
+ * CONTRACTS §6 multi-instance loading). Returns the default 4096 when nothing
+ * is loaded.
  */
 export function readInferenceCtx(): number {
-  const config = readInferenceJson();
-  return config?.ctx ?? 4096;
+  const instances = readInstances();
+  return instances[0]?.ctx ?? 4096;
 }
 
 /**
- * Returns the active model (path + filename) if inference.json exists AND
- * inference /health is reachable and healthy. Returns null otherwise.
+ * Returns the active model (path + filename) — the FIRST loaded instance,
+ * back-compat (CONTRACTS §6) — if inference.json has at least one instance AND
+ * that instance's /health is reachable and ready. Returns null otherwise.
  */
 export async function getActiveModel(): Promise<ActiveModel | null> {
-  const config = readInferenceJson();
-  if (!config?.modelPath) return null;
+  const instances = readInstances();
+  const first = instances[0];
+  if (!first) return null;
 
-  try {
-    const res = await fetch(`${INFERENCE_URL}/health`, { signal: AbortSignal.timeout(2000) });
-    if (!res.ok) return null;
-  } catch {
-    return null;
-  }
+  const health = await pollInstanceHealth(first.port);
+  if (health !== "ready") return null;
 
   return {
-    path: config.modelPath,
-    filename: path.basename(config.modelPath),
-    ctx: readInferenceCtx(),
-    ...(config.mmprojPath ? { mmprojPath: config.mmprojPath } : {}),
+    path: first.modelPath,
+    filename: path.basename(first.modelPath),
+    ctx: first.ctx,
+    ...(first.mmprojPath ? { mmprojPath: first.mmprojPath } : {}),
   };
 }
 
@@ -83,12 +65,14 @@ export function findLocalModelPath(filename: string): string | null {
 }
 
 /**
- * Returns the configured model filename from inference.json without checking
- * inference health — used for tunnel filtering where we want the "intended"
- * active model even if inference is mid-restart.
+ * Returns the filename of the FIRST loaded instance (back-compat) without
+ * checking inference health — used for tunnel filtering where we want the
+ * "intended" active model even if inference is mid-restart. Multi-instance
+ * callers should prefer `loadedFilenames()` from `./loaded.js`.
  */
 export function getConfiguredModelFilename(): string | null {
-  const config = readInferenceJson();
-  if (!config?.modelPath) return null;
-  return path.basename(config.modelPath);
+  const instances = readInstances();
+  const first = instances[0];
+  if (!first) return null;
+  return path.basename(first.modelPath);
 }

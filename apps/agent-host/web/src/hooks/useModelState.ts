@@ -1,32 +1,34 @@
-import type { DownloadJob, LocalModel } from "@interloom/protocol";
-import type { ActiveModel } from "../api/types.js";
+import type { DownloadJob, LoadedModel, LocalModel } from "@interloom/protocol";
 
 export type ModelInstallState =
   | "not-installed"
   | "queued"
   | "downloading"
   | "installed"
-  | "active";
+  | "loaded";
 
 export interface ModelState {
   state: ModelInstallState;
   /** Present when state is "downloading" or "queued". */
   job?: DownloadJob;
-  /** Present when state is "installed" or "active". */
+  /** Present when state is "installed" or "loaded". */
   localModel?: LocalModel;
 }
 
 /**
  * Derives display state for a single model file from the live downloads list,
- * the local model scan, and the active model path. Used by all model tiles so
- * that state flips automatically when a download completes (without a reload).
+ * the local model scan, and the loaded-instances set (CONTRACTS §6 — a host
+ * can hold N concurrently loaded models, so "loaded" is a membership check
+ * against that set, not a single active-model comparison). Used by all model
+ * tiles so that state flips automatically when a download completes or a
+ * load/unload happens (without a reload).
  */
 export function deriveModelState(
   repoId: string,
   filename: string,
   downloads: DownloadJob[],
   localModels: LocalModel[],
-  activeModel: ActiveModel | null | undefined,
+  loadedModels: LoadedModel[],
 ): ModelState {
   const job = downloads.find((d) => d.repoId === repoId && d.filename === filename);
 
@@ -36,8 +38,11 @@ export function deriveModelState(
 
   const localModel = localModels.find((m) => m.filename === filename);
   if (localModel) {
-    if (activeModel && activeModel.filename === filename) {
-      return { state: "active", localModel };
+    // Once resolved to a specific local file, loaded-ness is a path match —
+    // matching by filename here would flag a never-loaded file as loaded
+    // whenever another file with the same name is loaded from a different path.
+    if (loadedModels.some((m) => m.path === localModel.path)) {
+      return { state: "loaded", localModel };
     }
     return { state: "installed", localModel };
   }

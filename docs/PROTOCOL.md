@@ -63,13 +63,24 @@ The host connects **outbound** to `wss://<instance>/tunnel`. JSON text frames:
 | `health.ping` | `{}` | `res { ok: true, ts }` — every 30s; two missed = tunnel down |
 
 `InferenceMessage = { role: "system"|"user"|"assistant"|"tool", content, toolCalls?:
-[{id,name,arguments}], toolCallId? }`; `tools = [{ name, description, parameters:
+[{id,name,arguments}], toolCallId?, contentParts? }`; `tools = [{ name, description, parameters:
 JSONSchema }]` and `toolChoice = "auto"|"none"`. Native tool calling is additive
 (`il: 1`): the `tool` role, `toolCalls`, `tools`/`toolChoice`, and the terminal
 `toolCalls` are only sent to a host that advertised `features: ["tools"]` and only
 for models whose chat template supports tools. When the model calls tools, the host
 maps the definitions to its inference engine, aggregates the streamed tool-call
 deltas, and returns them on the terminal result; text deltas stream as always.
+
+`contentParts` is likewise additive (`il: 1`): an optional array of
+`{type:"text",text} | {type:"image_url",image_url:{url}}` parts carried alongside the
+REQUIRED `content` string. `content` always carries a text degrade (e.g. "[image
+attached]"), so a stale host stays valid parsing `content` alone — a vision-capable
+host prefers `contentParts` instead. Hosts resolve `image_url` before handing the
+request to their inference engine: `http(s)` URLs are fetched host-side and inlined
+as data URLs (the inference engine itself never fetches remote URLs); `data:` URLs
+pass through unchanged. A failed fetch degrades that one message to its `content`
+string rather than failing the whole request. `auth.identify` and the `inference.*`
+params are unchanged by this; the rest of the tunnel wire behaves exactly as before.
 
 The `skill.*` method namespace is **reserved** for future signed-skill execution. One
 connection per (agent, instance); reconnect with exponential backoff (1s → 30s, jitter).
@@ -153,7 +164,10 @@ their owner about this cascade before syncing a signature-changing edit.
 
 The three tunnel methods, the frame envelope, the SignedEnvelope shape, and the
 voucher fields above are stable for `il: 1`. Anything else the platform speaks
-internally is not part of the shared protocol and may change.
+internally is not part of the shared protocol and may change. `InferenceMessage.contentParts`
+(§2) is the one wire addition since this promise was written — purely optional and
+additive, so it does not move this line: a host that ignores it still parses every
+frame correctly.
 
 ## 7 · Host self-update
 

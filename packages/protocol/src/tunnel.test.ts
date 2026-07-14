@@ -12,9 +12,10 @@ import {
   parseTunnelFrame,
   TunnelFrame,
   TunnelFrameError,
+  TunnelErrorCode,
   TUNNEL_VERSION,
 } from "./index.js";
-import { ToolCall, ToolDef } from "./tunnel.js";
+import { ContentPart, ToolCall, ToolDef } from "./tunnel.js";
 
 describe("tunnel frame constructors", () => {
   it("makeReq builds a req frame with a uuid id", () => {
@@ -199,6 +200,17 @@ describe("tool-calling wire shapes (additive, CONTRACTS §3)", () => {
     ).toBeUndefined();
   });
 
+  it("TunnelErrorCode round-trips E_PENDING_APPROVAL (CONTRACTS §3 drift fix)", () => {
+    expect(TunnelErrorCode.safeParse("E_PENDING_APPROVAL").success).toBe(true);
+    const frame = makeErr("id-1", "E_PENDING_APPROVAL", "signature change awaits approval");
+    const parsed = parseTunnelFrame(JSON.stringify(frame));
+    if (parsed.kind === "err") {
+      expect(TunnelErrorCode.parse(parsed.error.code)).toBe("E_PENDING_APPROVAL");
+    } else {
+      expect.unreachable();
+    }
+  });
+
   it("auth.identify accepts features", () => {
     const p = AuthIdentifyParams.parse({
       agentId: "a",
@@ -209,5 +221,49 @@ describe("tool-calling wire shapes (additive, CONTRACTS §3)", () => {
       features: ["tools"],
     });
     expect(p.features).toEqual(["tools"]);
+  });
+});
+
+describe("image attachment wire shapes (additive, CONTRACTS §3)", () => {
+  it("ContentPart discriminates text vs image_url", () => {
+    const text = ContentPart.parse({ type: "text", text: "hi" });
+    const image = ContentPart.parse({ type: "image_url", image_url: { url: "https://x/y.png" } });
+    expect(text.type).toBe("text");
+    expect(image.type).toBe("image_url");
+  });
+
+  it("ContentPart rejects an unknown type", () => {
+    expect(ContentPart.safeParse({ type: "video", url: "x" }).success).toBe(false);
+  });
+
+  it("InferenceMessage accepts optional contentParts alongside the required content degrade", () => {
+    const m = InferenceMessage.parse({
+      role: "user",
+      content: "[image attached]",
+      contentParts: [
+        { type: "text", text: "check this out" },
+        { type: "image_url", image_url: { url: "https://x/y.png" } },
+      ],
+    });
+    expect(m.contentParts).toHaveLength(2);
+    expect(m.content).toBe("[image attached]");
+  });
+
+  it("InferenceMessage still parses without contentParts (stale host simulation)", () => {
+    const m = InferenceMessage.parse({ role: "user", content: "hi" });
+    expect(m.contentParts).toBeUndefined();
+  });
+
+  it("InferenceCompleteParams round-trips a message carrying contentParts", () => {
+    const p = InferenceCompleteParams.parse({
+      messages: [
+        {
+          role: "user",
+          content: "[image attached]",
+          contentParts: [{ type: "image_url", image_url: { url: "https://x/y.png" } }],
+        },
+      ],
+    });
+    expect(p.messages[0]?.contentParts?.[0]?.type).toBe("image_url");
   });
 });

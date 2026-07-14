@@ -9,9 +9,12 @@ import path from "path";
 import Fastify from "fastify";
 import type { GpuInfo } from "@interloom/protocol";
 
-const { TMP } = vi.hoisted(() => {
-  const base = process.env["TMPDIR"] ?? process.env["TEMP"] ?? process.env["TMP"] ?? ".";
-  return { TMP: `${base}/il-activate-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+const { TMP } = await vi.hoisted(async () => {
+  const os = await import("os");
+  const path = await import("path");
+  // os.tmpdir() is always absolute — env fallbacks can yield ".", and a relative
+  // TMP breaks modelPath equality asserts (the route stores resolved paths).
+  return { TMP: path.join(os.tmpdir(), `il-activate-${Date.now()}-${Math.random().toString(36).slice(2)}`) };
 });
 
 vi.mock("../config.js", () => ({
@@ -42,9 +45,16 @@ function healthOkFetch() {
   );
 }
 
-function readInferenceConfig(): Record<string, unknown> {
+/** The v2 inference.json the multi-instance supervisor reads (CONTRACTS §6/§7). */
+function readInferenceConfig(): { v: number; instances: Record<string, unknown>[] } {
   const p = path.join(MODELS_DIR, ".interloom", "inference.json");
-  return JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, unknown>;
+  return JSON.parse(fs.readFileSync(p, "utf8")) as { v: number; instances: Record<string, unknown>[] };
+}
+
+/** The activate wrapper now routes through the guarded multi-instance load, which
+ * enforces the file exists — write a small placeholder at the model path. */
+function writeModelFile() {
+  fs.writeFileSync(MODEL_PATH, Buffer.alloc(64 * 1024, 1));
 }
 
 function makeApp() {
@@ -64,7 +74,8 @@ afterAll(() => {
 });
 
 describe("activate — inference.json writes", () => {
-  it("writes cacheTypeK/cacheTypeV (both = kvCache) and nCpuMoe when provided", async () => {
+  it("carries kvCache and nCpuMoe onto the loaded instance when provided", async () => {
+    writeModelFile();
     healthOkFetch();
     const app = makeApp();
     const res = await app.inject({
@@ -75,14 +86,22 @@ describe("activate — inference.json writes", () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ status: "ready" });
 
+    // Activate is the sole-model compat wrapper over the multi-instance load —
+    // the plan flags ride onto the single v2 instance (the supervisor turns
+    // kvCache → --cache-type-k/v and nCpuMoe → --n-cpu-moe).
     const cfg = readInferenceConfig();
-    expect(cfg["cacheTypeK"]).toBe("q8_0");
-    expect(cfg["cacheTypeV"]).toBe("q8_0");
-    expect(cfg["nCpuMoe"]).toBe(48);
-    expect(cfg["ctx"]).toBe(32768);
+    expect(cfg.v).toBe(2);
+    expect(cfg.instances).toHaveLength(1);
+    const inst = cfg.instances[0]!;
+    expect(inst["modelPath"]).toBe(MODEL_PATH);
+    expect(inst["ctx"]).toBe(32768);
+    expect(inst["kvCache"]).toBe("q8_0");
+    expect(inst["nCpuMoe"]).toBe(48);
+    expect(inst["port"]).toBe(8080);
   });
 
-  it("omits the new fields entirely when absent (today's behavior)", async () => {
+  it("omits the plan fields entirely when absent (today's behavior)", async () => {
+    writeModelFile();
     healthOkFetch();
     const app = makeApp();
     const res = await app.inject({
@@ -93,10 +112,10 @@ describe("activate — inference.json writes", () => {
     expect(res.statusCode).toBe(200);
 
     const cfg = readInferenceConfig();
-    expect(cfg["modelPath"]).toBe(MODEL_PATH);
-    expect("cacheTypeK" in cfg).toBe(false);
-    expect("cacheTypeV" in cfg).toBe(false);
-    expect("nCpuMoe" in cfg).toBe(false);
+    const inst = cfg.instances[0]!;
+    expect(inst["modelPath"]).toBe(MODEL_PATH);
+    expect("kvCache" in inst).toBe(false);
+    expect("nCpuMoe" in inst).toBe(false);
   });
 });
 

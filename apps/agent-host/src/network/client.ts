@@ -1,25 +1,17 @@
 import { NETWORK_URL } from "../config.js";
 
-export interface MagicLinkResponse {
-  loginUrl: string;
-}
-
-export interface NetworkSessionState {
-  email?: string;
-  sessionToken?: string;
-  loggedIn: boolean;
-}
-
-export async function networkMagicLink(email: string): Promise<MagicLinkResponse> {
-  const res = await fetch(`${NETWORK_URL}/api/auth/magic-link`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email }),
-  });
-  if (!res.ok) {
-    throw new Error(`network magic-link failed: ${res.status}`);
+/** Carries the HTTP status + raw body of a failed network call, so callers
+ * can distinguish specific rejection reasons (e.g. a stale operator grant)
+ * from a generic network failure without re-parsing an error message string. */
+export class NetworkApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body: string,
+  ) {
+    super(message);
+    this.name = "NetworkApiError";
   }
-  return res.json() as Promise<MagicLinkResponse>;
 }
 
 export async function networkRegisterAgent(envelope: unknown): Promise<void> {
@@ -30,7 +22,7 @@ export async function networkRegisterAgent(envelope: unknown): Promise<void> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`agent register failed: ${res.status} ${text}`);
+    throw new NetworkApiError(`agent register failed: ${res.status} ${text}`, res.status, text);
   }
 }
 

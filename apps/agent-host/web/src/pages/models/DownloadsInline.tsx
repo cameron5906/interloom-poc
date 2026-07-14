@@ -4,11 +4,12 @@ import type { DownloadJob } from "@interloom/protocol";
 import { formatBytes, formatSpeed } from "../../lib/format.js";
 
 /**
- * Persistent bottom drawer showing active/queued downloads. Rendered only when
- * there is at least one job that isn't done. Collapsible so it never obscures
- * the model list while staying glanceable.
+ * Inline, non-occluding downloads section rendered near the top of the Models
+ * page while at least one job is active. Replaces the old fixed-overlay
+ * drawer — this never sits on top of page content, it just takes up its own
+ * row in the normal document flow.
  */
-export function DownloadsDrawer({ jobs }: { jobs: DownloadJob[] }) {
+export function DownloadsInline({ jobs }: { jobs: DownloadJob[] }) {
   const [collapsed, setCollapsed] = useState(false);
   const active = jobs.filter((j) => j.status !== "done");
   if (active.length === 0) return null;
@@ -16,18 +17,22 @@ export function DownloadsDrawer({ jobs }: { jobs: DownloadJob[] }) {
   const downloading = active.filter((j) => j.status === "downloading").length;
 
   return (
-    <div className="il-dl">
-      <button className="il-dl__head" onClick={() => setCollapsed((v) => !v)} aria-expanded={!collapsed}>
-        <span className="il-dl__title">
-          <span className="il-dl__spinner" aria-hidden />
+    <div className="il-dl-inline">
+      <button
+        className="il-dl-inline__head"
+        onClick={() => setCollapsed((v) => !v)}
+        aria-expanded={!collapsed}
+      >
+        <span className="il-dl-inline__title">
+          <span className="il-dl-inline__spinner" aria-hidden />
           {downloading > 0
             ? `Downloading ${downloading} model${downloading === 1 ? "" : "s"}`
             : `${active.length} download${active.length === 1 ? "" : "s"} queued`}
         </span>
-        <span className="il-dl__toggle">{collapsed ? "Show" : "Hide"}</span>
+        <span className="il-dl-inline__toggle">{collapsed ? "Show" : "Hide"}</span>
       </button>
       {!collapsed ? (
-        <ul className="il-dl__list">
+        <ul className="il-dl-inline__list">
           {active.map((job) => (
             <DownloadRow key={job.id} job={job} />
           ))}
@@ -43,10 +48,10 @@ function DownloadRow({ job }: { job: DownloadJob }) {
   const tone = job.status === "error" ? "danger" : job.status === "done" ? "success" : "accent";
 
   return (
-    <li className="il-dl__row">
-      <div className="il-dl__row-top">
-        <span className="il-mono il-dl__file">{job.filename}</span>
-        <span className="il-meta il-dl__pct">
+    <li className="il-dl-inline__row">
+      <div className="il-dl-inline__row-top">
+        <span className="il-mono il-dl-inline__file">{job.filename}</span>
+        <span className="il-meta il-dl-inline__pct">
           {job.status === "error"
             ? "failed"
             : job.status === "queued"
@@ -54,15 +59,15 @@ function DownloadRow({ job }: { job: DownloadJob }) {
               : `${pct}%`}
         </span>
       </div>
-      <ProgressBar value={frac} tone={tone} className="il-dl__bar" />
-      <div className="il-dl__row-meta">
+      <ProgressBar value={frac} tone={tone} className="il-dl-inline__bar" />
+      <div className="il-dl-inline__row-meta">
         <span className="il-meta">
           {formatBytes(job.bytesDone)} / {formatBytes(job.bytesTotal)}
         </span>
         {job.status === "downloading" ? (
           <span className="il-meta">{formatSpeed(job.speedBps)}</span>
         ) : job.status === "error" ? (
-          <span className="il-dl__err">{job.error ?? "download error"}</span>
+          <span className="il-dl-inline__err">{job.error ?? "download error"}</span>
         ) : null}
       </div>
     </li>

@@ -1,26 +1,38 @@
 /**
- * Tests for the shared inference gate (CONTRACTS §6).
+ * Tests for the shared inference gate, PER LOADED INSTANCE (CONTRACTS §6).
  *
  * Verifies:
- * - One request in flight at a time.
+ * - One request in flight at a time PER PORT.
  * - Round-robin order across 2 agents interleaved.
- * - Queue depth tracking.
+ * - Queue depth tracking (per port).
  * - drainLane removes only the right entries.
+ * - Two different instances (ports) serve concurrently, independently.
+ * - Watchdog abort: the AbortSignal passed to `run()` fires on timeout.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { enqueueInference, getServingLane, getQueueDepth, drainLane, resetGateForTests } from "../inference/gate.js";
+import {
+  enqueueInference,
+  getServingLane,
+  getQueueDepth,
+  drainLane,
+  drainInstance,
+  resetGateForTests,
+} from "../inference/gate.js";
+
+const PORT = 8080;
+const PORT_B = 8081;
 
 describe("inference gate", () => {
   beforeEach(() => {
     resetGateForTests();
   });
 
-  it("runs one request at a time — second starts only after first finishes", async () => {
+  it("runs one request at a time on a port — second starts only after first finishes", async () => {
     const order: string[] = [];
     let firstRunning = false;
 
-    const first = enqueueInference("lane-a", async () => {
+    const first = enqueueInference(PORT, "lane-a", async () => {
       firstRunning = true;
       order.push("a-start");
       await new Promise<void>((r) => setTimeout(r, 20));
@@ -28,7 +40,7 @@ describe("inference gate", () => {
       firstRunning = false;
     });
 
-    const second = enqueueInference("lane-b", async () => {
+    const second = enqueueInference(PORT, "lane-b", async () => {
       // At this point, first should already be done
       expect(firstRunning).toBe(false);
       order.push("b-start");
@@ -41,15 +53,12 @@ describe("inference gate", () => {
   });
 
   it("round-robin: 2 agents each queue 2 requests, served in arrival order (FIFO per the gate)", async () => {
-    // The gate is FIFO (not strict round-robin per-lane), but the specification
-    // says "per-agent round-robin fairness". Here we verify that the gate
-    // serialises requests and does not starve any lane — all 4 complete.
     const completed: string[] = [];
 
-    const p1 = enqueueInference("agent-1", async () => { completed.push("a1-req1"); });
-    const p2 = enqueueInference("agent-2", async () => { completed.push("a2-req1"); });
-    const p3 = enqueueInference("agent-1", async () => { completed.push("a1-req2"); });
-    const p4 = enqueueInference("agent-2", async () => { completed.push("a2-req2"); });
+    const p1 = enqueueInference(PORT, "agent-1", async () => { completed.push("a1-req1"); });
+    const p2 = enqueueInference(PORT, "agent-2", async () => { completed.push("a2-req1"); });
+    const p3 = enqueueInference(PORT, "agent-1", async () => { completed.push("a1-req2"); });
+    const p4 = enqueueInference(PORT, "agent-2", async () => { completed.push("a2-req2"); });
 
     await Promise.all([p1, p2, p3, p4]);
 
@@ -58,27 +67,23 @@ describe("inference gate", () => {
     expect(completed).toContain("a2-req1");
     expect(completed).toContain("a1-req2");
     expect(completed).toContain("a2-req2");
-    // All from agent-1 complete before agent-1's second request starts
     expect(completed.indexOf("a1-req1")).toBeLessThan(completed.indexOf("a1-req2"));
     expect(completed.indexOf("a2-req1")).toBeLessThan(completed.indexOf("a2-req2"));
   });
 
-  it("getQueueDepth reflects waiting entries (not the in-flight one)", async () => {
-    // Block the gate with a slow first request, then check depth while it runs
+  it("getQueueDepth reflects waiting entries on that port (not the in-flight one)", async () => {
     let unblockFirst!: () => void;
     const firstBlocked = new Promise<void>((r) => { unblockFirst = r; });
 
     let depthWhileRunning = -1;
 
-    const first = enqueueInference("lane-x", async () => {
-      // Queue 2 more while first is in flight
-      enqueueInference("lane-y", async () => {});
-      enqueueInference("lane-z", async () => {});
-      depthWhileRunning = getQueueDepth();
+    const first = enqueueInference(PORT, "lane-x", async () => {
+      enqueueInference(PORT, "lane-y", async () => {});
+      enqueueInference(PORT, "lane-z", async () => {});
+      depthWhileRunning = getQueueDepth(PORT);
       await firstBlocked;
     });
 
-    // Give the gate loop a tick to start the first entry
     await new Promise<void>((r) => setTimeout(r, 5));
     unblockFirst();
     await first;
@@ -86,29 +91,24 @@ describe("inference gate", () => {
     expect(depthWhileRunning).toBe(2);
   });
 
-  it("drainLane rejects queued entries for that lane without affecting others", async () => {
+  it("drainLane rejects queued entries for that lane on that port without affecting others", async () => {
     let unblockFirst!: () => void;
     const firstBlocked = new Promise<void>((r) => { unblockFirst = r; });
 
-    // Start a blocker to hold the gate
-    const first = enqueueInference("blocker", async () => {
+    const first = enqueueInference(PORT, "blocker", async () => {
       await firstBlocked;
     });
 
-    // Queue an entry for the lane to be drained
-    const drainTarget = enqueueInference("drain-me", async () => {
+    const drainTarget = enqueueInference(PORT, "drain-me", async () => {
       throw new Error("should not run");
     });
 
-    // Queue a survivor
-    const survivor = enqueueInference("keeper", async () => {});
+    const survivor = enqueueInference(PORT, "keeper", async () => {});
 
-    // Drain while blocker holds gate
     await new Promise<void>((r) => setTimeout(r, 5));
-    drainLane("drain-me");
+    drainLane(PORT, "drain-me");
     unblockFirst();
 
-    // drain-me should reject, keeper and blocker should resolve
     await expect(drainTarget).rejects.toThrow("lane closed");
     await expect(first).resolves.toBeUndefined();
     await expect(survivor).resolves.toBeUndefined();
@@ -117,8 +117,8 @@ describe("inference gate", () => {
   it("preview participates as its own lane", async () => {
     const completed: string[] = [];
 
-    await enqueueInference("agent-1", async () => { completed.push("agent"); });
-    await enqueueInference("preview", async () => { completed.push("preview"); });
+    await enqueueInference(PORT, "agent-1", async () => { completed.push("agent"); });
+    await enqueueInference(PORT, "preview", async () => { completed.push("preview"); });
 
     expect(completed).toEqual(["agent", "preview"]);
   });
@@ -134,33 +134,28 @@ describe("inference gate", () => {
 
     const completed: string[] = [];
 
-    // Hold the gate with a blocker so we can queue A1, A2, B1 before any runs
-    const blocker = enqueueInference("blocker", async () => {
+    const blocker = enqueueInference(PORT, "blocker", async () => {
       await blockerHeld;
     });
 
-    // Enqueue A1, A2 on lane A and B1 on lane B while blocker holds the gate
-    const a1 = enqueueInference("A", async () => {
+    const a1 = enqueueInference(PORT, "A", async () => {
       await a1Gate;
       completed.push("A1");
     });
-    const a2 = enqueueInference("A", async () => {
+    const a2 = enqueueInference(PORT, "A", async () => {
       completed.push("A2");
     });
-    const b1 = enqueueInference("B", async () => {
+    const b1 = enqueueInference(PORT, "B", async () => {
       await b1Gate;
       completed.push("B1");
     });
 
-    // Release blocker — RR should now pick A1 (next from A), then B1 (next from B), then A2
     unblockBlocker();
     await blocker;
 
-    // A1 is now running; release it
     releaseA1();
     await a1;
 
-    // B1 should now be running; release it
     releaseB1();
     await b1;
     await a2;
@@ -168,14 +163,25 @@ describe("inference gate", () => {
     expect(completed).toEqual(["A1", "B1", "A2"]);
   });
 
-  it("watchdog: enqueueInference with short timeout rejects with /timeout/ and gate serves next entry", async () => {
+  it("watchdog: short timeout rejects with /timeout/, aborts the run's signal, and the gate serves the next entry", async () => {
     const completed: string[] = [];
+    let signalAborted = false;
 
-    // A hung run that never resolves within the timeout
-    const hung = enqueueInference("A", () => new Promise<void>(() => { /* never */ }), "interactive", 50);
+    const hung = enqueueInference(
+      PORT,
+      "A",
+      (signal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            signalAborted = true;
+            reject(new Error("aborted"));
+          });
+        }),
+      "interactive",
+      50,
+    );
 
-    // Queue a second entry that should run after the watchdog fires
-    const next = enqueueInference("B", async () => {
+    const next = enqueueInference(PORT, "B", async () => {
       completed.push("B");
     });
 
@@ -183,23 +189,39 @@ describe("inference gate", () => {
     await next;
 
     expect(completed).toEqual(["B"]);
+    expect(signalAborted).toBe(true);
+  });
+
+  it("watchdog abort does not affect a run finishing comfortably under its timeout", async () => {
+    let aborted = false;
+    await enqueueInference(
+      PORT,
+      "A",
+      async (signal) => {
+        await new Promise((r) => setTimeout(r, 5));
+        aborted = signal.aborted;
+      },
+      "interactive",
+      500,
+    );
+    expect(aborted).toBe(false);
   });
 
   it("drainLane with per-lane queues: A1+A2+B1 queued while busy; drainLane(A) rejects A1+A2; B1 still runs", async () => {
     let unblock!: () => void;
     const held = new Promise<void>((r) => { unblock = r; });
 
-    const blocker = enqueueInference("blocker", async () => {
+    const blocker = enqueueInference(PORT, "blocker", async () => {
       await held;
     });
 
     const completed: string[] = [];
 
-    const a1 = enqueueInference("A", async () => { completed.push("A1"); });
-    const a2 = enqueueInference("A", async () => { completed.push("A2"); });
-    const b1 = enqueueInference("B", async () => { completed.push("B1"); });
+    const a1 = enqueueInference(PORT, "A", async () => { completed.push("A1"); });
+    const a2 = enqueueInference(PORT, "A", async () => { completed.push("A2"); });
+    const b1 = enqueueInference(PORT, "B", async () => { completed.push("B1"); });
 
-    drainLane("A");
+    drainLane(PORT, "A");
     unblock();
 
     await expect(a1).rejects.toThrow(/lane closed/);
@@ -208,5 +230,65 @@ describe("inference gate", () => {
     await b1;
 
     expect(completed).toEqual(["B1"]);
+  });
+
+  it("two instances (ports) serve concurrently — a slow request on one port never blocks the other", async () => {
+    const order: string[] = [];
+    let unblockA!: () => void;
+    const aHeld = new Promise<void>((r) => { unblockA = r; });
+
+    const slowOnA = enqueueInference(PORT, "agent-1", async () => {
+      order.push("A-start");
+      await aHeld;
+      order.push("A-end");
+    });
+
+    // Give A a tick to start, then run something on the OTHER port — must not wait for A.
+    await new Promise<void>((r) => setTimeout(r, 5));
+    const fastOnB = enqueueInference(PORT_B, "agent-2", async () => {
+      order.push("B-start");
+      order.push("B-end");
+    });
+
+    await fastOnB;
+    // B completed while A is still blocked — proves independent gates.
+    expect(order).toEqual(["A-start", "B-start", "B-end"]);
+
+    unblockA();
+    await slowOnA;
+    expect(order).toEqual(["A-start", "B-start", "B-end", "A-end"]);
+  });
+
+  it("getServingLane and getQueueDepth are scoped per port", async () => {
+    let unblock!: () => void;
+    const held = new Promise<void>((r) => { unblock = r; });
+
+    const onA = enqueueInference(PORT, "agent-1", async () => { await held; });
+    enqueueInference(PORT_B, "agent-2", async () => {});
+
+    await new Promise<void>((r) => setTimeout(r, 5));
+    expect(getServingLane(PORT)).toBe("agent-1");
+    expect(getQueueDepth(PORT_B)).toBe(0);
+
+    unblock();
+    await onA;
+    expect(getServingLane(PORT)).toBeNull();
+  });
+
+  it("drainInstance drains every lane on that port and forgets the gate", async () => {
+    let unblock!: () => void;
+    const held = new Promise<void>((r) => { unblock = r; });
+
+    const blocker = enqueueInference(PORT, "blocker", async () => { await held; });
+    const queued = enqueueInference(PORT, "agent-1", async () => {});
+
+    await new Promise<void>((r) => setTimeout(r, 5));
+    drainInstance(PORT);
+
+    await expect(queued).rejects.toThrow(/lane closed/);
+    expect(getQueueDepth(PORT)).toBe(0);
+
+    unblock();
+    await blocker;
   });
 });

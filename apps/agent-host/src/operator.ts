@@ -7,6 +7,7 @@ import {
   setOperatorDisplayName as persistOperatorDisplayName,
 } from "./settings.js";
 import { getKeypair } from "./keys.js";
+import { isOperatorBound } from "./operatorBind.js";
 import { networkPublishIdentity } from "./network/client.js";
 import { listAgents, updateAgent } from "./agents/store.js";
 import { registerAgentOnNetwork } from "./agents/register.js";
@@ -15,8 +16,16 @@ const OperatorBody = z.object({
   displayName: z.string().min(1).max(60),
 });
 
-/** Publishes this host's operator identity to the network (CONTRACTS §6). */
+/**
+ * Publishes this host's legacy (host-key) operator identity to the network
+ * (CONTRACTS §6) — ONLY while the host is unbound. Once an operator binds a
+ * network identity, that identity was already published by the operator's
+ * own network login; the daemon has nothing to publish and this is a no-op.
+ * Publishing under the host key while bound would re-introduce exactly the
+ * `operator.pubKey === envelope.key` identity the binding replaces.
+ */
 export async function publishOperatorIdentity(): Promise<void> {
+  if (isOperatorBound()) return;
   const keypair = getKeypair();
   const payload: IdentityPublish = {
     kind: "operator",
@@ -28,7 +37,8 @@ export async function publishOperatorIdentity(): Promise<void> {
   await networkPublishIdentity(envelope);
 }
 
-async function reregisterAllAgents(): Promise<void> {
+/** Re-registers every registered agent — used after a display-name save or an operator bind. */
+export async function reregisterAllAgents(): Promise<void> {
   for (const agent of listAgents()) {
     if (!agent.registered) continue;
     try {

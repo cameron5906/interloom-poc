@@ -93,9 +93,38 @@ describe("buildAgentManifest (CONTRACTS §6/§12 profile stamping)", () => {
     expect(manifest.specialties).toBeUndefined();
   });
 
-  it("always stamps operator with the host pubKey and provided display name", () => {
-    const manifest = buildAgentManifest(base, "PUBKEY", () => undefined, "Cameron's Host");
+  it("stamps operator with the host pubKey and display name when unbound (legacy)", () => {
+    const manifest = buildAgentManifest(base, "PUBKEY", () => undefined, "Cameron's Host", null);
     expect(manifest.operator).toEqual({ pubKey: "PUBKEY", displayName: "Cameron's Host" });
+  });
+
+  it("stamps operator with the bound network identity + grant when bound", () => {
+    const grant = {
+      payload: {
+        v: 1 as const,
+        identityKey: "IDENTITY_PUBKEY",
+        subjectKey: "PUBKEY",
+        scope: "host-operator" as const,
+        issuedAt: Date.now(),
+        epoch: 0,
+        nonce: "nonce-abc",
+      },
+      key: "IDENTITY_PUBKEY",
+      sig: "sig",
+    };
+    const manifest = buildAgentManifest(base, "PUBKEY", () => undefined, "Cameron's Host", {
+      identityKey: "IDENTITY_PUBKEY",
+      displayName: "Cameron",
+      grant,
+      boundAt: new Date().toISOString(),
+    });
+    expect(manifest.operator).toEqual({
+      pubKey: "IDENTITY_PUBKEY",
+      displayName: "Cameron",
+      grant,
+    });
+    // The bound operator identity legitimately differs from the signing host key.
+    expect(manifest.operator?.pubKey).not.toBe(manifest.pubKey);
   });
 
   it("strips the DiceBear character recipe from the manifest avatar", () => {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Badge, Button, CapabilityBadges, Spinner } from "@interloom/ui";
-import type { DownloadJob, LocalModel } from "@interloom/protocol";
-import type { ActiveModel, HfDetailFile, HfRepoDetail } from "../../api/types.js";
+import type { DownloadJob, LoadedModel, LocalModel } from "@interloom/protocol";
+import type { HfDetailFile, HfRepoDetail } from "../../api/types.js";
 import { models as modelsApi } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
 import { useToasts } from "../../components/Toasts.js";
@@ -16,7 +16,7 @@ interface SearchDetailPanelProps {
   repoId: string;
   downloads: DownloadJob[];
   localModels: LocalModel[];
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onRefresh: () => void;
 }
 
@@ -25,7 +25,7 @@ export function SearchDetailPanel({
   repoId,
   downloads,
   localModels,
-  activeModel,
+  loadedModels,
   onRefresh,
 }: SearchDetailPanelProps) {
   const detail = useAsync<HfRepoDetail>((s) => modelsApi.hfDetail(repoId, s), [repoId]);
@@ -78,7 +78,7 @@ export function SearchDetailPanel({
               mmprojFilename={d.mmprojFilename}
               downloads={downloads}
               localModels={localModels}
-              activeModel={activeModel}
+              loadedModels={loadedModels}
               onRefresh={onRefresh}
             />
           ))}
@@ -94,7 +94,7 @@ function DetailFileRow({
   mmprojFilename,
   downloads,
   localModels,
-  activeModel,
+  loadedModels,
   onRefresh,
 }: {
   file: HfDetailFile;
@@ -102,14 +102,14 @@ function DetailFileRow({
   mmprojFilename?: string;
   downloads: DownloadJob[];
   localModels: LocalModel[];
-  activeModel: ActiveModel | null;
+  loadedModels: LoadedModel[];
   onRefresh: () => void;
 }) {
   const toasts = useToasts();
   const [busy, setBusy] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<LocalModel | null>(null);
 
-  const ms = deriveModelState(repoId, file.filename, downloads, localModels, activeModel);
+  const ms = deriveModelState(repoId, file.filename, downloads, localModels, loadedModels);
   const job = ms.job;
   const pct = job && job.bytesTotal > 0 ? Math.round((job.bytesDone / job.bytesTotal) * 100) : 0;
 
@@ -143,8 +143,8 @@ function DetailFileRow({
             </span>
           ) : null}
         </span>
-        {ms.state === "active" ? (
-          <Badge variant="success">Active ✓</Badge>
+        {ms.state === "loaded" ? (
+          <Badge variant="success">Loaded ✓</Badge>
         ) : ms.state === "installed" ? (
           <span className="il-hdetail__file-actions">
             <Badge variant="success">Installed ✓</Badge>
@@ -167,8 +167,9 @@ function DetailFileRow({
       {removeTarget ? (
         <RemoveModelModal
           model={removeTarget}
-          activeModel={activeModel}
+          loadedModels={loadedModels}
           onClose={() => setRemoveTarget(null)}
+          onUnloaded={onRefresh}
           onRemoved={() => {
             setRemoveTarget(null);
             onRefresh();
