@@ -13,6 +13,7 @@
   "dependencies": {
     "@dicebear/collection": "^9.4",
     "@dicebear/core": "^9.4",
+    "@interloom/keys": "workspace:*",
     "@interloom/protocol": "workspace:*",
     "@interloom/ui": "workspace:*",
     "react": "^18",

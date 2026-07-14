@@ -1,24 +1,59 @@
+import { agentSignatureV2 } from "@interloom/keys";
 import type { HostAgent } from "@interloom/protocol";
 import type { AgentDraft } from "../api/types.js";
 
 /**
- * Client-side signature-impact check (CONTRACTS §6 "Cascade warning"). Mirrors
- * `agentSignature({persona, model})` from `@interloom/keys` at the field
- * level (persona + model filename/repoId/quant) without needing to hash —
- * the portal only needs to know WHETHER it changed, to gate the cascade
- * warning before a save/publish.
+ * A value `avatarImageUrl` can never legitimately hold — used as the hash
+ * input while a new avatar render is queued but not yet uploaded, so the
+ * comparison below sees a change even though the real content-addressed URL
+ * doesn't exist yet.
  */
-export function signatureChanged(saved: HostAgent, draft: AgentDraft): boolean {
-  if (saved.persona !== draft.persona) return true;
+const PENDING_AVATAR_MARKER = "il://pending-avatar-upload";
 
-  const savedModel = saved.model;
-  const draftModel = draft.model;
-  if (!savedModel && !draftModel) return false;
-  if (!savedModel || !draftModel) return true;
+interface SignatureFields {
+  persona: string;
+  model?: { filename: string; repoId?: string | null; quant?: string | null };
+  title?: string;
+  capabilityBlurb?: string;
+  avatarImageUrl?: string;
+}
 
-  return (
-    savedModel.filename !== draftModel.filename ||
-    (savedModel.repoId ?? null) !== (draftModel.repoId ?? null) ||
-    (savedModel.quant ?? null) !== (draftModel.quant ?? null)
-  );
+function signatureOf(fields: SignatureFields): string | null {
+  if (!fields.model) return null;
+  return agentSignatureV2({
+    persona: fields.persona,
+    model: fields.model,
+    title: fields.title ?? null,
+    capabilityBlurb: fields.capabilityBlurb ?? null,
+    avatarImageUrl: fields.avatarImageUrl ?? null,
+  });
+}
+
+/**
+ * Client-side signature-impact check (CONTRACTS §6 "Cascade warning"). Computes
+ * `agentSignatureV2` (persona, model filename/repoId/quant, title,
+ * capabilityBlurb, avatar.imageUrl — @interloom/keys, browser-safe) for the
+ * saved agent and the draft and compares hashes — no ad-hoc field compare.
+ *
+ * `avatarPending` is passed by the caller when a new character render is
+ * queued for upload but hasn't produced a real `imageUrl` yet (the
+ * DiceBear-customize-then-save path); it's folded in via the marker above so
+ * the cascade gate fires before the upload happens, not after.
+ */
+export function signatureChanged(saved: HostAgent, draft: AgentDraft, avatarPending = false): boolean {
+  const savedSig = signatureOf({
+    persona: saved.persona,
+    model: saved.model,
+    title: saved.title,
+    capabilityBlurb: saved.capabilityBlurb,
+    avatarImageUrl: saved.avatar.imageUrl,
+  });
+  const draftSig = signatureOf({
+    persona: draft.persona,
+    model: draft.model,
+    title: draft.title,
+    capabilityBlurb: draft.capabilityBlurb,
+    avatarImageUrl: avatarPending ? PENDING_AVATAR_MARKER : draft.avatar.imageUrl,
+  });
+  return savedSig !== draftSig;
 }

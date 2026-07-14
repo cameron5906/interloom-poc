@@ -69,6 +69,9 @@ importers:
       '@dicebear/core':
         specifier: ^9.4
         version: 9.4.3
+      '@interloom/keys':
+        specifier: workspace:*
+        version: link:../../../packages/keys
       '@interloom/protocol':
         specifier: workspace:*
         version: link:../../../packages/protocol

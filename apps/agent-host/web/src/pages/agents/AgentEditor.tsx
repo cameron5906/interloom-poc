@@ -17,7 +17,14 @@ import { CascadeWarningModal } from "./CascadeWarningModal.js";
 import { MarketplacePreview } from "./MarketplacePreview.js";
 import { catalogModelForPath, repoIdFromLocalPath } from "../models/catalog/catalogHelpers.js";
 import { relativeTime, bytesToGB } from "../../lib/format.js";
-import { rollCharacter, withGender, draftAvatarImageUrl, svgFor, renderPng } from "../../lib/character.js";
+import {
+  rollCharacter,
+  withGender,
+  draftAvatarImageUrl,
+  avatarUploadPending,
+  svgFor,
+  renderPng,
+} from "../../lib/character.js";
 import { GenderPicker } from "./CharacterCustomizer/GenderPicker.js";
 import { signatureChanged } from "../../lib/signature.js";
 import { ApiError } from "../../api/client.js";
@@ -67,13 +74,6 @@ function initialDraft(agent: HostAgent | null): AgentDraft {
     gender: rolled.gender,
     avatar: { ...draft.avatar, character: rolled, bg: `#${rolled.backgroundColor}` },
   };
-}
-
-/** Mirrors `title` into `capabilityBlurb` for the wire (CONTRACTS §6) — the
- * portal no longer exposes a raw blurb input. */
-function buildPayload(draft: AgentDraft): AgentDraft {
-  const title = draft.title?.trim();
-  return { ...draft, capabilityBlurb: title ? title : draft.capabilityBlurb };
 }
 
 export function AgentEditor({
@@ -176,9 +176,7 @@ export function AgentEditor({
   const maybeUploadAvatar = async (agentId: string) => {
     const character = draft.avatar.character;
     if (!character) return;
-    const changed =
-      JSON.stringify(character) !== JSON.stringify(uploadedCharacterRef.current) || !draft.avatar.imageUrl;
-    if (!changed) return;
+    if (!avatarUploadPending(draft.avatar, uploadedCharacterRef.current)) return;
     try {
       const png = await renderPng(svgFor(character));
       const { imageUrl } = await agentsApi.uploadAvatar(agentId, png);
@@ -205,9 +203,9 @@ export function AgentEditor({
       let saved: HostAgent;
       if (agent) {
         if (registered) setSyncState("syncing");
-        saved = await agentsApi.update(agent.agentId, buildPayload(draft));
+        saved = await agentsApi.update(agent.agentId, draft);
       } else {
-        saved = await agentsApi.create(buildPayload(draft));
+        saved = await agentsApi.create(draft);
       }
       onSaved(saved);
       await maybeUploadAvatar(saved.agentId);
@@ -224,11 +222,14 @@ export function AgentEditor({
 
   const save = async () => {
     if (!canSave) return;
-    if (agent && registered && signatureChanged(agent, draft)) {
-      const impacted = await placementsForAgent(agent.agentId);
-      if (impacted.length > 0) {
-        setCascade(impacted);
-        return;
+    if (agent && registered) {
+      const avatarPending = avatarUploadPending(draft.avatar, uploadedCharacterRef.current);
+      if (signatureChanged(agent, draft, avatarPending)) {
+        const impacted = await placementsForAgent(agent.agentId);
+        if (impacted.length > 0) {
+          setCascade(impacted);
+          return;
+        }
       }
     }
     await doSave();
@@ -250,7 +251,7 @@ export function AgentEditor({
     setRegistering(true);
     if (!agent) {
       try {
-        const created = await agentsApi.create(buildPayload(draft));
+        const created = await agentsApi.create(draft);
         await maybeUploadAvatar(created.agentId);
         const registeredAgent = await agentsApi.register(created.agentId);
         onSaved(registeredAgent);
@@ -268,7 +269,7 @@ export function AgentEditor({
 
     setSyncState("syncing");
     try {
-      if (dirty) await agentsApi.update(agent.agentId, buildPayload(draft));
+      if (dirty) await agentsApi.update(agent.agentId, draft);
       await maybeUploadAvatar(agent.agentId);
       const registeredAgent = await agentsApi.register(agent.agentId);
       onSaved(registeredAgent);
@@ -364,6 +365,18 @@ export function AgentEditor({
             maxLength={60}
             value={draft.title ?? ""}
             onChange={(e) => patch({ title: e.target.value || undefined })}
+          />
+        </Field>
+
+        <Field
+          label="Capability blurb"
+          hint="A one-liner describing what your agent does — shown on marketplace cards and workspace member cards, independent of the title."
+        >
+          <Input
+            placeholder="e.g. Reviews pull requests and explains the reasoning behind every suggestion"
+            maxLength={140}
+            value={draft.capabilityBlurb}
+            onChange={(e) => patch({ capabilityBlurb: e.target.value })}
           />
         </Field>
 

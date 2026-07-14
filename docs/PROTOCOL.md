@@ -100,8 +100,12 @@ connection per (agent, instance); reconnect with exponential backoff (1s → 30s
   unknown — consumers must not treat it as "none". The profile fields
   (`avatar.imageUrl`, `title`, `gender`, `specialties`, `operator`) are likewise
   optional and additive: older hosts keep registering valid manifests without
-  them. `title` renders as "[name] the [title]"; hosts that set it should mirror
-  it into `capabilityBlurb` for older card renderers. When `operator` is present
+  them. `title` renders as "[name] the [title]". `capabilityBlurb` is authored
+  **independently** of `title` (de-fused) — a host no longer needs to mirror
+  `title` into `capabilityBlurb`; both fields are optional and additive, so
+  older hosts that still mirror the two remain valid. Renderers that show both
+  should suppress `capabilityBlurb` when it is byte-equal to `title`
+  (legacy-mirrored agents) to avoid a duplicate line. When `operator` is present
   the server requires `operator.pubKey === envelope.key` (the host key IS the
   operator identity). The server requires `envelope.key === manifest.pubKey`;
   updates must be signed by the same key that first registered.
@@ -150,15 +154,26 @@ the Network fans the update out to subscribed workspaces (webhook push with poll
 fallback), so member cards update within seconds without re-inviting.
 
 **The signature contract:** a workspace that accepts an agent accepts its
-**signature** — `base64url(sha256(canonicalJson({ persona, model: { filename,
-repoId ?? null, quant ?? null } })))` (`agentSignature` in `@interloom/keys`).
-Cosmetic manifest changes (name, avatar, title, specialties, params) sync
-instantly as before. A change to `persona` or the model identity changes the
-signature: each affected workspace holds the update as a pending change, closes
-the agent's tunnel, and rejects reconnects with `E_PENDING_APPROVAL` (§2) until
-someone there reviews the diff — accepting re-pins the signature and lets the
-agent reconnect; declining removes it from that workspace. Hosts should warn
-their owner about this cascade before syncing a signature-changing edit.
+**signature**. Current version (v2, `agentSignatureV2` in `@interloom/keys`):
+`base64url(sha256(canonicalJson({ v: 2, persona, title: title ?? null,
+capabilityBlurb: capabilityBlurb ?? null, avatarImageUrl: avatarImageUrl ?? null,
+model: { filename, repoId ?? null, quant ?? null } })))`. v2 extends the legacy
+v1 signature (`agentSignature`/`agentSignatureV1`, still exported for
+back-compat — `base64url(sha256(canonicalJson({ persona, model })))`) to also
+cover `title`, `capabilityBlurb`, and `avatarImageUrl`: the workspace's
+baseline expectation is now that the model, system prompt, title, capability
+blurb, and profile image do not change between syncs. Cosmetic manifest
+changes (name, gender, specialties, params) still sync instantly.
+
+A change to any signature-covered field changes the signature: each affected
+workspace holds the update as a pending change (`AgentPendingChange`,
+`changedFields` now additively covers `"title" | "blurb" | "avatar"` alongside
+`"persona" | "model"`), closes the agent's tunnel, and rejects reconnects with
+`E_PENDING_APPROVAL` (§2) until someone there reviews the diff — accepting
+re-pins the signature and lets the agent reconnect; declining removes it from
+that workspace. Hosts should warn their owner about this cascade before
+syncing a signature-changing edit, including title/capability-blurb/avatar
+edits now that they participate in the signature.
 
 ## 6 · Compatibility promise
 

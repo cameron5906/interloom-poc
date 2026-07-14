@@ -18,8 +18,8 @@ const localLookup: CapabilityLookup = (filename) =>
  * local parse; `title`/`gender`/`specialties`/`operator` stamped from the
  * stored agent + host identity (CONTRACTS §6). The DiceBear `character`
  * recipe (§12) stays host-side — only the rendered `imageUrl` travels.
- * When `title` is set it's mirrored into `capabilityBlurb` so legacy card
- * renderers (that only know `capabilityBlurb`) stay truthful.
+ * `title` and `capabilityBlurb` are authored independently (CONTRACTS §4
+ * de-fusion) — the manifest carries whatever the operator set for each.
  *
  * `operator` reflects the bound network identity when this host has
  * completed operator binding (`operator: { pubKey: identityKey, displayName,
@@ -47,7 +47,7 @@ export function buildAgentManifest(
       ...(agent.avatar.imageUrl ? { imageUrl: agent.avatar.imageUrl } : {}),
     },
     persona: agent.persona,
-    capabilityBlurb: agent.title ? agent.title : agent.capabilityBlurb,
+    capabilityBlurb: agent.capabilityBlurb,
     pubKey,
     availability: "always",
     contract: { kind: "free" },

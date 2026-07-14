@@ -63,11 +63,11 @@ describe("buildAgentManifest (CONTRACTS §4 capability stamping)", () => {
 });
 
 describe("buildAgentManifest (CONTRACTS §6/§12 profile stamping)", () => {
-  it("mirrors title into capabilityBlurb when title is set", () => {
-    const stored: Agent = { ...base, title: "Archivist", capabilityBlurb: "stale blurb" };
+  it("carries title and capabilityBlurb independently when both are set", () => {
+    const stored: Agent = { ...base, title: "Archivist", capabilityBlurb: "keeps the records straight" };
     const manifest = buildAgentManifest(stored, "PUBKEY", () => undefined, "Cameron's Host");
     expect(manifest.title).toBe("Archivist");
-    expect(manifest.capabilityBlurb).toBe("Archivist");
+    expect(manifest.capabilityBlurb).toBe("keeps the records straight");
   });
 
   it("leaves capabilityBlurb untouched when no title is set", () => {

@@ -186,3 +186,18 @@ export function draftAvatarImageUrl(avatar: {
   if (avatar.character) return characterDataUri(avatar.character);
   return avatar.imageUrl;
 }
+
+/**
+ * True when the draft's character hasn't been rendered/uploaded yet — either
+ * it was never uploaded, or it has changed since the last upload. Shared by
+ * the upload trigger and the signature-impact check (CONTRACTS §6): a
+ * pending re-upload is about to change `avatar.imageUrl` even though the new
+ * URL isn't known until the upload completes.
+ */
+export function avatarUploadPending(
+  avatar: { character?: AvatarCharacter; imageUrl?: string },
+  lastUploaded?: AvatarCharacter,
+): boolean {
+  if (!avatar.character) return false;
+  return JSON.stringify(avatar.character) !== JSON.stringify(lastUploaded) || !avatar.imageUrl;
+}

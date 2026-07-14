@@ -37,6 +37,10 @@ export const ChatMessage = z.object({
   createdAt: z.string(),
   /** Client-synthesized announce line (e.g. "X added Y"); never persisted. */
   system: z.boolean().optional(),
+  /** Unix ms of the last edit (own human messages only, CONTRACTS §5). Absent ⇒ never edited. */
+  editedAt: z.number().optional(),
+  /** Soft-deleted (CONTRACTS §5). `text` is blanked; clients render a tombstone. */
+  deleted: z.boolean().optional(),
   /** Image attachments uploaded via REST before send (CONTRACTS §5). */
   attachments: z.array(Attachment).optional(),
 });
@@ -49,6 +53,12 @@ export const Channel = z.object({
   kind: z.enum(["channel", "dm"]),
   /** Participant member ids: both DM partners, or a public channel's roster (who gets woken / was pulled in). */
   memberIds: z.array(z.string()).optional(),
+  /** Unread message count for the session member (CONTRACTS §5 read tracking). Server-computed. */
+  unread: z.number().optional(),
+  /** Whether any unread message mentions the session member. */
+  hasMention: z.boolean().optional(),
+  /** Unix ms of the most recent message, for float-up ordering. */
+  lastMessageAt: z.number().optional(),
 });
 export type Channel = z.infer<typeof Channel>;
 
@@ -89,6 +99,8 @@ export const Member = z.object({
   status: z.enum(["active", "pending", "rejected"]).optional(),
   /** The network identity key, for human members imported from the network (CONTRACTS §5). */
   identityKey: z.string().optional(),
+  /** Human profile bio, ≤500 chars (CONTRACTS §5, workspace-local). */
+  bio: z.string().optional(),
 });
 export type Member = z.infer<typeof Member>;
 
@@ -105,22 +117,31 @@ export type MemberRequest = z.infer<typeof MemberRequest>;
 
 /**
  * A pending agent signature change awaiting workspace approval (CONTRACTS §5).
- * Raised when an inbound manifest's `agentSignature({persona, model})` (§2)
- * no longer matches the member's `approved_signature`.
+ * Raised when an inbound manifest's `agentSignatureV2({persona, model, title,
+ * capabilityBlurb, avatarImageUrl})` (§2) no longer matches the member's
+ * `approved_signature`. `changedFields` is additive-extended beyond
+ * `persona`/`model` to `title`/`blurb`/`avatar` — safe because the sole
+ * producer (instance) and consumer (web `AgentChangeCard`) redeploy together.
  */
 export const AgentPendingChange = z.object({
   memberId: z.string(),
   agentId: z.string(),
   name: z.string(),
   requestedAt: z.string(),
-  changedFields: z.array(z.enum(["persona", "model"])).min(1),
+  changedFields: z.array(z.enum(["persona", "model", "title", "blurb", "avatar"])).min(1),
   current: z.object({
     persona: z.string(),
     model: ModelRef.optional(),
+    title: z.string().optional(),
+    capabilityBlurb: z.string().optional(),
+    avatarImageUrl: z.string().optional(),
   }),
   incoming: z.object({
     persona: z.string(),
     model: ModelRef.optional(),
+    title: z.string().optional(),
+    capabilityBlurb: z.string().optional(),
+    avatarImageUrl: z.string().optional(),
   }),
   incomingManifest: AgentManifest,
 });
@@ -209,6 +230,24 @@ export const ServerWsEvent = z.discriminatedUnion("type", [
     type: z.literal("member.request.resolved"),
     memberId: z.string(),
     accepted: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("message.edited"),
+    messageId: z.string(),
+    channelId: z.string(),
+    text: z.string(),
+    /** Unix ms. */
+    editedAt: z.number(),
+    mentions: z.array(z.string()),
+  }),
+  z.object({
+    type: z.literal("message.deleted"),
+    messageId: z.string(),
+    channelId: z.string(),
+  }),
+  z.object({
+    type: z.literal("channel.deleted"),
+    channelId: z.string(),
   }),
 ]);
 export type ServerWsEvent = z.infer<typeof ServerWsEvent>;

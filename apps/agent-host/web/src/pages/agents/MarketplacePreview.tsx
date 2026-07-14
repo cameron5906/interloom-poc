@@ -42,9 +42,11 @@ export function MarketplacePreview({
             {draft.name || "Agent"} the {draft.title}
           </div>
         ) : null}
-        <p className="il-mktcard__blurb">
-          {draft.capabilityBlurb || "Add a one-line capability blurb to describe your agent."}
-        </p>
+        {draft.capabilityBlurb && draft.capabilityBlurb === draft.title ? null : (
+          <p className="il-mktcard__blurb">
+            {draft.capabilityBlurb || "Add a one-line capability blurb to describe your agent."}
+          </p>
+        )}
         {draft.specialties && draft.specialties.length > 0 ? (
           <div className="il-mktcard__specialties">
             {draft.specialties.map((s) => (

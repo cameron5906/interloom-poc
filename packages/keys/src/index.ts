@@ -4,8 +4,12 @@ export { generateKeypair, publicKeyFromPrivate, sign, verify, type Keypair } fro
 export { signEnvelope, verifyEnvelope, type SignedEnvelope } from "./envelope.js";
 export {
   agentSignature,
+  agentSignatureV1,
+  agentSignatureV2,
+  AGENT_SIGNATURE_VERSION,
   type AgentSignatureInput,
   type AgentSignatureModel,
+  type AgentSignatureV2Input,
 } from "./agentSignature.js";
 export {
   verifyGrant,
