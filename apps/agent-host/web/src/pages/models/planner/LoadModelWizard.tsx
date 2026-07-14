@@ -13,6 +13,7 @@ import type { PlacementChoice } from "../../../components/ModelLoadFlow/Placemen
 import { SpillConfirmDialog } from "../../../components/ModelLoadFlow/SpillConfirmDialog.js";
 import { useGuardedModelLoad } from "../../../components/ModelLoadFlow/useGuardedModelLoad.js";
 import { bytesToGB } from "../../../lib/format.js";
+import { LoadImpactPreview } from "./LoadImpactPreview.js";
 
 interface LoadModelWizardProps {
   open: boolean;
@@ -21,10 +22,28 @@ interface LoadModelWizardProps {
   /** Installed models not currently loaded — the pickable set. */
   candidates: LocalModel[];
   gpus: GpuBudget[];
+  /** Currently loaded/loading instances — drives the resource-impact preview
+   * and the in-progress health readout once a load is submitted. */
+  loaded: LoadedModel[];
   /** Every configured agent — used to preview which agents come online for the selected model. */
   allAgents: HostAgent[];
   /** Preselect a model (skips the pick step) — used when opened from a specific row. */
   preselectedPath?: string;
+}
+
+/** Frozen snapshot of what's being submitted, taken at the moment the user
+ * hits Load. Once a load is in flight, the daemon registers the instance
+ * (health "loading") almost immediately — well before the POST resolves —
+ * which makes it fall out of `candidates` (no longer "installed but not
+ * loaded") on the very next allocation poll. Without this snapshot the form
+ * re-derives its selected model from `candidates` on every render and loses
+ * it mid-submit, which is what made the modal appear to reset. Freezing the
+ * submission's own model/ctx here decouples the in-progress view from that
+ * churn entirely. */
+interface SubmittedSnapshot {
+  model: LocalModel;
+  ctx: number;
+  startedAt: number;
 }
 
 /**
@@ -43,6 +62,7 @@ export function LoadModelWizard({
   onLoaded,
   candidates,
   gpus,
+  loaded,
   allAgents,
   preselectedPath,
 }: LoadModelWizardProps) {
@@ -51,6 +71,8 @@ export function LoadModelWizard({
   const [ctxUnavailable, setCtxUnavailable] = useState(false);
   const [selectedCtx, setSelectedCtx] = useState<number | null>(null);
   const [placement, setPlacement] = useState<PlacementChoice>({ kind: "auto" });
+  const [submitted, setSubmitted] = useState<SubmittedSnapshot | null>(null);
+  const [elapsedTick, setElapsedTick] = useState(0);
 
   const { loading, spillConfirm, attemptLoad, confirmSpillAndRetry, cancelSpillConfirm } =
     useGuardedModelLoad((loaded) => {
@@ -71,6 +93,7 @@ export function LoadModelWizard({
     setCtxData(null);
     setCtxUnavailable(false);
     setSelectedCtx(null);
+    setSubmitted(null);
   }, [open, preselectedPath]);
 
   useEffect(() => {
@@ -96,6 +119,21 @@ export function LoadModelWizard({
     };
   }, [path]);
 
+  // The daemon registers the instance (health "loading") well before the
+  // load POST resolves, which drops it out of `candidates` on the very next
+  // allocation poll — this timer only drives the elapsed-time readout, it
+  // never touches `path`/`selectedCtx`, so the form's own selection is never
+  // at the mercy of that churn.
+  useEffect(() => {
+    if (!submitted) return;
+    const id = setInterval(() => setElapsedTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [submitted]);
+
+  useEffect(() => {
+    if (!loading && submitted) setSubmitted(null);
+  }, [loading, submitted]);
+
   if (!open) return null;
 
   const options = ctxData?.options ?? (ctxUnavailable ? [{ ctx: 8192, kvBytes: 0, fit: "fast" as const }] : null);
@@ -114,18 +152,46 @@ export function LoadModelWizard({
 
   const submit = () => {
     if (!model || !selectedCtx) return;
+    setSubmitted({ model, ctx: selectedCtx, startedAt: Date.now() });
     void attemptLoad(model.path, model.filename, {
       ctx: selectedCtx,
       placement: placementChoiceToBody(placement, gpus),
     });
   };
 
+  const confirmSpill = () => {
+    const spillModel = spillConfirm ? (candidates.find((m) => m.path === spillConfirm.path) ?? model) : null;
+    if (spillConfirm && spillModel) {
+      setSubmitted({
+        model: spillModel,
+        ctx: spillConfirm.ctx ?? selectedCtx ?? 0,
+        startedAt: Date.now(),
+      });
+    }
+    void confirmSpillAndRetry();
+  };
+
+  const displayFilename = submitted?.model.filename ?? model?.filename;
+  const inFlightInstance = submitted ? loaded.find((m) => m.path === submitted.model.path) : undefined;
+  const progressMessage = !submitted
+    ? ""
+    : !inFlightInstance
+      ? "Sending load request…"
+      : inFlightInstance.health === "ready"
+        ? "Finishing up…"
+        : inFlightInstance.health === "down"
+          ? "Waiting for the model process to come up — this can take a minute…"
+          : "Loading model into VRAM — this can take a minute…";
+  const progressAgents = submitted
+    ? allAgents.filter((a) => a.model?.filename === submitted.model.filename)
+    : [];
+
   return (
     <>
       <Modal
         open={open && !spillConfirm}
         onClose={onClose}
-        title={<span>{model ? `Load ${model.filename}` : "Load a model"}</span>}
+        title={<span>{displayFilename ? `Load ${displayFilename}` : "Load a model"}</span>}
         footer={
           <div className="il-load-wizard__actions">
             <Button variant="secondary" onClick={onClose} disabled={loading}>
@@ -138,103 +204,137 @@ export function LoadModelWizard({
         }
       >
         <div className="il-load-wizard__body">
-          {!preselectedPath ? (
-            <div className="il-field">
-              <label className="il-field__label" htmlFor="lw-model">
-                Model
-              </label>
-              <select
-                id="lw-model"
-                className="il-model-picker__select"
-                value={path ?? ""}
-                onChange={(e) => setPath(e.target.value || null)}
-              >
-                <option value="">— Select an installed model —</option>
-                {candidates.map((m) => (
-                  <option key={m.path} value={m.path}>
-                    {m.filename} · {bytesToGB(m.sizeBytes)} GB
-                  </option>
-                ))}
-              </select>
-              {candidates.length === 0 ? (
-                <div className="il-field__note">
-                  Every installed model is already loaded. Download another from the tabs below, or
-                  unload one first.
+          {submitted ? (
+            <div className="il-load-progress" role="status" aria-live="polite">
+              <div className="il-load-progress__row">
+                <span className="il-load-progress__spinner" aria-hidden />
+                <div className="il-load-progress__text">
+                  <div className="il-load-progress__title">{progressMessage}</div>
+                  <div className="il-meta il-mono">
+                    {submitted.model.filename} · {fmtCtx(submitted.ctx)} ctx · {elapsedTick}s elapsed
+                  </div>
                 </div>
+              </div>
+              <div className="il-load-progress__bar">
+                <div className="il-load-progress__bar-fill" />
+              </div>
+              {progressAgents.length > 0 ? (
+                <p className="il-meta il-load-progress__agents">
+                  {progressAgents.length} agent{progressAgents.length === 1 ? "" : "s"} will come online
+                  once this finishes.
+                </p>
               ) : null}
             </div>
-          ) : null}
-
-          {model ? (
+          ) : (
             <>
-              <div className="il-field">
-                <div className="il-ctx-picker__header">
-                  <span className="il-impact-modal__label">Context size</span>
-                  {ctxData?.trainedMax ? (
-                    <span className="il-ctx-picker__trained-max il-mono il-meta">
-                      model supports up to {fmtCtx(ctxData.trainedMax)}
-                    </span>
-                  ) : null}
-                </div>
-                {!ctxData?.exact && ctxData ? (
-                  <p className="il-ctx-picker__estimated il-mono">estimated — model metadata unavailable</p>
-                ) : null}
-                {options === null ? (
-                  <div className="il-ctx-picker__loading il-meta">Loading context options…</div>
-                ) : (
-                  <ContextSizePicker
-                    options={options}
-                    selected={selectedCtx}
-                    onSelect={setSelectedCtx}
-                  />
-                )}
-              </div>
-
-              {gpus.length > 1 ? (
+              {!preselectedPath ? (
                 <div className="il-field">
-                  <label className="il-field__label">Placement</label>
-                  <PlacementPicker
-                    gpus={gpus}
-                    choice={placement}
-                    onChange={setPlacement}
-                    requiredMB={requiredMB}
-                  />
+                  <label className="il-field__label" htmlFor="lw-model">
+                    Model
+                  </label>
+                  <select
+                    id="lw-model"
+                    className="il-model-picker__select"
+                    value={path ?? ""}
+                    onChange={(e) => setPath(e.target.value || null)}
+                  >
+                    <option value="">— Select an installed model —</option>
+                    {candidates.map((m) => (
+                      <option key={m.path} value={m.path}>
+                        {m.filename} · {bytesToGB(m.sizeBytes)} GB
+                      </option>
+                    ))}
+                  </select>
+                  {candidates.length === 0 ? (
+                    <div className="il-field__note">
+                      Every installed model is already loaded. Download another from the tabs below, or
+                      unload one first.
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
-              <div className="il-load-wizard__preview">
-                <span className="il-field__label">Fit preview</span>
-                <span className="il-load-wizard__preview-badge">
-                  <FitBadge fit={effectiveFit} />
-                  {placement.kind !== "auto" ? <span className="il-meta"> estimated</span> : null}
-                </span>
-                {effectiveFit === "no" ? (
-                  <p className="il-ctx-picker__spill-note il-ctx-picker__spill-note--no">
-                    won&apos;t fit — try a smaller context, a different placement, or free VRAM by
-                    unloading a model
-                  </p>
-                ) : null}
-              </div>
-
-              {onlineAgents.length > 0 ? (
-                <div className="il-impact-modal__section">
-                  <div className="il-impact-modal__label il-impact-modal__label--online">
-                    {onlineAgents.length} agent{onlineAgents.length === 1 ? "" : "s"} will come online
+              {model ? (
+                <>
+                  <div className="il-field">
+                    <div className="il-ctx-picker__header">
+                      <span className="il-impact-modal__label">Context size</span>
+                      {ctxData?.trainedMax ? (
+                        <span className="il-ctx-picker__trained-max il-mono il-meta">
+                          model supports up to {fmtCtx(ctxData.trainedMax)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {!ctxData?.exact && ctxData ? (
+                      <p className="il-ctx-picker__estimated il-mono">
+                        estimated — model metadata unavailable
+                      </p>
+                    ) : null}
+                    {options === null ? (
+                      <div className="il-ctx-picker__loading il-meta">Loading context options…</div>
+                    ) : (
+                      <ContextSizePicker options={options} selected={selectedCtx} onSelect={setSelectedCtx} />
+                    )}
                   </div>
-                  <ul className="il-impact-modal__list">
-                    {onlineAgents.map((a) => (
-                      <li key={a.agentId} className="il-impact-modal__item">
-                        <span className="il-impact-modal__dot il-impact-modal__dot--on" />
-                        {a.name}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="il-meta il-impact-modal__none">No agents are assigned to this model yet.</p>
-              )}
+
+                  {gpus.length > 1 ? (
+                    <div className="il-field">
+                      <label className="il-field__label">Placement</label>
+                      <PlacementPicker
+                        gpus={gpus}
+                        choice={placement}
+                        onChange={setPlacement}
+                        requiredMB={requiredMB}
+                      />
+                    </div>
+                  ) : null}
+
+                  <div className="il-load-wizard__preview">
+                    <span className="il-field__label">Fit preview</span>
+                    <span className="il-load-wizard__preview-badge">
+                      <FitBadge fit={effectiveFit} />
+                      {placement.kind !== "auto" ? <span className="il-meta"> estimated</span> : null}
+                    </span>
+                    {effectiveFit === "no" ? (
+                      <p className="il-ctx-picker__spill-note il-ctx-picker__spill-note--no">
+                        won&apos;t fit — try a smaller context, a different placement, or free VRAM by
+                        unloading a model
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {selectedOption ? (
+                    <LoadImpactPreview
+                      gpus={gpus}
+                      loaded={loaded}
+                      model={model}
+                      requiredMB={requiredMB}
+                      placement={placement}
+                      exact={ctxData?.exact ?? false}
+                    />
+                  ) : null}
+
+                  {onlineAgents.length > 0 ? (
+                    <div className="il-impact-modal__section">
+                      <div className="il-impact-modal__label il-impact-modal__label--online">
+                        {onlineAgents.length} agent{onlineAgents.length === 1 ? "" : "s"} will come online
+                      </div>
+                      <ul className="il-impact-modal__list">
+                        {onlineAgents.map((a) => (
+                          <li key={a.agentId} className="il-impact-modal__item">
+                            <span className="il-impact-modal__dot il-impact-modal__dot--on" />
+                            {a.name}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <p className="il-meta il-impact-modal__none">No agents are assigned to this model yet.</p>
+                  )}
+                </>
+              ) : null}
             </>
-          ) : null}
+          )}
         </div>
       </Modal>
 
@@ -243,7 +343,7 @@ export function LoadModelWizard({
           request={spillConfirm}
           loading={loading}
           onCancel={cancelSpillConfirm}
-          onConfirm={() => void confirmSpillAndRetry()}
+          onConfirm={confirmSpill}
         />
       ) : null}
     </>

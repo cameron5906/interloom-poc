@@ -8,6 +8,9 @@ export interface GpuBarSegment {
   colorIndex: number;
   /** Share of THIS gpu's committed VRAM attributed to this model, 0..1. */
   shareOfCommitted: number;
+  /** Marks a not-yet-loaded candidate in a before/after preview (load wizard's
+   * resource impact panel) — rendered with a dashed outline instead of a solid fill. */
+  isPreview?: boolean;
 }
 
 /**
@@ -38,14 +41,16 @@ export function GpuBudgetBar({ gpu, segments }: { gpu: GpuBudget; segments: GpuB
           {segments.map((seg, i) => (
             <div
               key={seg.model.filename + i}
-              className={`il-gpubar__segment${seg.model.gpus.length > 1 ? " il-gpubar__segment--fused" : ""}`}
+              className={`il-gpubar__segment${seg.model.gpus.length > 1 ? " il-gpubar__segment--fused" : ""}${
+                seg.isPreview ? " il-gpubar__segment--preview" : ""
+              }`}
               style={{
                 width: `${seg.shareOfCommitted * 100}%`,
                 background: modelColor(seg.colorIndex),
               }}
               title={`${seg.model.filename} · ${mbToGB(gpu.vramCommittedMB * seg.shareOfCommitted)} GB on this GPU${
                 seg.model.gpus.length > 1 ? " · fused across GPUs " + seg.model.gpus.join(" + ") : ""
-              }`}
+              }${seg.isPreview ? " · not loaded yet — preview" : ""}`}
             />
           ))}
         </div>

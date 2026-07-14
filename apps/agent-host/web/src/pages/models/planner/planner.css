@@ -244,6 +244,165 @@
   }
 }
 
+/* Load progress panel — replaces the form body while a load is in flight so
+   the modal never has to re-derive (and lose) its selection mid-submit. */
+.il-load-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 2px;
+}
+.il-load-progress__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.il-load-progress__spinner {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid var(--il-accent-tint);
+  border-top-color: var(--il-accent);
+  animation: il-load-progress-spin 0.8s linear infinite;
+}
+@keyframes il-load-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.il-load-progress__text {
+  min-width: 0;
+}
+.il-load-progress__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--il-text-primary);
+}
+.il-load-progress__bar {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: var(--il-radius-pill);
+  background: var(--il-accent-tint);
+  overflow: hidden;
+}
+.il-load-progress__bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--il-accent);
+  animation: il-load-progress-sweep 1.4s ease-in-out infinite;
+}
+@keyframes il-load-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .il-load-progress__spinner {
+    animation: none;
+  }
+  .il-load-progress__bar-fill {
+    width: 100%;
+    animation: il-load-progress-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes il-load-progress-pulse {
+    0%,
+    100% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 0.9;
+    }
+  }
+}
+.il-load-progress__agents {
+  margin: 0;
+}
+
+/* Load impact preview — before/after GPU allocator state for the model +
+   context currently selected in the wizard. */
+.il-load-preview {
+  padding-top: 12px;
+  border-top: 1px solid var(--il-border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.il-load-preview__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.il-load-preview__gpus {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.il-load-preview__gpu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.il-load-preview__gpu-name {
+  font-size: 11px;
+  color: var(--il-text-muted);
+}
+.il-load-preview__state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.il-load-preview__state .il-gpubar {
+  flex: 1;
+  min-width: 0;
+}
+.il-load-preview__state-tag {
+  flex: none;
+  width: 38px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--il-text-faint);
+}
+.il-load-preview__state-tag--after {
+  color: var(--il-accent);
+}
+.il-load-preview__divider {
+  font-size: 11px;
+  color: var(--il-text-faint);
+  padding-left: 46px;
+}
+.il-load-preview__delta {
+  margin: 0;
+  padding-left: 46px;
+}
+@media (max-width: 767px) {
+  .il-load-preview__state-tag {
+    width: 32px;
+  }
+  .il-load-preview__divider,
+  .il-load-preview__delta {
+    padding-left: 40px;
+  }
+}
+
+/* Preview segment (load wizard's before/after bar) — dashed outline instead
+   of a solid fill so an un-loaded candidate reads as "about to happen", not
+   already committed. */
+.il-gpubar__segment--preview {
+  outline: 1.5px dashed var(--il-bg-card);
+  outline-offset: -1.5px;
+  opacity: 0.85;
+}
+
 /* Placement picker */
 .il-placement-picker {
   display: flex;

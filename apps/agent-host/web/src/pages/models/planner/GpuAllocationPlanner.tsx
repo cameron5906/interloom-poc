@@ -9,26 +9,13 @@ import { ApiError } from "../../../api/client.js";
 import { mbToGB } from "../../../lib/format.js";
 import { FitBadge, fmtCtx } from "../../../components/ModelLoadFlow/ContextSizePicker.js";
 import { GpuBudgetBar } from "./GpuBudgetBar.js";
-import type { GpuBarSegment } from "./GpuBudgetBar.js";
 import { GpuBridgeConnector } from "./GpuBridgeConnector.js";
 import { LoadModelWizard } from "./LoadModelWizard.js";
 import { UnloadImpactModal } from "./UnloadImpactModal.js";
 import { ModelSettingsToggle } from "./ModelSettingsToggle.js";
 import { modelColor } from "./colors.js";
+import { segmentsForGpu } from "./segments.js";
 import "./planner.css";
-
-/** Per-GPU segments for every loaded model, split evenly among co-resident
- * models on that GPU (CONTRACTS §6 doesn't expose a finer breakdown). */
-function segmentsForGpu(gpuIndex: number, loaded: LoadedModel[]): GpuBarSegment[] {
-  const onThisGpu = loaded.filter((m) => m.gpus.includes(gpuIndex));
-  if (onThisGpu.length === 0) return [];
-  const share = 1 / onThisGpu.length;
-  return onThisGpu.map((model) => ({
-    model,
-    colorIndex: loaded.indexOf(model),
-    shareOfCommitted: share,
-  }));
-}
 
 export function GpuAllocationPlanner() {
   const toasts = useToasts();
@@ -220,6 +207,7 @@ export function GpuAllocationPlanner() {
         onLoaded={() => refreshAll()}
         candidates={candidates}
         gpus={gpus}
+        loaded={loaded}
         allAgents={allAgents}
       />
 

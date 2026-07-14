@@ -85,18 +85,52 @@ export const LinkSession = z.object({
 });
 export type LinkSession = z.infer<typeof LinkSession>;
 
-/** `/ws/link/:linkId` signaling frames — relayed verbatim between the two peers. */
+/** Client-asserted device fingerprint shown to the issuer during device-link approval (CONTRACTS §4). Spoofable — display-only, never a security boundary. */
+export const LinkCandidateFingerprint = z.object({
+  os: z.string().optional(),
+  browser: z.string().optional(),
+  deviceType: z.string().optional(),
+});
+export type LinkCandidateFingerprint = z.infer<typeof LinkCandidateFingerprint>;
+
+/**
+ * `/ws/link/:linkId` signaling frames — relayed verbatim between peers in the room.
+ * `candidateId` / `issuerEphPk` are base64 raw ECDH P-256 public keys of the scanner's
+ * and issuer's ephemeral keypairs (respectively), generated fresh per link and used to
+ * derive the v2 blob key (CONTRACTS §4) — they identify a candidate device for the
+ * duration of one pairing session, never persisted beyond it.
+ */
 export const LinkSignalFrame = z.discriminatedUnion("t", [
   z.object({ t: z.literal("join"), role: z.enum(["issuer", "scanner"]) }),
   z.object({ t: z.literal("peer"), present: z.boolean() }),
+  z.object({ t: z.literal("hello"), candidateId: z.string(), fp: LinkCandidateFingerprint }),
+  z.object({ t: z.literal("candidate"), candidateId: z.string(), fp: LinkCandidateFingerprint, ip: z.string().optional() }),
+  z.object({ t: z.literal("approve"), candidateId: z.string(), issuerEphPk: z.string() }),
+  z.object({ t: z.literal("approved"), issuerEphPk: z.string(), issuerName: z.string().optional() }),
+  z.object({ t: z.literal("reject"), candidateId: z.string() }),
+  z.object({ t: z.literal("rejected") }),
+  z.object({ t: z.literal("confirm") }),
+  z.object({ t: z.literal("candidate_gone"), candidateId: z.string() }),
   z.object({ t: z.literal("offer"), sdp: z.string() }),
   z.object({ t: z.literal("answer"), sdp: z.string() }),
   z.object({ t: z.literal("ice"), candidate: z.unknown() }),
-  z.object({ t: z.literal("blob"), ciphertextB64: z.string(), ivB64: z.string() }),
+  z.object({
+    t: z.literal("blob"),
+    ciphertextB64: z.string(),
+    ivB64: z.string(),
+    v: z.literal(2).optional(),
+  }),
   z.object({ t: z.literal("done") }),
   z.object({
     t: z.literal("error"),
-    code: z.enum(["E_LINK_EXPIRED", "E_LINK_CONSUMED", "E_LINK_FULL", "E_LINK_EPOCH", "E_UNAUTH"]),
+    code: z.enum([
+      "E_LINK_EXPIRED",
+      "E_LINK_CONSUMED",
+      "E_LINK_FULL",
+      "E_LINK_EPOCH",
+      "E_UNAUTH",
+      "E_LINK_REJECTED",
+    ]),
   }),
 ]);
 export type LinkSignalFrame = z.infer<typeof LinkSignalFrame>;
