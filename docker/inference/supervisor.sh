@@ -55,11 +55,18 @@ start_llama() {
   local ctx
   local ngl
   local mmproj_path
+  local cache_type_k
+  local cache_type_v
+  local n_cpu_moe
+  local fa_needed
 
   model_path="$(json_field "$config" "modelPath")"
   ctx="$(json_num "$config" "ctx")"
   ngl="$(json_num "$config" "ngl")"
   mmproj_path="$(json_field "$config" "mmprojPath")"
+  cache_type_k="$(json_field "$config" "cacheTypeK")"
+  cache_type_v="$(json_field "$config" "cacheTypeV")"
+  n_cpu_moe="$(json_num "$config" "nCpuMoe")"
 
   ctx="${ctx:-4096}"
 
@@ -82,6 +89,29 @@ start_llama() {
 
   if [ -n "$mmproj_path" ] && [ -f "$mmproj_path" ]; then
     args="$args --mmproj $mmproj_path"
+  fi
+
+  # KV-cache quantization — q8_0 requires flash attention (-fa on).
+  fa_needed=""
+  if [ -n "$cache_type_k" ]; then
+    args="$args --cache-type-k $cache_type_k"
+    if [ "$cache_type_k" = "q8_0" ]; then
+      fa_needed=1
+    fi
+  fi
+  if [ -n "$cache_type_v" ]; then
+    args="$args --cache-type-v $cache_type_v"
+    if [ "$cache_type_v" = "q8_0" ]; then
+      fa_needed=1
+    fi
+  fi
+  if [ -n "$fa_needed" ]; then
+    args="$args -fa on"
+  fi
+
+  # MoE expert offload to system RAM.
+  if [ -n "$n_cpu_moe" ]; then
+    args="$args --n-cpu-moe $n_cpu_moe"
   fi
 
   log "Starting llama-server: $LLAMA_BIN $args"

@@ -17,6 +17,10 @@ export interface GgufMeta {
   blockCount: number;
   kvHeads: number;
   headDim: number;
+  /** `{arch}.expert_count` — MoE expert count; absent/0 for dense models. */
+  expertCount?: number;
+  /** `{arch}.expert_used_count` — active experts per token (MoE routing width). */
+  expertUsedCount?: number;
   /** Raw tokenizer.chat_template when present — capability detection input. */
   chatTemplate?: string;
 }
@@ -307,12 +311,22 @@ function parseGgufMetaUnsafe(filePath: string): GgufMeta | null {
 
   const chatTemplate = kv.get("tokenizer.chat_template");
 
+  // MoE metadata (absent on dense models) — feeds experts-on-CPU context plans.
+  const expertCountRaw = kv.get(`${arch}.expert_count`);
+  const expertUsedCountRaw = kv.get(`${arch}.expert_used_count`);
+
   return {
     architecture: arch,
     contextLength: Math.floor(contextLength),
     blockCount: Math.floor(blockCount),
     kvHeads: Math.floor(kvHeads),
     headDim: Math.floor(headDim),
+    ...(typeof expertCountRaw === "number" && expertCountRaw > 0
+      ? { expertCount: Math.floor(expertCountRaw) }
+      : {}),
+    ...(typeof expertUsedCountRaw === "number" && expertUsedCountRaw > 0
+      ? { expertUsedCount: Math.floor(expertUsedCountRaw) }
+      : {}),
     ...(typeof chatTemplate === "string" && chatTemplate.length > 0 ? { chatTemplate } : {}),
   };
 }

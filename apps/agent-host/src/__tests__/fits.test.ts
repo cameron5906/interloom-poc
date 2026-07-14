@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { annotateWithFits, computeAvailableVramMB } from "../models/routes.js";
+import { computeAvailableVramMB } from "../models/routes.js";
 import type { GpuInfo } from "@interloom/protocol";
 
 describe("computeAvailableVramMB", () => {
@@ -23,41 +23,5 @@ describe("computeAvailableVramMB", () => {
   it("prefers discrete GPU over unified memory", () => {
     const gpus: GpuInfo[] = [{ name: "RTX 4090", vramMB: 24576, kind: "cuda" }];
     expect(computeAvailableVramMB(gpus, 65536)).toBe(24576);
-  });
-});
-
-describe("annotateWithFits", () => {
-  it("marks models fitting within available VRAM as fits=true", () => {
-    const gpus: GpuInfo[] = [{ name: "RTX 4090", vramMB: 24576, kind: "cuda" }];
-    const annotated = annotateWithFits(gpus);
-    for (const model of annotated) {
-      if (model.minVramMB <= 24576) {
-        expect(model.fits).toBe(true);
-      } else {
-        expect(model.fits).toBe(false);
-      }
-    }
-  });
-
-  it("marks all models fits=false when VRAM is 0", () => {
-    const gpus: GpuInfo[] = [{ name: "GTX 1050", vramMB: 0, kind: "cuda" }];
-    const annotated = annotateWithFits(gpus);
-    for (const model of annotated) {
-      expect(model.fits).toBe(false);
-    }
-  });
-
-  it("uses CPU fallback 8192 when no GPU", () => {
-    const annotated = annotateWithFits([]);
-    const maxFitVram = Math.max(
-      ...annotated.filter((m) => m.fits).map((m) => m.minVramMB),
-    );
-    expect(maxFitVram).toBeLessThanOrEqual(8192);
-  });
-
-  it("uses unified memory on arm64", () => {
-    const annotated = annotateWithFits([], 65536);
-    const sparkModel = annotated.find((m) => m.minVramMB === 55552);
-    expect(sparkModel?.fits).toBe(true);
   });
 });

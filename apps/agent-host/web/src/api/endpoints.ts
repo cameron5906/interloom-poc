@@ -15,9 +15,10 @@ import type {
   HostKeys,
   NetworkSession,
   NetworkLoginResult,
-  FitAnnotatedModel,
+  ModelRegistryResponse,
   HfSearchResult,
   HfRepoDetail,
+  ActivateOptions,
   ActivateResult,
   ActiveModel,
   ContextOptions,
@@ -40,8 +41,8 @@ export const network = {
 };
 
 export const models = {
-  curated: (signal?: AbortSignal) =>
-    api.get<FitAnnotatedModel[]>("/api/models/curated", signal),
+  registry: (signal?: AbortSignal) =>
+    api.get<ModelRegistryResponse>("/api/models/registry", signal),
   search: (q: string, signal?: AbortSignal) =>
     api.get<HfSearchResult[]>(`/api/models/search?q=${encodeURIComponent(q)}`, signal),
   hfDetail: (repoId: string, signal?: AbortSignal) =>
@@ -55,8 +56,13 @@ export const models = {
     ),
   contextOptions: (path: string, signal?: AbortSignal) =>
     api.get<ContextOptions>(`/api/models/context-options?path=${encodeURIComponent(path)}`, signal),
-  activate: (path: string, ctx?: number) =>
-    api.post<ActivateResult>("/api/models/activate", ctx != null ? { path, ctx } : { path }),
+  activate: (path: string, opts: ActivateOptions = {}) =>
+    api.post<ActivateResult>("/api/models/activate", {
+      path,
+      ...(opts.ctx != null ? { ctx: opts.ctx } : {}),
+      ...(opts.kvCache != null ? { kvCache: opts.kvCache } : {}),
+      ...(opts.nCpuMoe != null ? { nCpuMoe: opts.nCpuMoe } : {}),
+    }),
   active: (signal?: AbortSignal) => api.get<ActiveModel | null>("/api/models/active", signal),
   removeLocal: (path: string) => api.del<void>("/api/models/local", { path }),
 };

@@ -324,6 +324,10 @@
   grid-template-columns: 1fr 1fr;
   gap: 20px;
 }
+.il-editor__params--single {
+  grid-template-columns: 1fr;
+  max-width: 360px;
+}
 .il-slider {
   width: 100%;
   appearance: none;

@@ -3,6 +3,7 @@ export * from "./model.js";
 export * from "./avatar.js";
 export * from "./tunnel.js";
 export * from "./registry.js";
+export * from "./modelCatalog.js";
 export * from "./chat.js";
 export * from "./mentions.js";
 export * from "./host.js";

@@ -54,6 +54,12 @@ describe("buildAgentManifest (CONTRACTS §4 capability stamping)", () => {
   it("throws without a model (register requires one)", () => {
     expect(() => buildAgentManifest({ ...base, model: undefined }, "PUBKEY", () => undefined)).toThrow();
   });
+
+  it("stamps params.contextLength = 0 (inherit loaded window) regardless of stored value", () => {
+    const manifest = buildAgentManifest(base, "PUBKEY", () => undefined);
+    expect(manifest.params.contextLength).toBe(0);
+    expect(manifest.params.temperature).toBe(0.7);
+  });
 });
 
 describe("buildAgentManifest (CONTRACTS §6/§12 profile stamping)", () => {

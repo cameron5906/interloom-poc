@@ -1,0 +1,296 @@
+/* ---- Curated catalog ---- */
+.il-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.il-catalog__cache-note {
+  margin: -4px 0 0;
+}
+.il-catalog__offline-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---- Filters ---- */
+.il-catfilters {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.il-catfilters__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.il-catfilters__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.il-catfilters__select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.il-catfilters__select select {
+  font: inherit;
+  font-size: 12.5px;
+  border: 1px solid var(--il-border-input);
+  border-radius: var(--il-radius-sm);
+  background: var(--il-bg-card);
+  color: var(--il-text-primary);
+  padding: 6px 9px;
+  cursor: pointer;
+}
+
+.il-catchip {
+  appearance: none;
+  border: 1px solid var(--il-border-strong);
+  background: var(--il-bg-card);
+  color: var(--il-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: var(--il-radius-pill);
+  cursor: pointer;
+  min-height: 32px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+@media (max-width: 767px) {
+  .il-catfilters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  /* Chips become a horizontal rail: bleed to the page edges so the scroll
+   * feels native, and hide the scrollbar chrome. */
+  .il-catfilters__chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -16px;
+    padding: 2px 16px;
+    scrollbar-width: none;
+  }
+  .il-catfilters__chips::-webkit-scrollbar {
+    display: none;
+  }
+  .il-catfilters__controls {
+    justify-content: space-between;
+  }
+}
+.il-catchip:hover {
+  border-color: var(--il-border-card-hover);
+  color: var(--il-text-primary);
+}
+.il-catchip--active {
+  background: var(--il-accent);
+  border-color: var(--il-accent);
+  color: #fff;
+}
+.il-catchip--fit.il-catchip--active {
+  background: var(--il-success);
+  border-color: var(--il-success);
+}
+
+/* ---- Catalog grid + cards ---- */
+.il-catgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(270px, 100%), 1fr));
+  gap: 14px;
+}
+.il-catcard {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  text-align: left;
+  background: var(--il-bg-card);
+  border: 1px solid var(--il-border-strong);
+  border-radius: var(--il-radius-md);
+  padding: 15px 16px 14px;
+  box-shadow: var(--il-shadow-card);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  min-width: 0;
+  transition: border-color 150ms cubic-bezier(0.3, 0.7, 0.25, 1),
+    box-shadow 150ms cubic-bezier(0.3, 0.7, 0.25, 1), transform 150ms cubic-bezier(0.3, 0.7, 0.25, 1);
+}
+.il-catcard:hover {
+  border-color: var(--il-border-card-hover);
+  box-shadow: var(--il-shadow-hover);
+  transform: translateY(-1px);
+}
+.il-catcard--skel {
+  cursor: default;
+  gap: 12px;
+}
+.il-catcard--skel:hover {
+  transform: none;
+  box-shadow: var(--il-shadow-card);
+  border-color: var(--il-border-strong);
+}
+.il-catcard__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.il-catcard__title {
+  min-width: 0;
+}
+.il-catcard__name {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+.il-catcard__publisher {
+  margin-top: 2px;
+}
+.il-catcard__params {
+  font-size: 12px;
+  color: var(--il-text-secondary);
+}
+.il-catcard__blurb {
+  font-size: 12.5px;
+  color: var(--il-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+  flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.il-catcard__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--il-border-hairline);
+  padding-top: 11px;
+  flex-wrap: wrap;
+}
+.il-catcard__state {
+  font-family: var(--il-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: var(--il-radius-pill);
+}
+.il-catcard__state--active {
+  background: var(--il-accent-tint);
+  color: var(--il-accent-deep);
+}
+.il-catcard__state--installed {
+  background: var(--il-success-tint);
+  color: var(--il-success-deep);
+}
+.il-catcard__state--dl {
+  background: var(--il-warning-tint);
+  color: var(--il-warning-deep);
+}
+
+/* ---- Fit badge (warm, honest) ---- */
+.il-fit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 10px 3px 8px;
+  border-radius: var(--il-radius-pill);
+  line-height: 1.3;
+}
+.il-fit__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.il-fit--fast {
+  background: var(--il-success-tint);
+  color: var(--il-success-deep);
+}
+.il-fit--spill {
+  background: var(--il-warning-tint);
+  color: var(--il-warning-deep);
+}
+.il-fit--cpu {
+  background: var(--il-accent-tint);
+  color: var(--il-accent-deep);
+}
+.il-fit--no {
+  background: var(--il-bg-system);
+  color: var(--il-text-muted);
+}
+.il-fit--unknown {
+  background: var(--il-bg-system);
+  color: var(--il-text-faint);
+}
+
+/* ---- Modality glyphs ---- */
+.il-modalities {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  color: var(--il-text-muted);
+}
+.il-modality {
+  display: inline-flex;
+}
+
+/* ---- Catalog capability chip colors (keyed to the atlas capabilities) ----
+ * `:not(.il-capbadge--est)` so a dashed estimate never inherits a solid fill,
+ * regardless of stylesheet import order. */
+.il-capbadge--tool_use {
+  color: var(--il-accent-deep);
+  border-color: color-mix(in srgb, var(--il-accent) 25%, transparent);
+}
+.il-capbadge--tool_use:not(.il-capbadge--est) {
+  background: var(--il-accent-tint);
+}
+.il-capbadge--vision {
+  color: var(--il-accent-deep);
+  border-color: color-mix(in srgb, var(--il-active) 25%, transparent);
+}
+.il-capbadge--vision:not(.il-capbadge--est) {
+  background: var(--il-active-tint);
+}
+.il-capbadge--thinking {
+  color: var(--il-warning-deep);
+  border-color: color-mix(in srgb, var(--il-warning) 30%, transparent);
+}
+.il-capbadge--thinking:not(.il-capbadge--est) {
+  background: var(--il-warning-tint);
+}
+.il-capbadge--audio {
+  color: var(--il-agent-deep);
+  border-color: color-mix(in srgb, var(--il-agent) 30%, transparent);
+}
+.il-capbadge--audio:not(.il-capbadge--est) {
+  background: var(--il-agent-tint);
+}
+.il-capbadge--structured_output {
+  color: var(--il-text-secondary);
+  border-color: var(--il-border-strong);
+}
+.il-capbadge--structured_output:not(.il-capbadge--est) {
+  background: var(--il-bg-system);
+}

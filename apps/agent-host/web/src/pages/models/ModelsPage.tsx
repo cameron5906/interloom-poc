@@ -1,28 +1,32 @@
 import { useState } from "react";
-import type { LocalModel } from "@interloom/protocol";
-import { models as modelsApi } from "../../api/endpoints.js";
+import type { LocalModel, SystemInfo } from "@interloom/protocol";
+import { models as modelsApi, system as systemApi } from "../../api/endpoints.js";
 import { usePoll } from "../../hooks/usePoll.js";
+import { useAsync } from "../../hooks/useAsync.js";
 import type { ActiveModel } from "../../api/types.js";
-import { RecommendedTab } from "./RecommendedTab.js";
+import { RigStrip } from "./RigStrip.js";
+import { CatalogTab } from "./catalog/CatalogTab.js";
 import { SearchTab } from "./SearchTab.js";
 import { InstalledTab } from "./InstalledTab.js";
 import { DownloadsDrawer } from "./DownloadsDrawer.js";
 import "./models.css";
 
-type Tab = "recommended" | "search" | "installed";
+type Tab = "catalog" | "search" | "installed";
 
 export function ModelsPage() {
-  const [tab, setTab] = useState<Tab>("recommended");
+  const [tab, setTab] = useState<Tab>("catalog");
 
   // Poll downloads + local models at 1 Hz so tile states flip automatically
   // when a download completes, without any manual reload.
   const downloads = usePoll((s) => modelsApi.downloads(s), 1000, true);
   const localPoll = usePoll<LocalModel[]>((s) => modelsApi.local(s), 1500, true);
   const activePoll = usePoll<ActiveModel | null>((s) => modelsApi.active(s), 2000, true);
+  const systemInfo = useAsync<SystemInfo>((s) => systemApi.get(s), []);
 
   const jobs = downloads.data ?? [];
   const localModels = localPoll.data ?? [];
   const activeModel = activePoll.data ?? null;
+  const rig = systemInfo.data ?? null;
 
   const refresh = () => {
     downloads.refresh();
@@ -36,16 +40,18 @@ export function ModelsPage() {
         <div className="il-page__head">
           <h1 className="il-page__title">Models</h1>
           <p className="il-page__sub">
-            Download and activate the local model your agents run on.
+            Pick a model that fits the agents you want to build and the rig you own.
           </p>
         </div>
 
+        <RigStrip rig={rig} activeModel={activeModel} loading={systemInfo.loading && systemInfo.initialLoad} />
+
         <div className="il-tabs" role="tablist">
-          <TabBtn active={tab === "recommended"} onClick={() => setTab("recommended")}>
-            Recommended
+          <TabBtn active={tab === "catalog"} onClick={() => setTab("catalog")}>
+            Catalog
           </TabBtn>
           <TabBtn active={tab === "search"} onClick={() => setTab("search")}>
-            Search
+            Hugging Face
           </TabBtn>
           <TabBtn active={tab === "installed"} onClick={() => setTab("installed")}>
             Installed
@@ -53,11 +59,13 @@ export function ModelsPage() {
         </div>
 
         <div className="il-models-body">
-          {tab === "recommended" && (
-            <RecommendedTab
+          {tab === "catalog" && (
+            <CatalogTab
+              rig={rig}
               downloads={jobs}
               localModels={localModels}
               activeModel={activeModel}
+              onGoToSearch={() => setTab("search")}
               onRefresh={refresh}
             />
           )}
@@ -71,9 +79,10 @@ export function ModelsPage() {
           )}
           {tab === "installed" && (
             <InstalledTab
+              rig={rig}
               localModels={localModels}
               activeModel={activeModel}
-              onGoToRecommended={() => setTab("recommended")}
+              onGoToCatalog={() => setTab("catalog")}
               onRefresh={refresh}
             />
           )}

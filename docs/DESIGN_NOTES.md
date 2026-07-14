@@ -84,6 +84,18 @@ scroll, touch targets ≥44px, `env(safe-area-inset-*)` respected.
 - **Telemetry (host portal):** dark log panels (`#37291a` bg, `#f3ece1` mono text),
   stat tiles with 700-weight numbers; tiles wrap 2-up on mobile.
 - Tables and wide code/log blocks always sit in their own `overflow-x:auto` wrapper.
+- **Models marketplace (host portal):** the rig comes first — a stat-tile "rig strip"
+  (GPU/VRAM, RAM, active model + loaded ctx) anchors the page so every fit badge reads
+  against it. Curated catalog cards lead; Hugging Face search is a secondary tab.
+  Fit language is honest and warm: "Fits fully on your GPU" / "Runs with system-RAM
+  assist (slower)" / "CPU-friendly" / "Not practical on this rig" — never a bare boolean.
+  Capability chips: solid for native levels, dashed for runtime-sensitive/prompted
+  (mirrors the estimated-capability convention). GGUF source trust badges use Geist Mono
+  (OFFICIAL / VERIFIED / COMMUNITY / DISCOVERY). Context is always presented as two
+  numbers — the advertised ceiling and the honest local starting point — never one.
+- **Model detail sheet (workspace):** same sections, display-only (no fit math off the
+  operator's box); reachable from any model chip; RightPane pattern (desktop side panel,
+  mobile full-screen sheet).
 
 ## Interaction defaults
 

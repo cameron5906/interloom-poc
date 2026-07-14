@@ -62,6 +62,7 @@ export async function getSystemInfo(): Promise<SystemInfo> {
     arch: os.arch(),
     dockerized: true,
     gpus,
+    systemRamMB: Math.floor(os.totalmem() / (1024 * 1024)),
     version: HOST_VERSION,
     ...(unifiedMemoryMB !== undefined && { unifiedMemoryMB }),
   };

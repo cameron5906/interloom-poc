@@ -6,11 +6,13 @@ import { z } from "zod";
 import { MODELS_DIR, INFERENCE_URL, FETCHER_URL } from "../config.js";
 import type { GpuInfo } from "@interloom/protocol";
 import { ContextOptions } from "@interloom/protocol";
-import { CURATED_MODELS } from "./curated.js";
 import { getActiveModel } from "./active.js";
 import { parseGgufMeta } from "./gguf.js";
 import { scanLocalModels } from "./scan.js";
 import { computeAvailableVramMB, kvBytes, fitTier } from "./fit.js";
+import { buildContextPlans } from "./plans.js";
+import { getRegistry, refreshRegistry } from "./registry.js";
+import { computeRegistryFits } from "./registryFit.js";
 import { mapSearchRows, buildRepoDetail } from "./hf.js";
 import {
   getHfStatus,
@@ -30,6 +32,8 @@ const DownloadBody = z.object({
 const ActivateBody = z.object({
   path: z.string().min(1),
   ctx: z.number().int().positive().optional(),
+  kvCache: z.enum(["f16", "q8_0"]).optional(),
+  nCpuMoe: z.number().int().positive().max(999).optional(),
 });
 
 const DeleteLocalBody = z.object({
@@ -39,30 +43,6 @@ const DeleteLocalBody = z.object({
 const HfTokenBody = z.object({
   token: z.string().min(1),
 });
-
-export interface CuratedModelWithFits {
-  id: string;
-  repoId: string;
-  filename: string;
-  displayName: string;
-  sizeBytes: number;
-  quant: string;
-  minVramMB: number;
-  tier: string;
-  blurb: string;
-  fits: boolean;
-}
-
-export function annotateWithFits(
-  gpus: GpuInfo[],
-  unifiedMemoryMB?: number,
-): CuratedModelWithFits[] {
-  const availableVramMB = computeAvailableVramMB(gpus, unifiedMemoryMB);
-  return CURATED_MODELS.map((m) => ({
-    ...m,
-    fits: m.minVramMB <= availableVramMB,
-  }));
-}
 
 /**
  * Validates that a path is inside MODELS_DIR to prevent directory traversal.
@@ -91,6 +71,7 @@ export function buildContextOptions(
   gpus: GpuInfo[],
   unifiedMemoryMB?: number,
   mmprojBytes = 0,
+  systemRamMB?: number,
 ): import("@interloom/protocol").ContextOptions {
   const meta = parseGgufMeta(filePath);
 
@@ -171,17 +152,28 @@ export function buildContextOptions(
     ? Math.max(...fastOptions.map((o) => o.ctx))
     : 4096;
 
+  const { plans, recommendedPlan } = buildContextPlans(
+    candidates,
+    fileSizeBytes + mmprojBytes,
+    meta,
+    gpus,
+    unifiedMemoryMB,
+    systemRamMB,
+  );
+
   return ContextOptions.parse({
     trainedMax,
     options,
     recommendedCtx,
     exact: true,
+    plans,
+    recommendedPlan,
   });
 }
 
 export function registerModelsRoutes(
   app: FastifyInstance,
-  getSystemInfo: () => Promise<{ gpus: GpuInfo[]; unifiedMemoryMB?: number }>,
+  getSystemInfo: () => Promise<{ gpus: GpuInfo[]; unifiedMemoryMB?: number; systemRamMB?: number }>,
   triggerHeartbeat?: () => void,
 ): void {
   // --- HF account settings ---
@@ -209,11 +201,26 @@ export function registerModelsRoutes(
     return reply.status(204).send();
   });
 
-  // --- Curated & search ---
+  // --- Registry & search ---
 
-  app.get("/api/models/curated", async (_req, reply) => {
-    const { gpus, unifiedMemoryMB } = await getSystemInfo();
-    return reply.send(annotateWithFits(gpus, unifiedMemoryMB));
+  app.get("/api/models/registry", async (_req, reply) => {
+    const served = getRegistry();
+    if (!served) {
+      void refreshRegistry().catch(() => {});
+      return reply.status(503).send({ error: "registry_unavailable" });
+    }
+    const { gpus, unifiedMemoryMB, systemRamMB } = await getSystemInfo();
+    const fit = computeRegistryFits(served.doc.catalog.models, {
+      gpus,
+      unifiedMemoryMB,
+      systemRamMB,
+    });
+    return reply.send({
+      source: served.source,
+      fetchedAt: served.fetchedAt,
+      doc: served.doc,
+      fit,
+    });
   });
 
   app.get<{ Querystring: { q?: string } }>("/api/models/search", async (req, reply) => {
@@ -385,7 +392,7 @@ export function registerModelsRoutes(
     }
 
     const stat = fs.statSync(resolvedPath);
-    const { gpus, unifiedMemoryMB } = await getSystemInfo();
+    const { gpus, unifiedMemoryMB, systemRamMB } = await getSystemInfo();
     const paired = scanLocalModels(MODELS_DIR).find((m) => path.resolve(m.path) === resolvedPath);
     const result = buildContextOptions(
       resolvedPath,
@@ -393,6 +400,7 @@ export function registerModelsRoutes(
       gpus,
       unifiedMemoryMB,
       paired?.mmprojBytes ?? 0,
+      systemRamMB,
     );
     return reply.send(result);
   });
@@ -404,12 +412,17 @@ export function registerModelsRoutes(
       if (!parsed.success) {
         return reply.status(400).send({ error: parsed.error.message });
       }
-      const { path: modelPath, ctx } = parsed.data;
+      const { path: modelPath, ctx, kvCache, nCpuMoe } = parsed.data;
       const inferenceDir = path.join(MODELS_DIR, ".interloom");
       fs.mkdirSync(inferenceDir, { recursive: true });
       const inferenceJson = path.join(inferenceDir, "inference.json");
       const config: Record<string, unknown> = { modelPath };
       if (ctx !== undefined) config["ctx"] = ctx;
+      if (kvCache !== undefined) {
+        config["cacheTypeK"] = kvCache;
+        config["cacheTypeV"] = kvCache;
+      }
+      if (nCpuMoe !== undefined) config["nCpuMoe"] = nCpuMoe;
       const pairedModel = scanLocalModels(MODELS_DIR).find(
         (m) => path.resolve(m.path) === path.resolve(modelPath),
       );

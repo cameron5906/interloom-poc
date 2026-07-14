@@ -43,7 +43,7 @@ export function buildAgentManifest(
     pubKey,
     availability: "always",
     contract: { kind: "free" },
-    params: agent.params,
+    params: { ...agent.params, contextLength: 0 },
     model: { ...agent.model, ...(capabilities ? { capabilities } : {}) },
     ...(agent.title ? { title: agent.title } : {}),
     ...(agent.gender ? { gender: agent.gender } : {}),

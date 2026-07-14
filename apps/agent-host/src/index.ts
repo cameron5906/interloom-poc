@@ -9,6 +9,7 @@ import { registerModelsRoutes } from "./models/routes.js";
 import { registerAgentRoutes } from "./agents/routes.js";
 import { registerUpdateRoutes } from "./update/routes.js";
 import { startUpdateCheckLoop } from "./update/checker.js";
+import { startRegistryLoop } from "./models/registry.js";
 import { backfillCapabilities } from "./agents/register.js";
 import { registerOperatorRoutes, publishOperatorIdentity } from "./operator.js";
 import { registerTelemetryWs } from "./telemetry/ws.js";
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
 
   startHeartbeatLoop(tunnelManager);
   startUpdateCheckLoop();
+  startRegistryLoop((msg) => app.log.info(msg));
 
   void backfillCapabilities((msg) => app.log.info(msg)).catch((err) =>
     app.log.warn({ err }, "capability backfill failed"),

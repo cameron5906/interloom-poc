@@ -19,24 +19,12 @@ export const SystemInfo = z.object({
   dockerized: z.literal(true),
   gpus: z.array(GpuInfo),
   unifiedMemoryMB: z.number().optional(),
+  /** Total system RAM in MB (os.totalmem) — the rig strip's RAM figure and the
+   * denominator the host-side fit/spill math reads against (additive). */
+  systemRamMB: z.number().optional(),
   version: z.string().optional(),
 });
 export type SystemInfo = z.infer<typeof SystemInfo>;
-
-/** A curated model entry, annotated with tier/vram requirements (CONTRACTS §6). */
-export const CuratedModel = z.object({
-  id: z.string(),
-  repoId: z.string(),
-  filename: z.string(),
-  displayName: z.string(),
-  sizeBytes: z.number(),
-  quant: z.string(),
-  minVramMB: z.number(),
-  tier: z.enum(["spark", "gpu-24gb", "gpu-10gb", "cpu"]),
-  blurb: z.string(),
-  capabilities: ModelCapabilities.optional(),
-});
-export type CuratedModel = z.infer<typeof CuratedModel>;
 
 /** A model download job tracked by the model-fetcher (CONTRACTS §6/§7). */
 export const DownloadJob = z.object({
@@ -153,6 +141,26 @@ export const ContextOption = z.object({
 });
 export type ContextOption = z.infer<typeof ContextOption>;
 
+/**
+ * One rig-optimizer plan for a context rung (CONTRACTS §6 "Context plans").
+ * A plan couples a context length with a KV-cache precision and an offload
+ * strategy; the daemon emits the best-fitting plan per rung plus the honest
+ * fallback that unlocks it. `nCpuMoe` is present exactly on `experts_cpu`
+ * plans (the expert-layer count the portal passes through to activate).
+ */
+export const ContextPlan = z.object({
+  ctx: z.number(),
+  kvCache: z.enum(["f16", "q8_0"]),
+  offload: z.enum(["full_gpu", "experts_cpu", "cpu"]),
+  kvBytes: z.number(),
+  vramNeedMB: z.number(),
+  ramNeedMB: z.number(),
+  fit: z.enum(["fast", "spill", "no"]),
+  label: z.string(),
+  nCpuMoe: z.number().optional(),
+});
+export type ContextPlan = z.infer<typeof ContextPlan>;
+
 /** `GET /api/models/context-options` — KV-cache-based context sizing (CONTRACTS §6). */
 export const ContextOptions = z.object({
   trainedMax: z.number().nullable(),
@@ -160,6 +168,10 @@ export const ContextOptions = z.object({
   recommendedCtx: z.number(),
   /** Whether GGUF metadata parsing succeeded; false = size-heuristic estimates. */
   exact: z.boolean(),
+  /** Rig-optimizer plans (additive, 2026-07-13). Absent on legacy responses. */
+  plans: z.array(ContextPlan).optional(),
+  /** Highest-ctx `fast` plan (else highest-ctx `spill`); null when none fits. */
+  recommendedPlan: ContextPlan.nullable().optional(),
 });
 export type ContextOptions = z.infer<typeof ContextOptions>;
 

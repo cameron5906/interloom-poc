@@ -3,7 +3,6 @@ import {
   AgentManifest,
   ChatMessage,
   ClientWsMessage,
-  CuratedModel,
   InviteVoucher,
   LocalModel,
   Placement,
@@ -371,18 +370,6 @@ describe("ModelCapabilities (additive, CONTRACTS §4)", () => {
       mmprojBytes: 456,
     });
     expect(parsed.mmprojPath).toBe("/models/repo/mmproj-f16.gguf");
-  });
-
-  it("CuratedModel accepts optional capabilities", () => {
-    const base = {
-      id: "x", repoId: "r/x", filename: "x.gguf", displayName: "X",
-      sizeBytes: 1, quant: "Q4_K_M", minVramMB: 1, tier: "cpu" as const, blurb: "b",
-    };
-    expect(CuratedModel.parse(base).capabilities).toBeUndefined();
-    expect(
-      CuratedModel.parse({ ...base, capabilities: { tools: true, vision: false, thinking: false } })
-        .capabilities?.tools,
-    ).toBe(true);
   });
 
   it("ModelCapabilities rejects missing keys", () => {

@@ -47,6 +47,10 @@ export function SearchTab({ downloads, localModels, activeModel, onRefresh }: Se
 
   return (
     <div className="il-hsearch">
+      <p className="il-hsearch__lead">
+        Search the whole Hugging Face hub — beyond the curated picks. Great for a specific model or a
+        fresh release; the Catalog is the guided path.
+      </p>
       <div className="il-hsearch__bar">
         <div className="il-search__bar">
           <SearchIcon />
@@ -71,8 +75,8 @@ export function SearchTab({ downloads, localModels, activeModel, onRefresh }: Se
 
       {debounced.length < 2 ? (
         <EmptyState
-          title="Search Hugging Face"
-          hint="Type at least two characters to find GGUF-quantized models to run locally."
+          title="Search all of Hugging Face"
+          hint="Type at least two characters to find GGUF-quantized models — anything on the hub, beyond the curated catalog."
         />
       ) : results.error ? (
         <LoadError error={results.error} onRetry={results.reload} />

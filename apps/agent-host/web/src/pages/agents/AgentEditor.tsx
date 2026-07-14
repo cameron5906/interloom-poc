@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, Button, CapabilityBadges, Input, Modal, StatusPill, TextArea } from "@interloom/ui";
 import type { AgentGender, HostAgent, LocalModel, PlacementStatus } from "@interloom/protocol";
-import type { AgentDraft, ActiveModel } from "../../api/types.js";
+import type { AgentDraft, ActiveModel, CatalogModel } from "../../api/types.js";
 import { EMPTY_AGENT_DRAFT } from "../../api/types.js";
 import { agents as agentsApi, models as modelsApi, placements as placementsApi } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
@@ -10,7 +10,7 @@ import { CharacterCustomizer } from "./CharacterCustomizer/index.js";
 import { SpecialtiesInput } from "./SpecialtiesInput.js";
 import { CascadeWarningModal } from "./CascadeWarningModal.js";
 import { MarketplacePreview } from "./MarketplacePreview.js";
-import { CONTEXT_PRESETS } from "../../lib/constants.js";
+import { catalogModelForPath, repoIdFromLocalPath } from "../models/catalog/catalogHelpers.js";
 import { relativeTime, bytesToGB } from "../../lib/format.js";
 import { rollCharacter, withGender, draftAvatarImageUrl, svgFor, renderPng } from "../../lib/character.js";
 import { GenderPicker } from "./CharacterCustomizer/GenderPicker.js";
@@ -81,6 +81,8 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
   const uploadedCharacterRef = useRef(agent?.avatar.character);
 
   const localModels = useAsync((s) => modelsApi.local(s), []);
+  const registry = useAsync((s) => modelsApi.registry(s), []);
+  const catalogModels = registry.data?.doc.catalog.models ?? [];
 
   // Reset the form whenever the selected agent changes.
   useEffect(() => {
@@ -360,12 +362,13 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
           <ModelPicker
             selected={draft.model?.filename ?? null}
             localModels={localModels.data ?? []}
+            catalogModels={catalogModels}
             activeModel={activeModel}
             loading={localModels.loading && localModels.initialLoad}
             onChange={(m) =>
               patch({
                 model: m
-                  ? { filename: m.filename, displayName: m.filename, sizeBytes: m.sizeBytes, capabilities: m.capabilities }
+                  ? buildModelRef(m, catalogModels)
                   : undefined,
               })
             }
@@ -374,10 +377,18 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
             <div className="il-field__note">
               Preview and Publish to Network are locked until a model is selected.
             </div>
-          ) : null}
+          ) : (
+            <div className="il-field__hint" style={{ marginTop: 6 }}>
+              Context is set when you load the model — configure it on the{" "}
+              <a href="/models" className="il-model-picker__link">
+                Models page
+              </a>
+              .
+            </div>
+          )}
         </Field>
 
-        <div className="il-editor__params">
+        <div className="il-editor__params il-editor__params--single">
           <Field label={`Temperature · ${draft.params.temperature.toFixed(2)}`}>
             <input
               type="range"
@@ -395,13 +406,6 @@ export function AgentEditor({ agent, activeModel, onSaved, onDeleted, onDraftCha
               <span>creative</span>
             </div>
           </Field>
-
-          <ContextBudgetField
-            draft={draft}
-            activeModel={activeModel}
-            agentModelFilename={draft.model?.filename ?? null}
-            patch={patch}
-          />
         </div>
 
         <MarketplacePreview draft={draft} live={registered} />
@@ -483,15 +487,34 @@ function capSuffix(caps: import("@interloom/protocol").ModelCapabilities | undef
   return parts.length > 0 ? ` · ${parts.join(", ")}` : "";
 }
 
+/** Build a ModelRef from a local file, enriched with the curated display name
+ * and origin repoId when the file traces back to a catalog GGUF repo. */
+function buildModelRef(
+  m: LocalModel,
+  catalogModels: CatalogModel[],
+): import("@interloom/protocol").ModelRef {
+  const catalog = catalogModelForPath(catalogModels, m.path);
+  const repoId = repoIdFromLocalPath(m.path) ?? undefined;
+  return {
+    filename: m.filename,
+    displayName: catalog?.name ?? m.filename,
+    sizeBytes: m.sizeBytes,
+    capabilities: m.capabilities,
+    ...(repoId ? { repoId } : {}),
+  };
+}
+
 function ModelPicker({
   selected,
   localModels,
+  catalogModels,
   activeModel,
   loading,
   onChange,
 }: {
   selected: string | null;
   localModels: LocalModel[];
+  catalogModels: CatalogModel[];
   activeModel: ActiveModel | null;
   loading: boolean;
   onChange: (model: LocalModel | null) => void;
@@ -522,13 +545,17 @@ function ModelPicker({
         }}
       >
         <option value="">— Select a model —</option>
-        {localModels.map((m) => (
-          <option key={m.path} value={m.filename}>
-            {m.filename} · {bytesToGB(m.sizeBytes)} GB
-            {capSuffix(m.capabilities)}
-            {activeModel?.filename === m.filename ? " · active" : ""}
-          </option>
-        ))}
+        {localModels.map((m) => {
+          const catalog = catalogModelForPath(catalogModels, m.path);
+          const label = catalog ? catalog.name : m.filename;
+          return (
+            <option key={m.path} value={m.filename}>
+              {label} · {bytesToGB(m.sizeBytes)} GB
+              {capSuffix(m.capabilities)}
+              {activeModel?.filename === m.filename ? " · active" : ""}
+            </option>
+          );
+        })}
       </select>
       <CapabilityBadges
         capabilities={localModels.find((m) => m.filename === selected)?.capabilities}
@@ -536,65 +563,6 @@ function ModelPicker({
       />
     </div>
   );
-}
-
-function ContextBudgetField({
-  draft,
-  activeModel,
-  agentModelFilename,
-  patch,
-}: {
-  draft: AgentDraft;
-  activeModel: ActiveModel | null;
-  agentModelFilename: string | null;
-  patch: (p: Partial<AgentDraft>) => void;
-}) {
-  const agentModelIsActive =
-    agentModelFilename != null && activeModel?.filename === agentModelFilename;
-  const loadedCtx = agentModelIsActive ? (activeModel?.ctx ?? null) : null;
-
-  const presets = CONTEXT_PRESETS.filter((p) => loadedCtx == null || p.value <= loadedCtx);
-
-  const ctxLabel = loadedCtx != null ? fmtCtxLabel(loadedCtx) : null;
-
-  const fieldLabel = ctxLabel
-    ? `Prompt budget (within the model's ${ctxLabel} window)`
-    : "Prompt budget (within the model's context window)";
-
-  const cappedValue = loadedCtx != null
-    ? Math.min(draft.params.contextLength, loadedCtx)
-    : draft.params.contextLength;
-
-  return (
-    <Field label={fieldLabel}>
-      <div className="il-segmented" role="group" aria-label="Prompt budget">
-        {presets.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            className={`il-segmented__btn${
-              cappedValue === opt.value ? " il-segmented__btn--sel" : ""
-            }`}
-            onClick={() => patch({ params: { ...draft.params, contextLength: opt.value } })}
-            aria-pressed={cappedValue === opt.value}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-      {!agentModelIsActive ? (
-        <div className="il-field__hint" style={{ marginTop: 6 }}>
-          Capped by the context size chosen at activation.
-        </div>
-      ) : null}
-    </Field>
-  );
-}
-
-function fmtCtxLabel(ctx: number): string {
-  if (ctx >= 1024 && ctx % 1024 === 0) return `${ctx / 1024}k`;
-  if (ctx >= 1000) return `${Math.round(ctx / 1000)}k`;
-  return String(ctx);
 }
 
 function Field({
