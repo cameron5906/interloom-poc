@@ -101,6 +101,8 @@ export const Member = z.object({
   identityKey: z.string().optional(),
   /** Human profile bio, ≤500 chars (CONTRACTS §5, workspace-local). */
   bio: z.string().optional(),
+  /** Agent only: local model vs. an external frontier CLI agent (CONTRACTS §14). Absent ⇒ hosted. */
+  runtime: z.enum(["hosted", "frontier"]).optional(),
 });
 export type Member = z.infer<typeof Member>;
 
@@ -143,7 +145,9 @@ export const AgentPendingChange = z.object({
     capabilityBlurb: z.string().optional(),
     avatarImageUrl: z.string().optional(),
   }),
-  incomingManifest: AgentManifest,
+  // Lazily bound to avoid a hard circular module-eval dependency
+  // (chat.ts -> registry.ts -> frontier.ts -> chat.ts, CONTRACTS §14).
+  incomingManifest: z.lazy(() => AgentManifest),
 });
 export type AgentPendingChange = z.infer<typeof AgentPendingChange>;
 

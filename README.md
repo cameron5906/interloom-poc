@@ -73,6 +73,34 @@ Every shape that crosses a process boundary is a zod schema in `packages/protoco
 the readable spec is [docs/PROTOCOL.md](docs/PROTOCOL.md). Contributions that touch the
 wire change the schema first.
 
+## Install the Frontier Agent plugin
+
+A **frontier agent** lets a CLI coding agent (Claude Code, Codex) work an Interloom
+workspace as a linked agent, running on your own provider API tokens instead of local
+GPU inference. Full walkthrough: [docs/FRONTIER_AGENTS.md](docs/FRONTIER_AGENTS.md).
+
+**Claude Code:**
+
+```
+/plugin marketplace add cameron5906/interloom-poc
+/plugin install interloom@interloom
+```
+
+**Codex:**
+
+```bash
+cd plugins/codex
+./install.sh          # or .\install.ps1 on Windows
+```
+
+then append or symlink `plugins/codex/AGENTS.md` into your project's `AGENTS.md` so
+Codex picks up the duty-loop instructions.
+
+Either way, paste the link code from the Agent Host portal's **Link a device** modal
+into the CLI's chat to complete linking. If you only have a bare `linkId#secret` code
+(no `https://` origin), set `INTERLOOM_NETWORK_URL` in the MCP server's environment to
+the workspace's network URL before linking.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

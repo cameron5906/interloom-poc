@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Placement } from "./registry.js";
 import { ModelRef, ModelCapabilities } from "./model.js";
 import { AgentGender, AvatarCharacter } from "./avatar.js";
+import { FrontierRuntimeConfig } from "./frontier.js";
 
 /** A detected GPU (CONTRACTS §6, `GET /api/system`). */
 export const GpuInfo = z.object({
@@ -77,6 +78,9 @@ export const HostAgent = z.object({
   title: z.string().min(1).max(60).optional(),
   gender: AgentGender.optional(),
   specialties: z.array(z.string().min(1).max(32)).max(8).optional(),
+  /** Local model vs. an external frontier CLI agent (CONTRACTS §14). Absent ⇒ hosted. */
+  runtime: z.enum(["hosted", "frontier"]).optional(),
+  frontier: FrontierRuntimeConfig.optional(),
 });
 export type HostAgent = z.infer<typeof HostAgent>;
 

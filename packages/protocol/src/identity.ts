@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { signedEnvelope } from "./envelope.js";
 
 /**
  * Identity grant — an identity key delegates bounded authority to a subject
@@ -78,10 +79,14 @@ export type ResolvedIdentity = z.infer<typeof ResolvedIdentity>;
 
 // --- Device link (QR / WebRTC raw-key transfer, CONTRACTS §4) ---
 
-/** `POST /api/link/sessions` response. */
+/**
+ * `POST /api/link/sessions` response. `kind` (additive) distinguishes a
+ * frontier-agent link from an ordinary device link (CONTRACTS §14); absent ⇒ device.
+ */
 export const LinkSession = z.object({
   linkId: z.string(),
   expiresAt: z.number(),
+  kind: z.enum(["device", "frontier-agent"]).optional(),
 });
 export type LinkSession = z.infer<typeof LinkSession>;
 
@@ -94,6 +99,48 @@ export const LinkCandidateFingerprint = z.object({
 export type LinkCandidateFingerprint = z.infer<typeof LinkCandidateFingerprint>;
 
 /**
+ * Signed-envelope auth carried in the issuer's `join` frame on
+ * `/ws/link/:linkId` for `kind: "frontier-agent"` sessions (CONTRACTS §4/§14).
+ * The agent-host portal browser holds no network identity cookie (that's a
+ * browser-only credential the headless daemon never has), so a frontier
+ * session's issuer authenticates the WS join with this envelope instead —
+ * exclusively; device-kind sessions never consult it, cookie path only.
+ * `envelope.key` must equal the session's `issuer_pub_key`; `linkId` must
+ * match the room being joined. Lives here (not `frontier.ts`) because
+ * `frontier.ts` sits inside the frontier↔chat↔registry schema cycle and this
+ * file is a leaf relative to it — importing this schema back from
+ * `frontier.ts` would close that cycle through here.
+ */
+export const FrontierLinkIssuerAuth = z.object({
+  linkId: z.string(),
+  role: z.literal("issuer"),
+  nonce: z.string(),
+  iat: z.number(),
+});
+export type FrontierLinkIssuerAuth = z.infer<typeof FrontierLinkIssuerAuth>;
+
+/**
+ * Host-signed key attestation extending the operator→host grant chain one
+ * hop further to operator→host→agent (CONTRACTS §6/§14). Crosses the wire
+ * as `SignedEnvelope<FrontierHostAttestation>` in `AgentManifest`'s additive
+ * `hostAttestation` field, signed under the HOST key. A frontier manifest is
+ * (correctly, by key-custody design) self-signed under the agent's own
+ * keypair, never the host key, so the network's operator-grant check
+ * (`grant.payload.subjectKey === envelope.key`) can never hold there without
+ * this: the attestation vouches that the host with the bound operator grant
+ * also vouches for `agentPubKey`, so the grant chain's `subjectKey` check
+ * runs against `hostAttestation.key` instead of `envelope.key`. Lives here
+ * (not `frontier.ts`) for the same schema-cycle reason as
+ * `FrontierLinkIssuerAuth` above.
+ */
+export const FrontierHostAttestation = z.object({
+  agentId: z.string(),
+  agentPubKey: z.string(),
+  iat: z.number(),
+});
+export type FrontierHostAttestation = z.infer<typeof FrontierHostAttestation>;
+
+/**
  * `/ws/link/:linkId` signaling frames — relayed verbatim between peers in the room.
  * `candidateId` / `issuerEphPk` are base64 raw ECDH P-256 public keys of the scanner's
  * and issuer's ephemeral keypairs (respectively), generated fresh per link and used to
@@ -101,7 +148,14 @@ export type LinkCandidateFingerprint = z.infer<typeof LinkCandidateFingerprint>;
  * duration of one pairing session, never persisted beyond it.
  */
 export const LinkSignalFrame = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("join"), role: z.enum(["issuer", "scanner"]) }),
+  z.object({
+    t: z.literal("join"),
+    role: z.enum(["issuer", "scanner"]),
+    /** Additive (CONTRACTS §4/§14) — a frontier-agent-kind session's issuer
+     * carries this instead of an identity cookie; ignored for every other
+     * join (device-kind issuer, and scanner joins of either kind). */
+    auth: signedEnvelope(FrontierLinkIssuerAuth).optional(),
+  }),
   z.object({ t: z.literal("peer"), present: z.boolean() }),
   z.object({ t: z.literal("hello"), candidateId: z.string(), fp: LinkCandidateFingerprint }),
   z.object({ t: z.literal("candidate"), candidateId: z.string(), fp: LinkCandidateFingerprint, ip: z.string().optional() }),

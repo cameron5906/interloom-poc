@@ -50,7 +50,7 @@ describe("host release schemas", () => {
       latest: { version: "2026.07.12-27d3674", publishedAt: "2026-07-12T18:00:00Z", notes: null },
       updateAvailable: true,
       checkedAt: "2026-07-12T18:05:00Z",
-      networkUrl: "https://interloom-net.tryeris.com",
+      networkUrl: "https://net.example.com",
       apply: { state: "idle" },
     });
     expect(s.updateAvailable).toBe(true);

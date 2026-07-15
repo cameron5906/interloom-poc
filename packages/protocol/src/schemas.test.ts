@@ -9,6 +9,8 @@ import {
   ChatMessage,
   ClientWsMessage,
   DeviceKeyPayload,
+  FrontierHostAttestation,
+  FrontierLinkIssuerAuth,
   GpuBudget,
   GpuInfo,
   IdentityAuthClaim,
@@ -130,6 +132,61 @@ describe("AgentManifest schema", () => {
       model: { filename: "qwen2.5-7b-q4.gguf", displayName: "Qwen 2.5 7B" },
     });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts a frontier manifest carrying a hostAttestation envelope (CONTRACTS §6/§14)", () => {
+    const result = AgentManifest.safeParse({
+      agentId: "a1",
+      name: "Ada",
+      avatar: { emoji: "🤖", bg: "#efeafc" },
+      persona: "helpful",
+      capabilityBlurb: "does things",
+      pubKey: "agentPub",
+      availability: "always",
+      contract: { kind: "free" },
+      params: { temperature: 0.7, contextLength: 4096 },
+      model: { filename: "frontier:anthropic/claude-sonnet-5", displayName: "claude-sonnet-5" },
+      runtime: "frontier",
+      frontier: { provider: "anthropic", model: "claude-sonnet-5" },
+      operator: {
+        pubKey: "identityPub",
+        grant: {
+          payload: {
+            v: 1,
+            identityKey: "identityPub",
+            subjectKey: "hostPub",
+            scope: "host-operator",
+            issuedAt: 1_752_000_000_000,
+            epoch: 0,
+            nonce: "n1",
+          },
+          key: "identityPub",
+          sig: "s",
+        },
+      },
+      hostAttestation: {
+        payload: { agentId: "a1", agentPubKey: "agentPub", iat: 1_752_000_000_000 },
+        key: "hostPub",
+        sig: "s",
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("omits hostAttestation when absent (hosted agents, unbound hosts)", () => {
+    const parsed = AgentManifest.parse({
+      agentId: "a1",
+      name: "Ada",
+      avatar: { emoji: "🤖", bg: "#efeafc" },
+      persona: "helpful",
+      capabilityBlurb: "does things",
+      pubKey: "pub",
+      availability: "always",
+      contract: { kind: "free" },
+      params: { temperature: 0.7, contextLength: 4096 },
+      model: { filename: "qwen2.5-7b-q4.gguf", displayName: "Qwen 2.5 7B" },
+    });
+    expect(parsed).not.toHaveProperty("hostAttestation");
   });
 });
 
@@ -790,6 +847,30 @@ describe("Device link schemas (CONTRACTS §4)", () => {
     expect(LinkSession.safeParse({ linkId: "l1", expiresAt: 1000 }).success).toBe(true);
   });
 
+  it("LinkSession without kind still parses (absent ⇒ device, CONTRACTS §14)", () => {
+    const result = LinkSession.safeParse({ linkId: "l1", expiresAt: 1000 });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.kind).toBeUndefined();
+  });
+
+  it("LinkSession accepts kind:'frontier-agent'", () => {
+    const result = LinkSession.safeParse({ linkId: "l1", expiresAt: 1000, kind: "frontier-agent" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.kind).toBe("frontier-agent");
+  });
+
+  it("LinkSession accepts kind:'device'", () => {
+    expect(LinkSession.safeParse({ linkId: "l1", expiresAt: 1000, kind: "device" }).success).toBe(
+      true,
+    );
+  });
+
+  it("LinkSession rejects an unknown kind", () => {
+    expect(LinkSession.safeParse({ linkId: "l1", expiresAt: 1000, kind: "bogus" }).success).toBe(
+      false,
+    );
+  });
+
   it.each([
     ["join", { t: "join", role: "issuer" }],
     ["peer", { t: "peer", present: true }],
@@ -806,6 +887,82 @@ describe("Device link schemas (CONTRACTS §4)", () => {
 
   it("LinkSignalFrame rejects an unknown t", () => {
     expect(LinkSignalFrame.safeParse({ t: "bogus" }).success).toBe(false);
+  });
+
+  it("LinkSignalFrame's join variant accepts an additive frontier-agent issuer auth envelope", () => {
+    const result = LinkSignalFrame.safeParse({
+      t: "join",
+      role: "issuer",
+      auth: {
+        payload: { linkId: "l1", role: "issuer", nonce: "n1", iat: 1_752_000_000_000 },
+        key: "k",
+        sig: "s",
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  describe("FrontierLinkIssuerAuth (CONTRACTS §4/§14)", () => {
+    const base = {
+      linkId: "link-1",
+      role: "issuer" as const,
+      nonce: "n1",
+      iat: 1_752_000_000_000,
+    };
+
+    it("parses a valid auth payload", () => {
+      expect(FrontierLinkIssuerAuth.safeParse(base).success).toBe(true);
+    });
+
+    it("rejects a wrong role literal", () => {
+      expect(FrontierLinkIssuerAuth.safeParse({ ...base, role: "scanner" }).success).toBe(false);
+    });
+
+    it("rejects a missing linkId", () => {
+      const { linkId: _linkId, ...missing } = base;
+      expect(FrontierLinkIssuerAuth.safeParse(missing).success).toBe(false);
+    });
+
+    it("rejects a missing nonce", () => {
+      const { nonce: _nonce, ...missing } = base;
+      expect(FrontierLinkIssuerAuth.safeParse(missing).success).toBe(false);
+    });
+
+    it("rejects a non-numeric iat", () => {
+      expect(FrontierLinkIssuerAuth.safeParse({ ...base, iat: "now" }).success).toBe(false);
+    });
+  });
+
+  describe("FrontierHostAttestation (CONTRACTS §6/§14)", () => {
+    const base = {
+      agentId: "a1",
+      agentPubKey: "cHVia2V5",
+      iat: 1_752_000_000_000,
+    };
+
+    it("parses a valid attestation payload", () => {
+      expect(FrontierHostAttestation.safeParse(base).success).toBe(true);
+    });
+
+    it("rejects a missing agentId", () => {
+      const { agentId: _agentId, ...missing } = base;
+      expect(FrontierHostAttestation.safeParse(missing).success).toBe(false);
+    });
+
+    it("rejects a missing agentPubKey", () => {
+      const { agentPubKey: _agentPubKey, ...missing } = base;
+      expect(FrontierHostAttestation.safeParse(missing).success).toBe(false);
+    });
+
+    it("rejects a non-numeric iat", () => {
+      expect(FrontierHostAttestation.safeParse({ ...base, iat: "now" }).success).toBe(false);
+    });
+
+    it("JSON round-trips an attestation payload", () => {
+      const parsed = FrontierHostAttestation.parse(base);
+      const roundTripped = FrontierHostAttestation.parse(JSON.parse(JSON.stringify(parsed)));
+      expect(roundTripped).toEqual(parsed);
+    });
   });
 
   it("LinkSignalFrame rejects an unknown error code", () => {

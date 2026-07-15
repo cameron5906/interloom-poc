@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FrontierWorkItem } from "./frontier.js";
 
 /** Wire protocol version for tunnel frames. Unknown versions are rejected. */
 export const TUNNEL_VERSION = 1 as const;
@@ -75,8 +76,9 @@ export const AuthIdentifyParams = z.object({
   /** Loaded model context window (tokens). The host sends this so the instance
    *  can cap prompt assembly to fit (chars/4 heuristic, reserving reply budget). */
   ctx: z.number().optional(),
-  /** Host feature advertisement (e.g. "tools"). Instances never offer tools
-   *  over a tunnel that did not advertise them. */
+  /** Host feature advertisement (e.g. "tools", "frontierQueue"). Instances never
+   *  offer tools over a tunnel that did not advertise them. A tunnel advertising
+   *  "frontierQueue" receives `work.*` methods, never `inference.*` (CONTRACTS §14). */
   features: z.array(z.string()).optional(),
 });
 export type AuthIdentifyParams = z.infer<typeof AuthIdentifyParams>;
@@ -179,6 +181,88 @@ export const HealthPingResult = z.object({
   ts: z.number(),
 });
 export type HealthPingResult = z.infer<typeof HealthPingResult>;
+
+// --- Frontier work queue methods (CONTRACTS §14) ---
+
+/** `work.available` evt params (instance→host, a nudge; host may pull). */
+export const WorkAvailableEvt = z.object({
+  agentId: z.string(),
+});
+export type WorkAvailableEvt = z.infer<typeof WorkAvailableEvt>;
+
+/** `work.pull` req params (host→instance). Leases up to `max` items for 120s. */
+export const WorkPullParams = z.object({
+  agentId: z.string(),
+  max: z.number(),
+});
+export type WorkPullParams = z.infer<typeof WorkPullParams>;
+
+export const WorkPullResult = z.object({
+  items: z.array(FrontierWorkItem),
+});
+export type WorkPullResult = z.infer<typeof WorkPullResult>;
+
+/** `work.begin` req params (host→instance). Instance broadcasts `typing` for the agent. */
+export const WorkBeginParams = z.object({
+  workId: z.string(),
+});
+export type WorkBeginParams = z.infer<typeof WorkBeginParams>;
+
+export const WorkBeginResult = z.object({
+  ok: z.literal(true),
+});
+export type WorkBeginResult = z.infer<typeof WorkBeginResult>;
+
+/**
+ * `work.complete` req params (host→instance). Persists the agent's reply via
+ * the normal send path. `leaseToken` (additive) must match the token handed
+ * out by `work.pull` for this item — a missing/stale token is rejected with
+ * `E_STALE_LEASE` instead of `{ ok: true }` (CONTRACTS §14 "Lease ownership").
+ */
+export const WorkCompleteParams = z.object({
+  workId: z.string(),
+  text: z.string(),
+  leaseToken: z.string().optional(),
+});
+export type WorkCompleteParams = z.infer<typeof WorkCompleteParams>;
+
+export const WorkCompleteResult = z.object({
+  ok: z.literal(true),
+  messageId: z.string(),
+});
+export type WorkCompleteResult = z.infer<typeof WorkCompleteResult>;
+
+/**
+ * `work.fail` req params (host→instance). Requeues up to 3 attempts, then
+ * dead. `leaseToken` (additive) must match the token handed out by
+ * `work.pull` — a missing/stale token is rejected with `E_STALE_LEASE`
+ * rather than mutating the row, so a late fail can never resurrect an
+ * already-`done` item back to `queued` (CONTRACTS §14 "Lease ownership").
+ */
+export const WorkFailParams = z.object({
+  workId: z.string(),
+  reason: z.string(),
+  leaseToken: z.string().optional(),
+});
+export type WorkFailParams = z.infer<typeof WorkFailParams>;
+
+export const WorkFailResult = z.object({
+  ok: z.literal(true),
+});
+export type WorkFailResult = z.infer<typeof WorkFailResult>;
+
+/** `chat.post` req params (host→instance). Proactive agent message; only for channels the agent is a member of. */
+export const ChatPostParams = z.object({
+  channelId: z.string(),
+  text: z.string(),
+});
+export type ChatPostParams = z.infer<typeof ChatPostParams>;
+
+export const ChatPostResult = z.object({
+  ok: z.literal(true),
+  messageId: z.string(),
+});
+export type ChatPostResult = z.infer<typeof ChatPostResult>;
 
 // --- Frame parsing + constructors ---
 

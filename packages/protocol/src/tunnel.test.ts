@@ -16,6 +16,19 @@ import {
   TUNNEL_VERSION,
 } from "./index.js";
 import { ContentPart, ToolCall, ToolDef } from "./tunnel.js";
+import {
+  ChatPostParams,
+  ChatPostResult,
+  WorkAvailableEvt,
+  WorkBeginParams,
+  WorkBeginResult,
+  WorkCompleteParams,
+  WorkCompleteResult,
+  WorkFailParams,
+  WorkFailResult,
+  WorkPullParams,
+  WorkPullResult,
+} from "./tunnel.js";
 
 describe("tunnel frame constructors", () => {
   it("makeReq builds a req frame with a uuid id", () => {
@@ -221,6 +234,151 @@ describe("tool-calling wire shapes (additive, CONTRACTS §3)", () => {
       features: ["tools"],
     });
     expect(p.features).toEqual(["tools"]);
+  });
+
+  it("auth.identify accepts the frontierQueue feature flag (CONTRACTS §14)", () => {
+    const p = AuthIdentifyParams.parse({
+      agentId: "a",
+      agentPubKey: "k",
+      voucher: { payload: {}, key: "k", sig: "s" },
+      sig: "s",
+      features: ["frontierQueue"],
+    });
+    expect(p.features).toEqual(["frontierQueue"]);
+  });
+});
+
+describe("Frontier work queue tunnel methods (CONTRACTS §14)", () => {
+  it("WorkAvailableEvt round-trips", () => {
+    expect(WorkAvailableEvt.parse({ agentId: "ada" })).toEqual({ agentId: "ada" });
+  });
+
+  it("WorkPullParams round-trips agentId + max", () => {
+    const parsed = WorkPullParams.parse({ agentId: "ada", max: 5 });
+    expect(parsed).toEqual({ agentId: "ada", max: 5 });
+  });
+
+  it("WorkPullResult carries an array of FrontierWorkItem", () => {
+    const item = {
+      workId: "w1",
+      agentId: "ada",
+      channelId: "c1",
+      channelName: "general",
+      workspaceName: "Interloom Demo",
+      trigger: {
+        id: "m1",
+        channelId: "c1",
+        authorId: "u1",
+        authorName: "Cam",
+        isAgent: false,
+        text: "hi @Ada",
+        mentions: ["ada"],
+        createdAt: "2026-07-14T00:00:00.000Z",
+      },
+      recentMessages: [],
+      members: [{ name: "Ada", isAgent: true }],
+      persona: { name: "Ada" },
+      enqueuedAt: "2026-07-14T00:00:01.000Z",
+    };
+    const result = WorkPullResult.safeParse({ items: [item] });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.items).toHaveLength(1);
+  });
+
+  it("WorkPullResult accepts an empty items array", () => {
+    expect(WorkPullResult.safeParse({ items: [] }).success).toBe(true);
+  });
+
+  it("WorkPullResult items carry an optional leaseToken (CONTRACTS §14 lease ownership)", () => {
+    const item = {
+      workId: "w1",
+      agentId: "ada",
+      channelId: "c1",
+      channelName: "general",
+      workspaceName: "Interloom Demo",
+      trigger: {
+        id: "m1",
+        channelId: "c1",
+        authorId: "u1",
+        authorName: "Cam",
+        isAgent: false,
+        text: "hi @Ada",
+        mentions: ["ada"],
+        createdAt: "2026-07-14T00:00:00.000Z",
+      },
+      recentMessages: [],
+      members: [{ name: "Ada", isAgent: true }],
+      persona: { name: "Ada" },
+      enqueuedAt: "2026-07-14T00:00:01.000Z",
+      leaseToken: "lease-abc123",
+    };
+    const result = WorkPullResult.safeParse({ items: [item] });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.items[0]!.leaseToken).toBe("lease-abc123");
+
+    // Absent leaseToken still parses — additive field, forward-compatible
+    // with a not-yet-upgraded instance.
+    const { leaseToken: _leaseToken, ...withoutToken } = item;
+    expect(WorkPullResult.safeParse({ items: [withoutToken] }).success).toBe(true);
+  });
+
+  it("WorkBeginParams round-trips workId", () => {
+    expect(WorkBeginParams.parse({ workId: "w1" })).toEqual({ workId: "w1" });
+  });
+
+  it("WorkBeginResult accepts {ok:true} and rejects a false ok", () => {
+    expect(WorkBeginResult.parse({ ok: true })).toEqual({ ok: true });
+    expect(WorkBeginResult.safeParse({ ok: false }).success).toBe(false);
+  });
+
+  it("WorkCompleteParams/Result round-trip", () => {
+    expect(WorkCompleteParams.parse({ workId: "w1", text: "done!" })).toEqual({
+      workId: "w1",
+      text: "done!",
+    });
+    expect(WorkCompleteResult.parse({ ok: true, messageId: "m1" })).toEqual({
+      ok: true,
+      messageId: "m1",
+    });
+  });
+
+  it("WorkCompleteParams accepts an optional leaseToken (CONTRACTS §14 lease ownership)", () => {
+    expect(
+      WorkCompleteParams.parse({ workId: "w1", text: "done!", leaseToken: "lease-abc123" }),
+    ).toEqual({ workId: "w1", text: "done!", leaseToken: "lease-abc123" });
+  });
+
+  it("WorkFailParams round-trips workId + reason", () => {
+    expect(WorkFailParams.parse({ workId: "w1", reason: "model errored" })).toEqual({
+      workId: "w1",
+      reason: "model errored",
+    });
+  });
+
+  it("WorkFailParams accepts an optional leaseToken (CONTRACTS §14 lease ownership)", () => {
+    expect(
+      WorkFailParams.parse({ workId: "w1", reason: "model errored", leaseToken: "lease-abc123" }),
+    ).toEqual({ workId: "w1", reason: "model errored", leaseToken: "lease-abc123" });
+  });
+
+  it("WorkFailResult accepts {ok:true} and rejects a false ok", () => {
+    expect(WorkFailResult.parse({ ok: true })).toEqual({ ok: true });
+    expect(WorkFailResult.safeParse({ ok: false }).success).toBe(false);
+  });
+
+  it("ChatPostParams/Result round-trip", () => {
+    expect(ChatPostParams.parse({ channelId: "c1", text: "proactive update" })).toEqual({
+      channelId: "c1",
+      text: "proactive update",
+    });
+    expect(ChatPostResult.parse({ ok: true, messageId: "m2" })).toEqual({
+      ok: true,
+      messageId: "m2",
+    });
+  });
+
+  it("WorkCompleteResult rejects a false ok", () => {
+    expect(WorkCompleteResult.safeParse({ ok: false, messageId: "m1" }).success).toBe(false);
   });
 });
 

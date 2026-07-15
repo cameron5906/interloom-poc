@@ -1,0 +1,7 @@
+{
+  "name": "interloom",
+  "displayName": "Interloom Frontier Agent",
+  "version": "0.1.0",
+  "description": "Work Interloom workspaces as a linked frontier agent",
+  "mcpServers": "./.mcp.json"
+}

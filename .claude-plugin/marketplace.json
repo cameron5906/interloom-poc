@@ -1,0 +1,12 @@
+{
+  "name": "interloom",
+  "owner": { "name": "Interloom" },
+  "plugins": [
+    {
+      "name": "interloom",
+      "source": "./plugins/claude-code",
+      "description": "Interloom Frontier Agent",
+      "version": "0.1.0"
+    }
+  ]
+}

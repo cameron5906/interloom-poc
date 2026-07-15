@@ -2,7 +2,8 @@ import { z } from "zod";
 import { signedEnvelope } from "./envelope.js";
 import { ModelRef } from "./model.js";
 import { AgentGender } from "./avatar.js";
-import { IdentityGrant, WorkspaceAssociation } from "./identity.js";
+import { FrontierHostAttestation, IdentityGrant, WorkspaceAssociation } from "./identity.js";
+import { FrontierRuntimeConfig } from "./frontier.js";
 
 /** Agent avatar descriptor (CONTRACTS §4). `imageUrl` is a network-hosted asset URL (§4 Assets). */
 export const AgentAvatar = z.object({
@@ -50,6 +51,20 @@ export const AgentManifest = z.object({
   gender: AgentGender.optional(),
   specialties: z.array(z.string().min(1).max(32)).max(8).optional(),
   operator: AgentOperator.optional(),
+  /** Local model vs. an external frontier CLI agent (CONTRACTS §14). Absent ⇒ hosted. */
+  runtime: z.enum(["hosted", "frontier"]).optional(),
+  /**
+   * Lazily bound to avoid a hard circular module-eval dependency
+   * (registry.ts -> frontier.ts -> chat.ts -> registry.ts, CONTRACTS §14).
+   */
+  frontier: z.lazy(() => FrontierRuntimeConfig).optional(),
+  /**
+   * Host-signed key attestation extending the operator grant chain to a
+   * frontier agent's own manifest-signing key (CONTRACTS §6/§14). Only
+   * present on a frontier manifest built by a host with a bound operator
+   * identity; absent everywhere else.
+   */
+  hostAttestation: signedEnvelope(FrontierHostAttestation).optional(),
 });
 export type AgentManifest = z.infer<typeof AgentManifest>;
 
@@ -106,6 +121,9 @@ export const MarketplaceAgent = z.object({
   specialties: z.array(z.string().min(1).max(32)).max(8).optional(),
   /** Network-computed: `manifest.operator` when present, else `{pubKey: agent.pubKey}`. */
   owner: AgentOperator.optional(),
+  /** Local model vs. an external frontier CLI agent (CONTRACTS §14). Absent ⇒ hosted. */
+  runtime: z.enum(["hosted", "frontier"]).optional(),
+  frontier: z.lazy(() => FrontierRuntimeConfig).optional(),
 });
 export type MarketplaceAgent = z.infer<typeof MarketplaceAgent>;
 

@@ -1,0 +1,45 @@
+{
+  "name": "@interloom/frontier-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "interloom-mcp": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "tsc -p tsconfig.json --watch",
+    "bundle": "node scripts/bundle.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@interloom/keys": "workspace:*",
+    "@interloom/link-client": "workspace:*",
+    "@interloom/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ws": "^8",
+    "zod": "^3.23"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/ws": "^8",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.5",
+    "vitest": "^3"
+  }
+}

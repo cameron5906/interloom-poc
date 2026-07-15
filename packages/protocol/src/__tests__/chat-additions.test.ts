@@ -217,6 +217,37 @@ describe("Member additive field — bio (CONTRACTS §5 A.4)", () => {
   });
 });
 
+describe("Member additive field — runtime (CONTRACTS §14)", () => {
+  it("parses an old-shape member without runtime (backward compat, absent ⇒ hosted)", () => {
+    const result = Member.safeParse({ id: "m1", name: "Ada", isAgent: true, online: true });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.runtime).toBeUndefined();
+    }
+  });
+
+  it("accepts runtime:'frontier'", () => {
+    const result = Member.safeParse({
+      id: "m1",
+      name: "Ada",
+      isAgent: true,
+      online: true,
+      runtime: "frontier",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.runtime).toBe("frontier");
+    }
+  });
+
+  it("rejects an unknown runtime value", () => {
+    expect(
+      Member.safeParse({ id: "m1", name: "Ada", isAgent: true, online: true, runtime: "cloud" })
+        .success,
+    ).toBe(false);
+  });
+});
+
 describe("Channel additive fields — unread/hasMention/lastMessageAt (CONTRACTS §5 A.7)", () => {
   it("parses an old-shape channel without the new fields (backward compat)", () => {
     const result = Channel.safeParse({ id: "c1", name: "general", kind: "channel" });
