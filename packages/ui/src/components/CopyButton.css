@@ -1,0 +1,36 @@
+.il-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--il-border-input);
+  border-radius: var(--il-radius-sm);
+  background: var(--il-bg-card);
+  color: var(--il-text-secondary);
+  font-family: var(--il-font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.il-copy-btn:hover {
+  border-color: var(--il-border-card-hover);
+  color: var(--il-text-primary);
+}
+
+.il-copy-btn:focus-visible {
+  outline: 2px solid var(--il-accent);
+  outline-offset: 2px;
+}
+
+.il-copy-btn--copied {
+  color: var(--il-success-deep);
+  border-color: var(--il-success);
+  background: var(--il-success-tint);
+}
+
+.il-copy-btn__label {
+  white-space: nowrap;
+}

@@ -56,3 +56,6 @@ export { MobileTabBar } from "./components/MobileTabBar.js";
 export type { MobileTabBarProps, MobileTabBarItem } from "./components/MobileTabBar.js";
 export { CountBadge } from "./components/CountBadge.js";
 export type { CountBadgeProps } from "./components/CountBadge.js";
+
+export { CopyButton } from "./components/CopyButton.js";
+export type { CopyButtonProps } from "./components/CopyButton.js";

@@ -143,6 +143,7 @@ export class TunnelClient {
   private status: TunnelStatus = "connecting";
   private destroyed = false;
   private backoffMs = 1000;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRequests = new Map<string, PendingReq>();
   private streamListeners = new Map<string, (frame: TunnelFrame) => void>();
   private inflight = new Map<string, AbortController>();
@@ -181,6 +182,10 @@ export class TunnelClient {
 
   destroy(): void {
     this.destroyed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.ws?.close();
     this.ws = null;
   }
@@ -212,11 +217,8 @@ export class TunnelClient {
     const ws = new WebSocket(url);
     this.ws = ws;
 
-    ws.on("open", () => {
-      this.backoffMs = 1000;
-    });
-
     ws.on("message", (data) => {
+      if (ws !== this.ws) return;
       const raw = typeof data === "string" ? data : data.toString();
       let frame: TunnelFrame;
       try {
@@ -228,6 +230,7 @@ export class TunnelClient {
     });
 
     ws.on("close", () => {
+      if (ws !== this.ws) return;
       this.ws = null;
       for (const ac of this.inflight.values()) {
         ac.abort();
@@ -245,6 +248,7 @@ export class TunnelClient {
     });
 
     ws.on("error", () => {
+      if (ws !== this.ws) return;
       this.ws = null;
       if (!this.destroyed) {
         this.status = "down";
@@ -255,9 +259,11 @@ export class TunnelClient {
 
   private scheduleReconnect(): void {
     if (this.destroyed) return;
+    if (this.reconnectTimer) return;
     const jitter = Math.random() * 1000;
     const delay = this.backoffMs + jitter;
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       if (!this.destroyed) this.connect();
     }, delay);
     this.backoffMs = Math.min(this.backoffMs * 2, 30_000);
