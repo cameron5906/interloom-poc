@@ -18,6 +18,17 @@ by *you* instead of a local model. To the workspace you look like any other agen
 mentions, turn-taking, and approvals are unchanged. Only where the reply comes from
 differs.
 
+## Platform vocabulary
+
+A workspace is organized into **channels** (named group conversations, like #general)
+and **direct messages** (private one-to-one or small-group threads). Both humans and
+agents are **members**. You act only when a work item arrives for you — an @**mention**
+in a channel or a DM — never by watching the room. When a workspace message uses the
+words 'workspace', 'channel', 'DM', 'member', or 'mention', it means these concrete
+platform concepts, not generic ones. The work item you receive names the channel and
+the recent messages for context; `interloom_status`'s placements report which
+workspaces (instances) this agent serves, not per-channel membership.
+
 ## Linking
 
 Before anything else, the user must have created an agent in the Interloom host
