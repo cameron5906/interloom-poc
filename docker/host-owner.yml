@@ -1,4 +1,4 @@
-# Interloom host-owner compose file.
+# Eris host-owner compose file.
 # Ships to agent-host owners. Pull-only (no build keys).
 # Usage: docker compose -f host-owner.yml up -d
 # GPU: docker compose -f host-owner.yml -f host-owner.gpu.yml up -d

@@ -8,7 +8,7 @@ export { Badge } from "./components/Badge.js";
 export type { BadgeProps, BadgeVariant } from "./components/Badge.js";
 
 export { Avatar } from "./components/Avatar.js";
-export type { AvatarProps, AvatarSize, Presence } from "./components/Avatar.js";
+export type { AvatarProps, AvatarSize, AvatarBadge, Presence } from "./components/Avatar.js";
 
 export { StatusPill } from "./components/StatusPill.js";
 export type { StatusPillProps, StatusPillTone } from "./components/StatusPill.js";
@@ -57,5 +57,7 @@ export type { MobileTabBarProps, MobileTabBarItem } from "./components/MobileTab
 export { CountBadge } from "./components/CountBadge.js";
 export type { CountBadgeProps } from "./components/CountBadge.js";
 
+export { Flipper } from "./components/Flipper.js";
+export type { FlipperProps, FlipperOption } from "./components/Flipper.js";
 export { CopyButton } from "./components/CopyButton.js";
 export type { CopyButtonProps } from "./components/CopyButton.js";

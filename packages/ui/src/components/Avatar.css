@@ -55,3 +55,22 @@
 .il-avatar__dot--offline {
   background: var(--il-presence-offline);
 }
+
+.il-avatar__badge {
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  border-radius: 50%;
+  border: 1px solid var(--il-bg-card);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-family: var(--il-font-ui);
+}
+
+.il-avatar__badge--frontier {
+  background: var(--il-accent-tint);
+  color: var(--il-accent-deep);
+}

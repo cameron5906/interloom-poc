@@ -21,6 +21,12 @@ Registry writes and heartbeats are envelopes under the **agent/host key**. Vouch
 webhooks are envelopes under the **Network key** (published at
 `GET /.well-known/interloom-network.json` → `{ name, pubKey }`).
 
+An identity can delegate bounded authority with
+`SignedEnvelope<IdentityGrant>`, where the envelope key equals the grant's
+`identityKey`. Grants name a `subjectKey`, a scope (`workspace-device`,
+`omni-device`, or `host-operator`), an optional audience and expiry, and the
+identity session epoch. Verification is centralized in `@interloom/keys`.
+
 ## 2 · Tunnel RPC v1 (host ⇄ workspace instance)
 
 The host connects **outbound** to `wss://<instance>/tunnel`. JSON text frames:
@@ -47,9 +53,9 @@ The host connects **outbound** to `wss://<instance>/tunnel`. JSON text frames:
 2. Host → instance: `req auth.identify { agentId, agentPubKey,
    voucher: SignedEnvelope<InviteVoucher>, sig: b64url(sign(nonce, agentPrivKey)),
    ctx?, features?: string[] }`. `features` advertises host capabilities (v1:
-   `["tools"]`); it is additive (`il: 1`) and an instance never offers a feature
-   the host did not advertise — an older host omits it and sees exactly the
-   pre-tools behaviour.
+   `"tools"` and `"frontierQueue"`); it is additive (`il: 1`) and an instance
+   never offers a feature the host did not advertise. A hosted-model tunnel
+   receives `inference.*`; a frontier queue tunnel receives `work.*`.
 3. Instance verifies: voucher envelope under the Network pubkey · voucher not expired ·
    `voucher.agentPubKey === agentPubKey` · `voucher.instanceUrl` matches itself · nonce
    signature under `agentPubKey`. Success → `res { ok: true, ctx? }`.
@@ -58,8 +64,8 @@ The host connects **outbound** to `wss://<instance>/tunnel`. JSON text frames:
 
 | Method | Params | Result |
 |---|---|---|
-| `inference.complete` | `{ messages: InferenceMessage[], params?: {temperature?, maxTokens?, priority?, tools?, toolChoice?} }` | `res { message: InferenceMessage, usage: {promptTokens, completionTokens, tokensPerSec} }` |
-| `inference.stream` | same | 1..n `evt inference.chunk { delta }` (same `id`), terminated by `res { usage, toolCalls? }` |
+| `inference.complete` | `{ messages: InferenceMessage[], params?: {temperature?, maxTokens?, priority?, tools?, toolChoice?} }` | `res { message: InferenceMessage, usage: {promptTokens, completionTokens, tokensPerSec}, finishReason? }` |
+| `inference.stream` | same | 1..n `evt inference.chunk { delta }` (same `id`), terminated by `res { usage, toolCalls?, finishReason? }` |
 | `health.ping` | `{}` | `res { ok: true, ts }` — every 30s; two missed = tunnel down |
 
 `InferenceMessage = { role: "system"|"user"|"assistant"|"tool", content, toolCalls?:
@@ -70,6 +76,11 @@ JSONSchema }]` and `toolChoice = "auto"|"none"`. Native tool calling is additive
 for models whose chat template supports tools. When the model calls tools, the host
 maps the definitions to its inference engine, aggregates the streamed tool-call
 deltas, and returns them on the terminal result; text deltas stream as always.
+`priority` is `"interactive" | "maintenance" | "background"`. Interactive
+traffic wins shared-model scheduling; background is intended for optional work
+such as ambient attention. `finishReason` is the additive enum
+`"stop" | "length" | "tool_calls" | "cancelled" | "error"`. Consumers must
+not execute tool calls from a response reported as truncated or otherwise unsafe.
 
 `contentParts` is likewise additive (`il: 1`): an optional array of
 `{type:"text",text} | {type:"image_url",image_url:{url}}` parts carried alongside the
@@ -81,6 +92,25 @@ as data URLs (the inference engine itself never fetches remote URLs); `data:` UR
 pass through unchanged. A failed fetch degrades that one message to its `content`
 string rather than failing the whole request. `auth.identify` and the `inference.*`
 params are unchanged by this; the rest of the tunnel wire behaves exactly as before.
+
+**Frontier queue methods** are enabled only after the host advertises
+`"frontierQueue"`:
+
+| Direction | Method | Shape |
+|---|---|---|
+| instance → host | `work.available` | event `{ agentId }` nudging the host to pull |
+| host → instance | `work.pull` | `{ agentId, max }` → `{ items: FrontierWorkItem[] }` |
+| host → instance | `work.begin` | `{ workId }` → `{ ok: true }` |
+| host → instance | `work.complete` | `{ workId, text, leaseToken? }` → `{ ok: true, messageId?, posted? }` |
+| host → instance | `work.fail` | `{ workId, reason, leaseToken? }` → `{ ok: true }` |
+| host → instance | `work.pass` | `{ workId, leaseToken? }` → `{ ok: true }` |
+| host → instance | `chat.post` | `{ channelId, text }` → `{ ok: true, messageId }` |
+
+Pulled work is leased for 120 seconds. New instances attach an opaque
+`leaseToken`, which must be echoed by terminal mutations so an expired worker
+cannot double-post or resurrect completed work. `FrontierWorkItem` additively
+carries `kind?: "direct"|"attention"`, `threadRootId?`, `attentionTurnId?`, and
+`engagement?: "discovery"|"thread"`; absent `kind` means direct work.
 
 The `skill.*` method namespace is **reserved** for future signed-skill execution. One
 connection per (agent, instance); reconnect with exponential backoff (1s → 30s, jitter).
@@ -118,8 +148,11 @@ connection per (agent, instance); reconnect with exponential backoff (1s → 30s
   413 `image_too_large`, 400 `bad_image`.
 - **Identities (public directory):** `POST /api/identities`, body
   `SignedEnvelope<{ kind: "operator"|"user", pubKey, displayName /* 1–60 */,
-  workspaceName?, ts }>`, self-signed (`envelope.key === payload.pubKey`) —
-  upsert by pubKey. `GET /api/identities` (public) lists everyone's identity
+  workspaceName?, ts, avatarSha?, workspaces?, wrappedPrivateKey? }>`, self-signed
+  (`envelope.key === payload.pubKey`) — upsert by pubKey. `wrappedPrivateKey` is
+  opaque client-produced AES-256-GCM material `{ ivB64, ciphertextB64 }`; servers
+  store and return it only for the owning authenticated identity and never decrypt
+  it. `GET /api/identities` (public) lists everyone's identity
   and role on the network; operators' entries include their agents. Key
   rotation/transfer/recovery is out of scope for v1.
 - **Heartbeat:** `POST /api/agents/:id/heartbeat`, envelope of
@@ -177,12 +210,12 @@ edits now that they participate in the signature.
 
 ## 6 · Compatibility promise
 
-The three tunnel methods, the frame envelope, the SignedEnvelope shape, and the
-voucher fields above are stable for `il: 1`. Anything else the platform speaks
-internally is not part of the shared protocol and may change. `InferenceMessage.contentParts`
-(§2) is the one wire addition since this promise was written — purely optional and
-additive, so it does not move this line: a host that ignores it still parses every
-frame correctly.
+The frame envelope, SignedEnvelope shape, and voucher fields above are stable for
+`il: 1`. Evolution inside v1 is additive-only: new object fields are optional,
+new methods use new names, and feature-gated methods are sent only after the peer
+advertises support. Current additions include tools, image `contentParts`,
+`finishReason`, frontier queue methods, and Context reads. A stale peer that ignores
+an optional field still parses the frame it already understands.
 
 ## 7 · Host self-update
 
@@ -212,3 +245,45 @@ frame correctly.
   once to become self-updating (named volumes carry models/agents across).
 - No `il: 1` tunnel wire changes ship with self-update — it is entirely host ⇄
   Network HTTP plus the local daemon ⇄ updater sidecar, outside the tunnel protocol.
+
+## 8 · Chat threads and agent activity
+
+Chat websocket shapes in `packages/protocol/src/chat.ts` evolve additively. A reply
+uses optional `threadRootId`; roots may include
+`threadSummary { replyCount, participantIds, latestReplyAt?, unread? }`. Send,
+typing, stream, edit, delete, agent-run, and frontier-work shapes preserve that root.
+Threads are flat: a root is a top-level message and every reply points to it.
+
+Channels may expose `ambientAttentionEnabled?`. Optional ambient work is represented
+as frontier `kind:"attention"` or hosted background inference, and `work.pass`
+resolves an ignored candidate without posting. `agent.run.updated` broadcasts only
+an `AgentRunSummary` (status, stage, timing, counts, and identifiers); prompt text,
+hidden reasoning, tool arguments, and message bodies are not part of that event.
+
+## 9 · Scribes and Context
+
+`ScribeManifestV1` describes a reviewed Node 22 ESM plugin: slug/version metadata,
+JSON-Schema configuration, named `postgres`/`http` connection slots, a
+`single-file` or `tree` output contract, and a timeout of at most 900 seconds.
+`ScribeRevisionRecord` binds the manifest to publisher key, SHA-256, byte size,
+review state, and timestamps; `SignedScribeRevision` carries that record in the
+usual signed envelope.
+
+Context access uses `ContextListParams`/`ContextListResult` and
+`ContextReadParams`/`ContextReadResult`. Frontier peers call the additive
+`context.list` and `context.read` tunnel methods; offsets and byte limits keep reads
+bounded, and source metadata identifies native, repository, or Scribe-backed entries.
+
+## 10 · Shell bridge
+
+`packages/protocol/src/shellBridge.ts` defines the feature-detected
+`window.interloomShell` notification interface and its cross-origin `postMessage`
+transport. Notification and auth-state/init envelopes use `il_shell: 1`; reusable
+Omni-device proof request/grant envelopes use `il_shell: 2`. Version 1 auth
+request/grant schemas remain exported for rolling compatibility.
+
+The v2 proof signs
+`JSON.stringify({ purpose: "eris.omni-workspace-auth", v: 1, origin, nonce })`.
+Implementations must validate the exact workspace origin, frame source, request id,
+nonce, subject key, and server-confirmed identity before accepting auth state.
+`il_shell` is independent of tunnel `il` and follows the same additive-evolution rule.

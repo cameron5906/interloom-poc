@@ -23,7 +23,7 @@ export function MobileTopBar({ operator, daemonOnline }: MobileTopBarProps) {
         <span className="il-topbar__mark" aria-hidden>
           <LoomGlyph size={22} />
         </span>
-        <span className="il-topbar__wordmark">Interloom</span>
+        <span className="il-topbar__wordmark">Eris</span>
       </div>
       <StatusPill tone={sessionState.tone} live={sessionState.live} className="il-topbar__pill">
         {sessionState.label}

@@ -300,3 +300,48 @@ export const EMPTY_AGENT_DRAFT: AgentDraft = {
   capabilityBlurb: "",
   params: { temperature: 0.7, contextLength: 0 },
 };
+
+// --- Frontier agents (CONTRACTS §6/§14) ---
+
+/** Body for `PUT /api/agents/:id/frontier`. Omitting `apiKey` leaves any
+ * stored key untouched; `apiKey: ""` clears it. */
+export interface FrontierConfigBody {
+  provider: import("@interloom/protocol").FrontierProvider;
+  model: string;
+  apiKey?: string;
+}
+
+/** `PUT`/`GET /api/agents/:id/frontier` response — the raw key never rides
+ * this shape, only whether one is stored and its last 4 characters. */
+export interface MaskedFrontierConfig {
+  provider: import("@interloom/protocol").FrontierProvider | null;
+  model: string | null;
+  hasKey: boolean;
+  last4: string | null;
+}
+
+/** `POST /api/agents/:id/frontier/link` response (CONTRACTS §6/§14). `payload`
+ * is the cleartext `FrontierLinkPayload` minus its `v`/`kind` wrapper fields —
+ * the portal completes those before handing it to `@interloom/link-client` as
+ * the issuer payload. `issuerAuth` rides the join frame's additive `auth`
+ * field so the relay can authenticate this issuer without a browser identity
+ * cookie (CONTRACTS §4/§14). */
+export interface FrontierLinkSession {
+  linkId: string;
+  secret: string;
+  url: string;
+  wsUrl: string;
+  payload: {
+    agentId: string;
+    agentName: string;
+    agentPrivKey: string;
+    agentPubKey: string;
+    networkUrl: string;
+    provider: import("@interloom/protocol").FrontierProvider;
+    model: string;
+    apiKey?: string;
+  };
+  issuerAuth: import("@interloom/keys").SignedEnvelope<
+    import("@interloom/protocol").FrontierLinkIssuerAuth
+  >;
+}

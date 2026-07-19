@@ -2,6 +2,8 @@ import WebSocket from "ws";
 import { sign } from "@interloom/keys";
 import {
   ChatPostResult,
+  ContextListResult,
+  ContextReadResult,
   makeErr,
   makeReq,
   makeRes,
@@ -9,6 +11,7 @@ import {
   WorkBeginResult,
   WorkCompleteResult,
   WorkFailResult,
+  WorkPassResult,
   WorkPullResult,
   type FrontierWorkItem,
   type Placement,
@@ -283,7 +286,11 @@ export class TunnelClient {
     });
   }
 
-  private call(method: string, params: unknown, timeoutMs = DEFAULT_CALL_TIMEOUT_MS): Promise<unknown> {
+  private call(
+    method: string,
+    params: unknown,
+    timeoutMs = DEFAULT_CALL_TIMEOUT_MS,
+  ): Promise<unknown> {
     if (this.ws?.readyState !== WebSocket.OPEN || this.status !== "connected") {
       return Promise.reject(new Error(`tunnel not connected: ${this.placement.instanceUrl}`));
     }
@@ -320,13 +327,21 @@ export class TunnelClient {
   }
 
   /** Throws `StaleLeaseError` (never a generic error) when the instance rejects with `E_STALE_LEASE`. */
-  async complete(workId: string, leaseToken: string | undefined, text: string): Promise<{ messageId: string }> {
+  async complete(
+    workId: string,
+    leaseToken: string | undefined,
+    text: string,
+  ): Promise<{ messageId?: string; posted?: boolean }> {
     try {
       const result = await this.call("work.complete", { workId, text, leaseToken });
       const parsed = WorkCompleteResult.parse(result);
-      return { messageId: parsed.messageId };
+      return {
+        ...(parsed.messageId ? { messageId: parsed.messageId } : {}),
+        ...(parsed.posted === undefined ? {} : { posted: parsed.posted }),
+      };
     } catch (err) {
-      if (err instanceof TunnelCallFailure && err.code === "E_STALE_LEASE") throw new StaleLeaseError(workId);
+      if (err instanceof TunnelCallFailure && err.code === "E_STALE_LEASE")
+        throw new StaleLeaseError(workId);
       throw err;
     }
   }
@@ -337,7 +352,18 @@ export class TunnelClient {
       const result = await this.call("work.fail", { workId, reason, leaseToken });
       WorkFailResult.parse(result);
     } catch (err) {
-      if (err instanceof TunnelCallFailure && err.code === "E_STALE_LEASE") throw new StaleLeaseError(workId);
+      if (err instanceof TunnelCallFailure && err.code === "E_STALE_LEASE")
+        throw new StaleLeaseError(workId);
+      throw err;
+    }
+  }
+
+  async pass(workId: string, leaseToken: string | undefined): Promise<void> {
+    try {
+      WorkPassResult.parse(await this.call("work.pass", { workId, leaseToken }));
+    } catch (err) {
+      if (err instanceof TunnelCallFailure && err.code === "E_STALE_LEASE")
+        throw new StaleLeaseError(workId);
       throw err;
     }
   }
@@ -346,5 +372,13 @@ export class TunnelClient {
     const result = await this.call("chat.post", { channelId, text });
     const parsed = ChatPostResult.parse(result);
     return { messageId: parsed.messageId };
+  }
+
+  async contextList(params: { path?: string; ref?: string; limit?: number }) {
+    return ContextListResult.parse(await this.call("context.list", params));
+  }
+
+  async contextRead(params: { path: string; ref?: string; offset?: number; maxBytes?: number }) {
+    return ContextReadResult.parse(await this.call("context.read", params));
   }
 }

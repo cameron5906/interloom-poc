@@ -17,3 +17,11 @@ export {
   type GrantScope,
   type VerifyGrantOptions,
 } from "./grant.js";
+export {
+  derivePrfWrapKey,
+  derivePrfWrapKeyBytes,
+  prfLoginSalt,
+  unwrapPrivateKey,
+  wrapPrivateKey,
+  type WrappedPrivateKey,
+} from "./prf.js";

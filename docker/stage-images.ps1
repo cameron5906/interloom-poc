@@ -1,4 +1,4 @@
-# stage-images.ps1 — Local staging script for Interloom Docker images.
+# stage-images.ps1 — Local staging script for Eris Docker images.
 #
 # Default behavior: builds all targets for the local arch (no push).
 # Pass -Push to also push to Docker Hub (requires docker login).
@@ -34,7 +34,7 @@ if ($arch -eq "aarch64" -or $arch -eq "arm64") {
 }
 
 Write-Host ""
-Write-Host "Interloom image staging"
+Write-Host "Eris image staging"
 Write-Host "  Bake file : $BakeFile"
 Write-Host "  DOCKER_ORG: $DockerOrg"
 Write-Host "  TAG       : $Tag"

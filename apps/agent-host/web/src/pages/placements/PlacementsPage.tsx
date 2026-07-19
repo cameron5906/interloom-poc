@@ -42,7 +42,7 @@ export function PlacementsPage() {
         <div className="il-page__head">
           <h1 className="il-page__title">Placements</h1>
           <p className="il-page__sub">
-            Instances across the Interloom network where your agents are serving.
+            Instances across the Eris network where your agents are serving.
           </p>
         </div>
 
@@ -62,7 +62,7 @@ export function PlacementsPage() {
           <EmptyState
             icon={<span style={{ fontSize: 30 }}>📍</span>}
             title="No instances yet"
-            hint="Your agents get invited from the Interloom marketplace. Placements appear here once an instance accepts one of your agents."
+            hint="Your agents get invited from the Eris marketplace. Placements appear here once an instance accepts one of your agents."
             action={
               <Link to="/agents">
                 <Button size="sm" variant="primary">

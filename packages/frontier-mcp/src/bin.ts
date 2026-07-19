@@ -4,7 +4,7 @@ import { log } from "./log.js";
 import { main as serveStdio } from "./server.js";
 import { FrontierService } from "./service.js";
 
-const HELP = `interloom-mcp — Interloom frontier agent MCP server
+const HELP = `interloom-mcp — Eris frontier agent MCP server
 
 Usage:
   interloom-mcp                    Start the stdio MCP server (default; run this

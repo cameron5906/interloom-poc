@@ -11,8 +11,9 @@ describe("clampMaxTokens", () => {
     expect(clampMaxTokens(256, 4096)).toBe(256);
   });
 
-  it("caps at 1024 regardless of window", () => {
-    expect(clampMaxTokens(4000, 32768)).toBe(1024);
+  it("admits a 4096-token work round on a sufficiently large window", () => {
+    expect(clampMaxTokens(4096, 32768)).toBe(4096);
+    expect(clampMaxTokens(8000, 32768)).toBe(4096);
   });
 
   it("caps at half the window for tiny windows, floored at 128", () => {
@@ -21,17 +22,17 @@ describe("clampMaxTokens", () => {
   });
 
   describe("thinking capability (CONTRACTS §6.1)", () => {
-    it("non-thinking models keep the 1024 ceiling", () => {
-      expect(clampMaxTokens(4000, 32768, false)).toBe(1024);
+    it("non-thinking models use the 4096 ceiling", () => {
+      expect(clampMaxTokens(8000, 32768, false)).toBe(4096);
     });
 
-    it("thinking models get a 4096 ceiling", () => {
+    it("thinking models retain a higher 8192 ceiling", () => {
       expect(clampMaxTokens(4000, 32768, true)).toBe(4000);
-      expect(clampMaxTokens(8000, 32768, true)).toBe(4096);
+      expect(clampMaxTokens(12000, 32768, true)).toBe(8192);
     });
 
     it("thinking defaults to false when omitted (back-compat)", () => {
-      expect(clampMaxTokens(4000, 32768)).toBe(1024);
+      expect(clampMaxTokens(8000, 32768)).toBe(4096);
     });
 
     it("thinking models still respect the half-window floor/cap", () => {

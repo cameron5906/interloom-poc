@@ -31,6 +31,9 @@ import type {
   HfSettings,
   HfTokenResult,
   AgentDraft,
+  FrontierConfigBody,
+  MaskedFrontierConfig,
+  FrontierLinkSession,
 } from "./types.js";
 
 export const system = {
@@ -90,6 +93,7 @@ export const models = {
 
 export const agents = {
   list: (signal?: AbortSignal) => api.get<HostAgent[]>("/api/agents", signal),
+  get: (id: string, signal?: AbortSignal) => api.get<HostAgent>(`/api/agents/${id}`, signal),
   create: (draft: AgentDraft) => api.post<HostAgent>("/api/agents", draft),
   update: (id: string, draft: Partial<AgentDraft>) =>
     api.patch<HostAgent>(`/api/agents/${id}`, draft),
@@ -97,6 +101,13 @@ export const agents = {
   register: (id: string) => api.post<HostAgent>(`/api/agents/${id}/register`),
   uploadAvatar: (id: string, dataUrl: string) =>
     api.post<{ imageUrl: string }>(`/api/agents/${id}/avatar`, { dataUrl }),
+
+  // --- Frontier runtime config + link (CONTRACTS §6/§14) ---
+  frontierGet: (id: string, signal?: AbortSignal) =>
+    api.get<MaskedFrontierConfig>(`/api/agents/${id}/frontier`, signal),
+  frontierSet: (id: string, body: FrontierConfigBody) =>
+    api.put<MaskedFrontierConfig>(`/api/agents/${id}/frontier`, body),
+  frontierLink: (id: string) => api.post<FrontierLinkSession>(`/api/agents/${id}/frontier/link`),
 };
 
 export const placements = {

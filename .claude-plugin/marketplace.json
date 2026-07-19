@@ -1,11 +1,11 @@
 {
-  "name": "interloom",
-  "owner": { "name": "Interloom" },
+  "name": "eris",
+  "owner": { "name": "Eris" },
   "plugins": [
     {
-      "name": "interloom",
+      "name": "eris",
       "source": "./plugins/claude-code",
-      "description": "Interloom Frontier Agent",
+      "description": "Eris Frontier Agent",
       "version": "0.1.0"
     }
   ]

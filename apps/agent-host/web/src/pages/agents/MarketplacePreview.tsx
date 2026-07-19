@@ -3,7 +3,7 @@ import type { AgentDraft } from "../../api/types.js";
 import { draftAvatarImageUrl } from "../../lib/character.js";
 
 /**
- * A faithful preview of how the agent's card appears on the Interloom
+ * A faithful preview of how the agent's card appears on the Eris
  * marketplace — reassures the owner before they publish.
  */
 export function MarketplacePreview({

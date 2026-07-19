@@ -22,7 +22,7 @@ export function TunnelsPanel({ agents, tunnels, connected }: TunnelsPanelProps) 
         {noAgents ? (
           <EmptyState
             title="No agents yet"
-            hint="Create an agent to start serving inference to the Interloom network."
+            hint="Create an agent to start serving inference to the Eris network."
           />
         ) : (
           <ul className="il-tunnels__list">

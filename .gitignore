@@ -5,6 +5,9 @@ dist/
 *.tsbuildinfo
 .env
 
+# local runtime state (may contain generated host keys)
+data/
+
 # terraform
 **/.terraform/
 *.tfstate

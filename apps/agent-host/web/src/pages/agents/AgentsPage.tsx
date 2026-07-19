@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Avatar, Badge, Button, StatusPill } from "@interloom/ui";
-import type { HostAgent, LoadedModel, LocalModel } from "@interloom/protocol";
+import type { FrontierProvider, HostAgent, LoadedModel, LocalModel } from "@interloom/protocol";
 import { agents as agentsApi, models as modelsApi } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
 import { usePoll } from "../../hooks/usePoll.js";
@@ -26,6 +26,10 @@ export function AgentsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
   const [liveDraft, setLiveDraft] = useState<AgentDraft>(EMPTY_AGENT_DRAFT);
+  const [liveRuntime, setLiveRuntime] = useState<{
+    runtime: "hosted" | "frontier";
+    frontierProvider: FrontierProvider;
+  }>({ runtime: "hosted", frontierProvider: "anthropic" });
 
   const agents = list.data ?? [];
   const loadedModels = loadedPoll.data ?? [];
@@ -136,6 +140,7 @@ export function AgentsPage() {
                       imageUrl={draftAvatarImageUrl(a.avatar)}
                       size="md"
                       presence={a.model ? (isOnline ? "online" : "offline") : undefined}
+                      badge={a.runtime === "frontier" ? "frontier" : undefined}
                     />
                     <div className="il-agents__row-main">
                       <span className="il-agents__row-name">
@@ -177,11 +182,14 @@ export function AgentsPage() {
         onSaved={handleSaved}
         onDeleted={handleDeleted}
         onDraftChange={setLiveDraft}
+        onRuntimeChange={setLiveRuntime}
       />
 
       <PreviewChat
         agentId={selected?.agentId ?? null}
         draft={liveDraft}
+        runtime={liveRuntime.runtime}
+        frontierProvider={liveRuntime.frontierProvider}
         loadedModels={loadedModels}
         localModels={localModels}
         onModelLoaded={() => loadedPoll.refresh()}

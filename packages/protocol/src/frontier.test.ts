@@ -34,6 +34,46 @@ describe("FrontierProvider / FrontierRuntimeConfig (CONTRACTS §14)", () => {
   });
 });
 
+describe("FrontierWorkItem attention additions (CONTRACTS §18)", () => {
+  const base = {
+    workId: "work-1",
+    agentId: "agent-1",
+    channelId: "channel-1",
+    channelName: "general",
+    workspaceName: "Workspace",
+    trigger: {
+      id: "message-1",
+      channelId: "channel-1",
+      authorId: "user-1",
+      authorName: "Cam",
+      isAgent: false,
+      text: "Does anyone know?",
+      mentions: [],
+      createdAt: "2026-07-17T00:00:00Z",
+    },
+    recentMessages: [],
+    members: [],
+    persona: { name: "Ada" },
+    enqueuedAt: "2026-07-17T00:00:01Z",
+  };
+
+  it("keeps direct work backward-compatible when kind is absent", () => {
+    expect(FrontierWorkItem.parse(base).kind).toBeUndefined();
+  });
+
+  it("accepts an attention item scoped to a thread", () => {
+    const item = FrontierWorkItem.parse({
+      ...base,
+      kind: "attention",
+      threadRootId: "message-1",
+      attentionTurnId: "turn-1",
+      engagement: "discovery",
+    });
+    expect(item.kind).toBe("attention");
+    expect(item.attentionTurnId).toBe("turn-1");
+  });
+});
+
 describe("FrontierWorkItem (CONTRACTS §14)", () => {
   const trigger = {
     id: "m1",
@@ -51,7 +91,7 @@ describe("FrontierWorkItem (CONTRACTS §14)", () => {
     agentId: "ada",
     channelId: "c1",
     channelName: "general",
-    workspaceName: "Interloom Demo",
+    workspaceName: "Eris Demo",
     trigger,
     recentMessages: [trigger],
     members: [

@@ -1,5 +1,5 @@
 /**
- * Interloom design tokens (DESIGN_NOTES.md).
+ * Eris design tokens (DESIGN_NOTES.md).
  * All surfaces consume these via the `--il-*` custom properties.
  * Warm cream/brown/rust/sage language — every token name is kept stable so
  * consumer CSS across apps keeps resolving; new tokens are additive.
@@ -23,8 +23,8 @@
   /* Text (warm brown ink) */
   --il-text-primary: #37291a;
   --il-text-secondary: #6b5b48;
-  --il-text-muted: #9a8a75;
-  --il-text-faint: #b3a58f;
+  --il-text-muted: #766650;
+  --il-text-faint: #7a6954;
   --il-text-on-dark: #f3ece1;
 
   /* Accent — rust/sienna (replaces purple everywhere) */

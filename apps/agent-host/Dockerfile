@@ -12,6 +12,7 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY packages/protocol/package.json packages/protocol/
 COPY packages/keys/package.json        packages/keys/
 COPY packages/ui/package.json          packages/ui/
+COPY packages/link-client/package.json packages/link-client/
 COPY apps/agent-host/package.json      apps/agent-host/
 COPY apps/agent-host/web/package.json  apps/agent-host/web/
 RUN pnpm fetch
@@ -26,6 +27,7 @@ RUN pnpm install --frozen-lockfile --offline
 RUN pnpm --filter @interloom/protocol build && \
     pnpm --filter @interloom/keys build && \
     pnpm --filter @interloom/ui build && \
+    pnpm --filter @interloom/link-client build && \
     pnpm --filter @interloom/agent-host-portal build && \
     pnpm --filter @interloom/agent-host build
 

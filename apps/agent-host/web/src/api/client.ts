@@ -28,7 +28,7 @@ export class ApiError extends Error {
 type Json = unknown;
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: Json;
   signal?: AbortSignal;
 }
@@ -104,6 +104,8 @@ export const api = {
   get: <T>(path: string, signal?: AbortSignal) => request<T>(path, { signal }),
   post: <T>(path: string, body?: Json, signal?: AbortSignal) =>
     request<T>(path, { method: "POST", body, signal }),
+  put: <T>(path: string, body?: Json, signal?: AbortSignal) =>
+    request<T>(path, { method: "PUT", body, signal }),
   patch: <T>(path: string, body?: Json, signal?: AbortSignal) =>
     request<T>(path, { method: "PATCH", body, signal }),
   del: <T>(path: string, body?: Json, signal?: AbortSignal) =>

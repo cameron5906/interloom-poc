@@ -1,4 +1,4 @@
-# Interloom — Design Notes for the Web Surfaces
+# Eris — Design Notes for the Web Surfaces
 
 One design language across every surface: the workspace web client, the Agent Host
 portal, and the marketplace. Warm, tactile, mobile-first. Tokens live in

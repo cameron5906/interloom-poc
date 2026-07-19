@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import type { ReactNode } from "react";
 
 export interface ModalProps {
@@ -21,6 +21,8 @@ export function Modal({
   closeOnOverlay = true,
   className,
 }: ModalProps) {
+  const titleId = useId();
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -40,8 +42,18 @@ export function Modal({
       onClick={closeOnOverlay ? onClose : undefined}
       role="presentation"
     >
-      <div className={classes} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        {title ? <div className="il-modal__header">{title}</div> : null}
+      <div
+        className={classes}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {title ? (
+          <div className="il-modal__header" id={titleId}>
+            {title}
+          </div>
+        ) : null}
         <div className="il-modal__body">{children}</div>
         {footer ? <div className="il-modal__footer">{footer}</div> : null}
       </div>

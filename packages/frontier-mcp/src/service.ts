@@ -1,4 +1,10 @@
-import type { FrontierLinkPayload, FrontierWorkItem, Placement } from "@interloom/protocol";
+import type {
+  ContextListResult,
+  ContextReadResult,
+  FrontierLinkPayload,
+  FrontierWorkItem,
+  Placement,
+} from "@interloom/protocol";
 import { loadCredentials, removeAgentCredential, saveAgentCredential } from "./credentials.js";
 import { scanLink as defaultScanLink, type ScanLinkOptions } from "./linkScanner.js";
 import { log } from "./log.js";
@@ -75,7 +81,10 @@ export class FrontierService {
   private readonly workLocations = new Map<string, WorkLocation>();
   private readonly heartbeat: HeartbeatLoop;
   private readonly queue: QueueManager;
-  private readonly scanLinkFn: (code: string, options?: ScanLinkOptions) => Promise<FrontierLinkPayload>;
+  private readonly scanLinkFn: (
+    code: string,
+    options?: ScanLinkOptions,
+  ) => Promise<FrontierLinkPayload>;
   private started = false;
 
   constructor(private readonly options: FrontierServiceOptions = {}) {
@@ -168,7 +177,12 @@ export class FrontierService {
       if (placement.revoked) continue;
       if (agent.tunnels.has(placement.placementId)) continue;
 
-      const client = new TunnelClient(placement, agent.agentId, agent.agentPrivKey, agent.agentPubKey);
+      const client = new TunnelClient(
+        placement,
+        agent.agentId,
+        agent.agentPrivKey,
+        agent.agentPubKey,
+      );
       agent.tunnels.set(placement.placementId, client);
       client.start();
       this.queue.addPlacement({
@@ -227,7 +241,7 @@ export class FrontierService {
     return { item: next.item, placementRef: next.placementRef };
   }
 
-  async submit(workId: string, text: string): Promise<{ messageId: string }> {
+  async submit(workId: string, text: string): Promise<{ messageId?: string; posted?: boolean }> {
     const loc = this.workLocations.get(workId);
     if (!loc) throw new Error(`unknown work item: ${workId}`);
     const client = this.findTunnel(loc.agentId, loc.placementId);
@@ -238,6 +252,25 @@ export class FrontierService {
       const agent = this.agents.get(loc.agentId);
       if (agent) agent.doneCount += 1;
       return result;
+    } catch (err) {
+      if (err instanceof StaleLeaseError) {
+        this.workLocations.delete(workId);
+        throw new Error(STALE_LEASE_GUIDANCE);
+      }
+      throw err;
+    }
+  }
+
+  async pass(workId: string): Promise<void> {
+    const loc = this.workLocations.get(workId);
+    if (!loc) throw new Error(`unknown work item: ${workId}`);
+    const client = this.findTunnel(loc.agentId, loc.placementId);
+    if (!client) throw new Error(`no live tunnel for work item: ${workId}`);
+    try {
+      await client.pass(workId, loc.leaseToken);
+      this.workLocations.delete(workId);
+      const agent = this.agents.get(loc.agentId);
+      if (agent) agent.doneCount += 1;
     } catch (err) {
       if (err instanceof StaleLeaseError) {
         this.workLocations.delete(workId);
@@ -273,13 +306,40 @@ export class FrontierService {
     return agentId;
   }
 
-  async post(agentId: string | null, channelId: string, text: string): Promise<{ messageId: string }> {
+  async post(
+    agentId: string | null,
+    channelId: string,
+    text: string,
+  ): Promise<{ messageId: string }> {
     const resolvedId = agentId ?? this.resolveSingleAgentId();
     const agent = this.agents.get(resolvedId);
     if (!agent) throw new Error(`unknown agent: ${resolvedId}`);
     const client = [...agent.tunnels.values()].find((t) => t.isConnected);
     if (!client) throw new Error(`agent ${resolvedId} has no live tunnel`);
     return client.post(channelId, text);
+  }
+
+  private connectedTunnel(agentId: string | null): TunnelClient {
+    const resolvedId = agentId ?? this.resolveSingleAgentId();
+    const agent = this.agents.get(resolvedId);
+    if (!agent) throw new Error(`unknown agent: ${resolvedId}`);
+    const client = [...agent.tunnels.values()].find((t) => t.isConnected);
+    if (!client) throw new Error(`agent ${resolvedId} has no live tunnel`);
+    return client;
+  }
+
+  async contextList(
+    agentId: string | null,
+    params: { path?: string; ref?: string; limit?: number },
+  ): Promise<ContextListResult> {
+    return this.connectedTunnel(agentId).contextList(params);
+  }
+
+  async contextRead(
+    agentId: string | null,
+    params: { path: string; ref?: string; offset?: number; maxBytes?: number },
+  ): Promise<ContextReadResult> {
+    return this.connectedTunnel(agentId).contextRead(params);
   }
 
   unlink(agentId: string): void {

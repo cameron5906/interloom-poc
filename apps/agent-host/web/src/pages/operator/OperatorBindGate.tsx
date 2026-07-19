@@ -18,13 +18,57 @@ interface OperatorBindGateProps {
  * `useOperatorBindFlow`, shared with `OperatorStaleGrantBanner`.
  */
 export function OperatorBindGate({ mode, onBound }: OperatorBindGateProps) {
+  // Presence of the exact supported bridge is only a rendering-context
+  // signal. The Electron main process still has to establish the real portal
+  // cookie before it creates/reloads this view.
+  if (window.interloomShell?.version === 1) {
+    return <ShellOperatorBindGate />;
+  }
+
+  return <StandaloneOperatorBindGate mode={mode} onBound={onBound} />;
+}
+
+/**
+ * Passive-only embedded state. Kept outside the standalone component so the
+ * legacy popup hook below is never invoked (and installs no listeners) in Omni.
+ */
+function ShellOperatorBindGate() {
+  return (
+    <div className="il-opbind">
+      <div className="il-opbind__frame">
+        <header className="il-opbind__brand">
+          <span className="il-opbind__mark" aria-hidden>
+            <LoomGlyph size={26} />
+          </span>
+          <span className="il-opbind__wordmark">Eris</span>
+          <span className="il-opbind__tag">Agent Host</span>
+        </header>
+
+        <div className="il-opbind__card" aria-live="polite">
+          <div className="il-opbind__waiting il-opbind__waiting--shell">
+            <Spinner size="md" />
+            <div>
+              <h1 className="il-opbind__title">Waiting for the app to connect this host…</h1>
+              <p className="il-opbind__lede">
+                Authorization continues securely in the Eris app.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StandaloneOperatorBindGate({ mode, onBound }: OperatorBindGateProps) {
   const { phase, error, boundIdentity, start } = useOperatorBindFlow(onBound);
 
-  const title = mode === "unbound" ? "Connect your Interloom identity" : "Reconnect your Interloom identity";
+  const title =
+    mode === "unbound" ? "Connect your Eris identity" : "Reconnect your Eris identity";
   const lede =
     mode === "unbound"
-      ? "This host is unclaimed. Sign in with your Interloom Network identity to unlock the portal — every agent you publish will carry your name and avatar."
-      : "Your portal session expired. Sign back in with the same Interloom Network identity to pick up where you left off.";
+      ? "This host is unclaimed. Sign in with your Eris Network identity to unlock the portal — every agent you publish will carry your name and avatar."
+      : "Your portal session expired. Sign back in with the same Eris Network identity to pick up where you left off.";
 
   return (
     <div className="il-opbind">
@@ -33,7 +77,7 @@ export function OperatorBindGate({ mode, onBound }: OperatorBindGateProps) {
           <span className="il-opbind__mark" aria-hidden>
             <LoomGlyph size={26} />
           </span>
-          <span className="il-opbind__wordmark">Interloom</span>
+          <span className="il-opbind__wordmark">Eris</span>
           <span className="il-opbind__tag">Agent Host</span>
         </header>
 
@@ -46,7 +90,9 @@ export function OperatorBindGate({ mode, onBound }: OperatorBindGateProps) {
                 imageUrl={boundIdentity.avatarUrl}
                 size="lg"
               />
-              <div className="il-opbind__success-title">You're connected, {boundIdentity.displayName}</div>
+              <div className="il-opbind__success-title">
+                You're connected, {boundIdentity.displayName}
+              </div>
               <div className="il-meta">Unlocking the portal…</div>
             </div>
           ) : (
@@ -83,8 +129,8 @@ export function OperatorBindGate({ mode, onBound }: OperatorBindGateProps) {
         </div>
 
         <p className="il-opbind__footnote">
-          Your private key never leaves your device — this only asks your identity to vouch for
-          this host.
+          Your private key never leaves your device — this only asks your identity to vouch for this
+          host.
         </p>
       </div>
     </div>

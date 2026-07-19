@@ -174,4 +174,43 @@ describe("inference gate — priority classes", () => {
 
     expect(order.indexOf("B-interactive")).toBeLessThan(order.indexOf("A-maintenance"));
   });
+
+  it("orders interactive before maintenance before background", async () => {
+    const order: string[] = [];
+    let unblock!: () => void;
+    const held = new Promise<void>((resolve) => { unblock = resolve; });
+    const blocker = enqueueInference(PORT, "blocker", async () => { await held; }, "interactive");
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+
+    const background = enqueueInference(PORT, "background", async () => { order.push("background"); }, "background");
+    const maintenance = enqueueInference(PORT, "maintenance", async () => { order.push("maintenance"); }, "maintenance");
+    const interactive = enqueueInference(PORT, "interactive", async () => { order.push("interactive"); }, "interactive");
+    unblock();
+    await Promise.all([blocker, background, maintenance, interactive]);
+
+    expect(order).toEqual(["interactive", "maintenance", "background"]);
+  });
+
+  it("preempts an in-flight background decision when interactive work arrives", async () => {
+    const order: string[] = [];
+    let backgroundStarted!: () => void;
+    const started = new Promise<void>((resolve) => { backgroundStarted = resolve; });
+    const background = enqueueInference(PORT, "background", (signal) => new Promise<void>((_resolve, reject) => {
+      order.push("background-start");
+      backgroundStarted();
+      signal.addEventListener("abort", () => {
+        order.push("background-aborted");
+        reject(signal.reason);
+      }, { once: true });
+    }), "background");
+    await started;
+
+    const interactive = enqueueInference(PORT, "interactive", async () => {
+      order.push("interactive");
+    }, "interactive");
+
+    await expect(background).rejects.toThrow("preempted");
+    await interactive;
+    expect(order).toEqual(["background-start", "background-aborted", "interactive"]);
+  });
 });

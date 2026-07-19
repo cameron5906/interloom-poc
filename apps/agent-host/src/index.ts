@@ -10,6 +10,7 @@ import { registerUpdateRoutes } from "./update/routes.js";
 import { startUpdateCheckLoop } from "./update/checker.js";
 import { startRegistryLoop } from "./models/registry.js";
 import { backfillCapabilities } from "./agents/register.js";
+import { startNetworkRegistryReconciliation } from "./agents/reconcile.js";
 import { registerOperatorRoutes, publishOperatorIdentity } from "./operator.js";
 import { registerOperatorBindRoutes, isOperatorBound } from "./operatorBind.js";
 import { registerPortalAuthGate } from "./portalAuth.js";
@@ -76,6 +77,7 @@ async function main(): Promise<void> {
   registerStatic(app);
 
   startHeartbeatLoop(tunnelManager);
+  const stopRegistryReconciliation = startNetworkRegistryReconciliation((msg) => app.log.info(msg));
   startUpdateCheckLoop();
   startRegistryLoop((msg) => app.log.info(msg));
 
@@ -86,6 +88,10 @@ async function main(): Promise<void> {
   void publishOperatorIdentity().catch((err) =>
     app.log.warn({ err }, "operator identity publish failed at boot"),
   );
+
+  app.addHook("onClose", async () => {
+    stopRegistryReconciliation();
+  });
 
   try {
     await app.listen({ port: PORT, host: "0.0.0.0" });

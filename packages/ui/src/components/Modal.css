@@ -58,7 +58,7 @@
     max-height: calc(100vh - 48px);
     border-radius: var(--il-radius-lg) var(--il-radius-lg) 0 0;
     border-bottom: none;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
     animation: il-modal-sheet-in 260ms cubic-bezier(0.3, 0.7, 0.25, 1);
   }
 }

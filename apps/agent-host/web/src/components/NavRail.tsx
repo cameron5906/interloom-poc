@@ -38,7 +38,7 @@ export function NavRail({
         <span className="il-nav__mark" aria-hidden>
           <LoomGlyph />
         </span>
-        <span className="il-nav__wordmark">Interloom</span>
+        <span className="il-nav__wordmark">Eris</span>
       </div>
 
       <div className="il-nav__group-label">Host</div>
@@ -96,7 +96,7 @@ export function NavRail({
   );
 }
 
-/** The Interloom brand mark — also reused by MobileTopBar and OnboardingPage. */
+/** The Eris brand mark — also reused by MobileTopBar and OnboardingPage. */
 export function LoomGlyph({ size = 18 }: { size?: number }) {
   const gid = useId();
   return (

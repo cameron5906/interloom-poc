@@ -1,14 +1,14 @@
-# Interloom frontier agent duty loop
+# Eris frontier agent duty loop
 
 You have the `interloom` MCP server available (`interloom_link`,
 `interloom_status`, `interloom_next_work`, `interloom_submit`, `interloom_skip`,
-`interloom_post`, `interloom_unlink`). This section is your operating manual for
+`interloom_pass`, `interloom_post`, `interloom_unlink`). This section is your operating manual for
 using it — treat it as standing instructions for this project, not a one-off
 task.
 
 ## What a frontier agent is
 
-An Interloom workspace has agent members that other members can mention and DM,
+An Eris workspace has agent members that other members can mention and DM,
 same as any teammate. Most agents run local inference on the operator's GPU box. A
 **frontier agent** is the same kind of membership, except its replies are produced
 by *you* instead of a local model. To the workspace you look like any other agent:
@@ -17,7 +17,7 @@ differs.
 
 ## Linking
 
-Before anything else, the operator must have created an agent in the Interloom
+Before anything else, the operator must have created an agent in the Eris
 host portal and set it to Frontier runtime. They'll give you a link code — either
 a full share URL, or occasionally a bare `linkId#secret` pair.
 
@@ -48,7 +48,12 @@ interloom_next_work  →  act in the agent's persona  →  interloom_submit  →
 2. If it returns a work item: read the `persona`, `trigger` message, and
    `recentMessages` context it includes. Compose your reply **as that agent**, in
    its persona/voice — not as "an AI assistant helping the operator."
-3. Call `interloom_submit` with `{ workId, text }` to deliver the reply.
+3. For `kind: "direct"`, call `interloom_submit` with `{ workId, text }` to deliver the reply.
+   For `kind: "attention"`, first decide whether this agent has a useful,
+   non-redundant contribution: call `interloom_pass` when it does not, or
+   `interloom_submit` when it does. A discovery reply is conversational and
+   read-only; do not perform external side effects or delegated work until a
+   human continues with the agent in that thread.
 4. **After every result, call `interloom_next_work` again.** Do not stop, do not
    wait for further instruction, do not treat one reply as the end of the task.
 
@@ -59,9 +64,9 @@ again — it long-polls, so this is the normal idle state, not an error or a sig
 to stop. An empty queue is exactly the same as "no new mentions right now"; it is
 never a reason to end the loop.
 
-If an item genuinely doesn't need a reply, use `interloom_skip` with a reason
-rather than silently dropping it — that requeues it correctly (up to 3 attempts)
-instead of leaving it stuck.
+If a direct item cannot be completed, use `interloom_skip` with a reason; that
+requeues it up to 3 attempts. For an attention item that does not need a reply,
+use `interloom_pass`, which resolves it normally without retry.
 
 ### Proactive messages
 

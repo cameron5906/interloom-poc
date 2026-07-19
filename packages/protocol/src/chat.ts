@@ -43,6 +43,15 @@ export const ChatMessage = z.object({
   deleted: z.boolean().optional(),
   /** Image attachments uploaded via REST before send (CONTRACTS §5). */
   attachments: z.array(Attachment).optional(),
+  /** Durable invocation that produced this agent-authored message. */
+  agentRunId: z.string().optional(),
+  threadRootId: z.string().optional(),
+  threadSummary: z.object({
+    replyCount: z.number().int().nonnegative(),
+    participantIds: z.array(z.string()),
+    latestReplyAt: z.string().optional(),
+    unread: z.number().int().nonnegative().optional(),
+  }).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
@@ -59,6 +68,7 @@ export const Channel = z.object({
   hasMention: z.boolean().optional(),
   /** Unix ms of the most recent message, for float-up ordering. */
   lastMessageAt: z.number().optional(),
+  ambientAttentionEnabled: z.boolean().optional(),
 });
 export type Channel = z.infer<typeof Channel>;
 
@@ -151,6 +161,63 @@ export const AgentPendingChange = z.object({
 });
 export type AgentPendingChange = z.infer<typeof AgentPendingChange>;
 
+// --- Agent activity (§5, generic workspace surface; no prompt/tool payloads) ---
+
+export const AgentRunKind = z.enum(["chat", "work", "subloop", "report"]);
+export type AgentRunKind = z.infer<typeof AgentRunKind>;
+
+export const AgentRunRuntime = z.enum(["hosted", "frontier"]);
+export type AgentRunRuntime = z.infer<typeof AgentRunRuntime>;
+
+export const AgentRunStatus = z.enum([
+  "queued",
+  "running",
+  "stopping",
+  "succeeded",
+  "partial",
+  "failed",
+  "timed_out",
+  "cancelled",
+]);
+export type AgentRunStatus = z.infer<typeof AgentRunStatus>;
+
+export const AgentRunStage = z.enum([
+  "queued",
+  "preparing_context",
+  "compacting",
+  "waiting_model",
+  "using_tool",
+  "waiting_slot",
+  "verifying",
+  "posting",
+  "stopping",
+]);
+export type AgentRunStage = z.infer<typeof AgentRunStage>;
+
+/** Safe summary broadcast to channel participants. Detailed redacted events
+ * stay behind the channel-authorized REST surface. */
+export const AgentRunSummary = z.object({
+  id: z.string(),
+  parentRunId: z.string().nullable(),
+  memberId: z.string(),
+  channelId: z.string(),
+  kind: AgentRunKind,
+  runtime: AgentRunRuntime,
+  status: AgentRunStatus,
+  stage: AgentRunStage.nullable(),
+  label: z.string(),
+  model: ModelRef.optional(),
+  toolCalls: z.number(),
+  queuedAt: z.string(),
+  startedAt: z.string().nullable(),
+  updatedAt: z.string(),
+  endedAt: z.string().nullable(),
+  lastSeq: z.number(),
+  threadRootId: z.string().optional(),
+  wakeReason: z.enum(["ambient", "thread", "mention", "dm"]).optional(),
+});
+export type AgentRunSummary = z.infer<typeof AgentRunSummary>;
+
 // --- Client → server WS messages (§5) ---
 
 export const ClientWsMessage = z.discriminatedUnion("type", [
@@ -158,6 +225,7 @@ export const ClientWsMessage = z.discriminatedUnion("type", [
     type: z.literal("message.send"),
     channelId: z.string(),
     text: z.string(),
+    threadRootId: z.string().optional(),
     /** Member ids the sender confirmed to add to the channel (auto-join). */
     addMemberIds: z.array(z.string()).optional(),
     /** Image attachments uploaded via REST before send (CONTRACTS §5). */
@@ -166,6 +234,7 @@ export const ClientWsMessage = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("typing.start"),
     channelId: z.string(),
+    threadRootId: z.string().optional(),
   }),
 ]);
 export type ClientWsMessage = z.infer<typeof ClientWsMessage>;
@@ -183,12 +252,14 @@ export const ServerWsEvent = z.discriminatedUnion("type", [
     channelId: z.string(),
     text: z.string(),
     complete: z.boolean(),
+    threadRootId: z.string().optional(),
   }),
   z.object({
     type: z.literal("typing"),
     channelId: z.string(),
     memberId: z.string(),
     isAgent: z.boolean(),
+    threadRootId: z.string().optional(),
   }),
   z.object({
     type: z.literal("presence.update"),
@@ -243,15 +314,31 @@ export const ServerWsEvent = z.discriminatedUnion("type", [
     /** Unix ms. */
     editedAt: z.number(),
     mentions: z.array(z.string()),
+    threadRootId: z.string().optional(),
   }),
   z.object({
     type: z.literal("message.deleted"),
     messageId: z.string(),
     channelId: z.string(),
+    threadRootId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("thread.updated"),
+    channelId: z.string(),
+    rootMessageId: z.string(),
+    summary: z.object({
+      replyCount: z.number().int().nonnegative(),
+      participantIds: z.array(z.string()),
+      latestReplyAt: z.string().optional(),
+    }),
   }),
   z.object({
     type: z.literal("channel.deleted"),
     channelId: z.string(),
+  }),
+  z.object({
+    type: z.literal("agent.run.updated"),
+    run: AgentRunSummary,
   }),
 ]);
 export type ServerWsEvent = z.infer<typeof ServerWsEvent>;

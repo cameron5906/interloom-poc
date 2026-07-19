@@ -109,7 +109,10 @@ describe("signed envelopes", () => {
   it("fails verification when the signature is tampered with", () => {
     const { privateKey } = generateKeypair();
     const env = signEnvelope({ x: 1 }, privateKey);
-    const tampered = { ...env, sig: env.sig.slice(0, -2) + "AA" };
+    const tampered = {
+      ...env,
+      sig: `${env.sig[0] === "A" ? "B" : "A"}${env.sig.slice(1)}`,
+    };
     expect(verifyEnvelope(tampered)).toBe(false);
   });
 });

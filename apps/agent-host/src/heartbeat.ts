@@ -32,9 +32,14 @@ export function startHeartbeatLoop(tunnelManager: TunnelManager): void {
     // tunnels — "the active model" is now "the loaded SET".
     const loaded = loadedFilenames(readInstances());
 
-    // Only heartbeat registered agents whose model is in the loaded set.
+    // Only heartbeat registered, hosted agents whose model is in the loaded
+    // set. Frontier agents (CONTRACTS §14) are excluded here — the linked
+    // MCP server heartbeats for them, under its own per-agent key, not the
+    // host daemon. Their placements simply don't mint until the MCP first
+    // connects; that's expected, not a bug.
     const agents = listAgents().filter(
-      (a) => a.registered && a.model !== undefined && loaded.has(a.model.filename),
+      (a) =>
+        a.registered && a.runtime !== "frontier" && a.model !== undefined && loaded.has(a.model.filename),
     );
 
     if (agents.length === 0) {

@@ -1,6 +1,6 @@
 /**
  * base64url encode/decode without padding, per RFC 4648 §5.
- * Used for all key, signature, and nonce serialization in Interloom.
+ * Used for all key, signature, and nonce serialization in Eris.
  */
 
 export function bytesToB64url(bytes: Uint8Array): string {

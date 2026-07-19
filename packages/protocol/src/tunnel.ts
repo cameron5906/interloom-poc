@@ -137,7 +137,7 @@ export const InferenceParams = z.object({
   temperature: z.number().optional(),
   maxTokens: z.number().optional(),
   /** Traffic class on the shared model: interactive replies outrank maintenance (compaction etc.). */
-  priority: z.enum(["interactive", "maintenance"]).optional(),
+  priority: z.enum(["interactive", "maintenance", "background"]).optional(),
   tools: z.array(ToolDef).optional(),
   toolChoice: z.enum(["auto", "none"]).optional(),
 });
@@ -156,9 +156,23 @@ export const InferenceUsage = z.object({
 });
 export type InferenceUsage = z.infer<typeof InferenceUsage>;
 
+/** Why the model stopped producing the current turn. Optional on the wire so
+ * a rolling deploy can keep text-only inference working with older hosts;
+ * negotiated hosts fail closed when it is absent, while legacy `tools` hosts
+ * retain their fully-parsed pre-negotiation tool-call behavior. */
+export const InferenceFinishReason = z.enum([
+  "stop",
+  "length",
+  "tool_calls",
+  "cancelled",
+  "error",
+]);
+export type InferenceFinishReason = z.infer<typeof InferenceFinishReason>;
+
 export const InferenceCompleteResult = z.object({
   message: InferenceMessage,
   usage: InferenceUsage,
+  finishReason: InferenceFinishReason.optional(),
 });
 export type InferenceCompleteResult = z.infer<typeof InferenceCompleteResult>;
 
@@ -171,6 +185,7 @@ export type InferenceChunkEvent = z.infer<typeof InferenceChunkEvent>;
 export const InferenceStreamResult = z.object({
   usage: InferenceUsage,
   toolCalls: z.array(ToolCall).optional(),
+  finishReason: InferenceFinishReason.optional(),
 });
 export type InferenceStreamResult = z.infer<typeof InferenceStreamResult>;
 
@@ -228,7 +243,8 @@ export type WorkCompleteParams = z.infer<typeof WorkCompleteParams>;
 
 export const WorkCompleteResult = z.object({
   ok: z.literal(true),
-  messageId: z.string(),
+  messageId: z.string().optional(),
+  posted: z.boolean().optional(),
 });
 export type WorkCompleteResult = z.infer<typeof WorkCompleteResult>;
 
@@ -250,6 +266,15 @@ export const WorkFailResult = z.object({
   ok: z.literal(true),
 });
 export type WorkFailResult = z.infer<typeof WorkFailResult>;
+
+export const WorkPassParams = z.object({
+  workId: z.string(),
+  leaseToken: z.string().optional(),
+});
+export type WorkPassParams = z.infer<typeof WorkPassParams>;
+
+export const WorkPassResult = z.object({ ok: z.literal(true) });
+export type WorkPassResult = z.infer<typeof WorkPassResult>;
 
 /** `chat.post` req params (host→instance). Proactive agent message; only for channels the agent is a member of. */
 export const ChatPostParams = z.object({

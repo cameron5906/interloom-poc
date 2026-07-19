@@ -12,7 +12,7 @@
  * commit the refreshed copies in the SAME commit as the source change — a
  * stale bundle is a silent regression nobody's typecheck catches. The
  * bundle smoke test (`test/bundle-smoke.test.ts`) only proves the committed
- * bundle boots and still lists the 7 tools; it cannot prove the bundle
+ * bundle boots and still lists the 10 tools; it cannot prove the bundle
  * matches the current source. Review diffs to the committed
  * `interloom-mcp.js` copies accordingly.
  */

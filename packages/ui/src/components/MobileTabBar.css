@@ -10,7 +10,10 @@
   bottom: calc(12px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   align-items: center;
+  justify-content: center;
   gap: 2px;
+  width: calc(100% - 32px);
+  max-width: 320px;
   padding: 6px;
   background: #fff;
   border-radius: var(--il-radius-pill);
@@ -42,7 +45,7 @@
 }
 
 .il-tabbar__item:focus-visible {
-  outline: 2px solid var(--il-accent);
+  outline: 2px solid var(--il-text-primary);
   outline-offset: 2px;
 }
 

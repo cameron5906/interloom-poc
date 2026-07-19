@@ -30,6 +30,25 @@ describe("verifyGrant", () => {
     ).toBe(true);
   });
 
+  it("accepts an identity-signed omni device grant", () => {
+    const identity = generateKeypair();
+    const payload = makeGrant({
+      identityKey: identity.publicKey,
+      scope: "omni-device",
+      audience: "https://network.example",
+      expiresAt: 31_000,
+    });
+    const env = signEnvelope(payload, identity.privateKey, identity.publicKey);
+    expect(
+      verifyGrant(env, {
+        subjectKey: payload.subjectKey,
+        scope: "omni-device",
+        audience: "https://network.example",
+        now: 30_000,
+      }),
+    ).toBe(true);
+  });
+
   it("rejects when the verifier's subjectKey does not match the grant", () => {
     const identity = generateKeypair();
     const payload = makeGrant({ identityKey: identity.publicKey });

@@ -39,4 +39,44 @@
 @import "./components/CapabilityBadges.css";
 @import "./components/MobileTabBar.css";
 @import "./components/CountBadge.css";
+@import "./components/Flipper.css";
 @import "./components/CopyButton.css";
+
+/**
+ * Global slim scrollbars — Discord-style thin thumb, warm palette,
+ * near-invisible track. Applies everywhere; component styles with more
+ * specific ::-webkit-scrollbar rules (e.g. ShellOutput.css) still win.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--il-text-faint) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--il-text-faint);
+  border-radius: var(--il-radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--il-text-muted);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+}

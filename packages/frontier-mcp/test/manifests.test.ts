@@ -24,10 +24,10 @@ describe("Claude Code plugin manifest (plugins/claude-code/.claude-plugin/plugin
 
   it("matches the pinned plugin.json contents exactly", () => {
     expect(manifest).toEqual({
-      name: "interloom",
-      displayName: "Interloom Frontier Agent",
+      name: "eris",
+      displayName: "Eris Frontier Agent",
       version: "0.1.0",
-      description: "Work Interloom workspaces as a linked frontier agent",
+      description: "Work Eris workspaces as a linked frontier agent",
       mcpServers: "./.mcp.json",
     });
   });
@@ -65,8 +65,8 @@ describe("repo-root marketplace manifest (.claude-plugin/marketplace.json)", () 
     }
   });
 
-  it("lists the interloom plugin pointing at plugins/claude-code", () => {
-    const entry = manifest.plugins.find((p) => p.name === "interloom");
+  it("lists the Eris plugin pointing at plugins/claude-code", () => {
+    const entry = manifest.plugins.find((p) => p.name === "eris");
     expect(entry).toBeDefined();
     expect(entry?.source).toBe("./plugins/claude-code");
   });

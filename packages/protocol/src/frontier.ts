@@ -33,6 +33,10 @@ export const FrontierWorkItem = z.object({
     persona: z.string().optional(),
   }),
   enqueuedAt: z.string(),
+  kind: z.enum(["direct", "attention"]).optional(),
+  threadRootId: z.string().optional(),
+  attentionTurnId: z.string().optional(),
+  engagement: z.enum(["discovery", "thread"]).optional(),
   /**
    * Opaque token bound to this specific lease (CONTRACTS §14 "Lease
    * ownership"). Additive — absent only if delivered by a not-yet-upgraded

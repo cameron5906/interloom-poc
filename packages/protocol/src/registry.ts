@@ -176,10 +176,22 @@ export const AvatarAssetUpload = z.object({
 export type AvatarAssetUpload = z.infer<typeof AvatarAssetUpload>;
 
 /**
+ * A PRF-wrapped Ed25519 private key ciphertext (CONTRACTS §4 PRF key-wrap tier).
+ * The server stores and forwards this opaquely — it never sees the PRF output
+ * or the unwrapped key, only AES-256-GCM ciphertext + its nonce.
+ */
+export const WrappedPrivateKey = z.object({
+  ivB64: z.string(),
+  ciphertextB64: z.string(),
+});
+export type WrappedPrivateKey = z.infer<typeof WrappedPrivateKey>;
+
+/**
  * `POST /api/identities` body — a self-signed envelope's payload
  * (CONTRACTS §4). `envelope.key === payload.pubKey` is required by the server.
- * `avatarSha`/`workspaces` are additive: the server upserts `meta.avatarSha`
- * and replaces `meta.workspaces` on write.
+ * `avatarSha`/`workspaces`/`wrappedPrivateKey` are additive: the server upserts
+ * `meta.avatarSha`, replaces `meta.workspaces`, and upserts `meta.wrappedPrivateKey`
+ * on write.
  */
 export const IdentityPublish = z.object({
   kind: z.enum(["operator", "user"]),
@@ -189,6 +201,7 @@ export const IdentityPublish = z.object({
   ts: z.number(),
   avatarSha: z.string().optional(),
   workspaces: z.array(WorkspaceAssociation).optional(),
+  wrappedPrivateKey: WrappedPrivateKey.optional(),
 });
 export type IdentityPublish = z.infer<typeof IdentityPublish>;
 

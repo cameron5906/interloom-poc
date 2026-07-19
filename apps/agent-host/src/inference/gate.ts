@@ -23,7 +23,7 @@
 
 type Lane = string;
 
-export type Priority = "interactive" | "maintenance";
+export type Priority = "interactive" | "maintenance" | "background";
 
 /** Hard bound on a single inference run holding the gate. */
 export const RUN_TIMEOUT_MS = 120_000;
@@ -41,6 +41,8 @@ class InstanceGate {
   private rrCursor = -1;
   private servingLane: Lane | null = null;
   private running = false;
+  private currentPriority: Priority | null = null;
+  private currentAbort: AbortController | null = null;
 
   private laneRotation(): Lane[] {
     return Array.from(this.laneQueues.keys());
@@ -56,13 +58,17 @@ class InstanceGate {
   private nextEntry(): { lane: Lane; entry: QueueEntry } | undefined {
     const rotation = this.laneRotation();
     if (rotation.length === 0) return undefined;
-    const interactiveOnly = this.hasEntries((e) => e.priority === "interactive");
+    const targetPriority = this.hasEntries((e) => e.priority === "interactive")
+      ? "interactive"
+      : this.hasEntries((e) => e.priority === "maintenance")
+        ? "maintenance"
+        : "background";
 
     for (let step = 1; step <= rotation.length; step++) {
       const idx = (this.rrCursor + step) % rotation.length;
       const lane = rotation[idx]!;
       const entries = this.laneQueues.get(lane)!;
-      const pos = interactiveOnly ? entries.findIndex((e) => e.priority === "interactive") : 0;
+      const pos = entries.findIndex((e) => e.priority === targetPriority);
       if (pos === -1 || entries.length === 0) continue;
       const [entry] = entries.splice(pos, 1);
       if (entries.length === 0) this.laneQueues.delete(lane);
@@ -83,6 +89,9 @@ class InstanceGate {
       const entries = this.laneQueues.get(lane) ?? [];
       entries.push({ priority, run, resolve, reject, timeoutMs });
       this.laneQueues.set(lane, entries);
+      if (priority === "interactive" && this.currentPriority === "background") {
+        this.currentAbort?.abort(new Error("background inference preempted by interactive work"));
+      }
       void this.dispatch();
     });
   }
@@ -110,14 +119,22 @@ class InstanceGate {
   private runWithTimeout(entry: QueueEntry): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const ac = new AbortController();
+      this.currentAbort = ac;
+      this.currentPriority = entry.priority;
       const timer = setTimeout(() => {
-        ac.abort();
+        ac.abort(new Error(`inference run timeout after ${entry.timeoutMs}ms`));
         reject(new Error(`inference run timeout after ${entry.timeoutMs}ms`));
       }, entry.timeoutMs);
       entry
         .run(ac.signal)
         .then(resolve, reject)
-        .finally(() => clearTimeout(timer));
+        .finally(() => {
+          clearTimeout(timer);
+          if (this.currentAbort === ac) {
+            this.currentAbort = null;
+            this.currentPriority = null;
+          }
+        });
     });
   }
 

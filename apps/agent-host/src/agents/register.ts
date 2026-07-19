@@ -1,7 +1,14 @@
-import type { AgentManifest, ModelCapabilities } from "@interloom/protocol";
-import { signEnvelope } from "@interloom/keys";
+import type {
+  AgentManifest,
+  ModelCapabilities,
+  ModelRef,
+  FrontierRuntimeConfig,
+  FrontierHostAttestation,
+} from "@interloom/protocol";
+import { signEnvelope, type Keypair } from "@interloom/keys";
 import { MODELS_DIR } from "../config.js";
 import { getKeypair } from "../keys.js";
+import { getFrontierKeyEntry } from "./frontierKeys.js";
 import { getOperatorDisplayName } from "../settings.js";
 import { getOperatorBinding, setOperatorGrantStale } from "../operatorBind.js";
 import { networkRegisterAgent, NetworkApiError } from "../network/client.js";
@@ -12,6 +19,31 @@ type CapabilityLookup = (filename: string) => ModelCapabilities | undefined;
 
 const localLookup: CapabilityLookup = (filename) =>
   capabilitiesForFilename(MODELS_DIR, filename);
+
+/**
+ * The ModelRef a frontier agent's manifest declares in place of a local GGUF
+ * (CONTRACTS §14) — frontier agents never require a local model download or
+ * load, so `publish`/`register` must not gate on one.
+ */
+function synthesizeFrontierModelRef(frontier: FrontierRuntimeConfig): ModelRef {
+  return {
+    filename: `frontier:${frontier.provider}/${frontier.model}`,
+    displayName: frontier.model,
+    capabilities: { tools: true, vision: false, thinking: true },
+  };
+}
+
+/** The agent's own per-agent Ed25519 keypair (CONTRACTS §14 key custody) —
+ * frontier manifests are signed under this key, never the host key, so
+ * `envelope.key === manifest.pubKey` holds and the agent can heartbeat under
+ * its own key once linked. */
+function requireFrontierKeypair(agent: Agent): Keypair {
+  const entry = getFrontierKeyEntry(agent.agentId);
+  if (!entry) {
+    throw new Error("frontier agent has no stored keypair — configure frontier settings first");
+  }
+  return { publicKey: entry.agentPubKey, privateKey: entry.agentPrivKey };
+}
 
 /**
  * Manifest for the network registry — model capabilities stamped from the
@@ -26,6 +58,18 @@ const localLookup: CapabilityLookup = (filename) =>
  * grant }`, `operator.pubKey ≠` the manifest-signing host key — the network
  * verifies the grant chain instead). An unbound host keeps the legacy rule
  * (`operator.pubKey === envelope.key`, no grant) so old hosts keep working.
+ *
+ * `hostAttestation` (CONTRACTS §6/§14) extends that grant chain one hop
+ * further to operator→host→agent: a frontier agent's manifest is signed
+ * under its OWN keypair, never the host key, so the network's grant-chain
+ * check (`grant.payload.subjectKey === envelope.key`) can never hold for it.
+ * Stamped only when both `isFrontier` and `operatorBinding` hold — a
+ * host-key-signed envelope over `{agentId, agentPubKey: pubKey, iat}` the
+ * network verifies before treating `hostKeypair.publicKey` as the grant's
+ * subject in place of `envelope.key`. Absent for hosted agents (their
+ * envelope key already IS the host key) and for unbound hosts (their
+ * frontier agents already self-stamp `operator.pubKey` as `pubKey`,
+ * matching the legacy equality rule with no attestation needed).
  */
 export function buildAgentManifest(
   agent: Agent,
@@ -33,11 +77,30 @@ export function buildAgentManifest(
   lookup: CapabilityLookup = localLookup,
   operatorDisplayName: string = getOperatorDisplayName(),
   operatorBinding: ReturnType<typeof getOperatorBinding> = getOperatorBinding(),
+  hostKeypair: Keypair = getKeypair(),
 ): AgentManifest {
-  if (!agent.model) {
-    throw new Error("agent has no model — cannot register");
+  const isFrontier = agent.runtime === "frontier";
+  let model: AgentManifest["model"];
+  if (isFrontier) {
+    if (!agent.frontier) {
+      throw new Error("frontier agent has no runtime config — cannot register");
+    }
+    model = synthesizeFrontierModelRef(agent.frontier);
+  } else {
+    if (!agent.model) {
+      throw new Error("agent has no model — cannot register");
+    }
+    const capabilities = lookup(agent.model.filename) ?? agent.model.capabilities;
+    model = { ...agent.model, ...(capabilities ? { capabilities } : {}) };
   }
-  const capabilities = lookup(agent.model.filename) ?? agent.model.capabilities;
+  const hostAttestation =
+    isFrontier && operatorBinding
+      ? signEnvelope<FrontierHostAttestation>(
+          { agentId: agent.agentId, agentPubKey: pubKey, iat: Date.now() },
+          hostKeypair.privateKey,
+          hostKeypair.publicKey,
+        )
+      : undefined;
   return {
     agentId: agent.agentId,
     name: agent.name,
@@ -52,10 +115,12 @@ export function buildAgentManifest(
     availability: "always",
     contract: { kind: "free" },
     params: { ...agent.params, contextLength: 0 },
-    model: { ...agent.model, ...(capabilities ? { capabilities } : {}) },
+    model,
     ...(agent.title ? { title: agent.title } : {}),
     ...(agent.gender ? { gender: agent.gender } : {}),
     ...(agent.specialties && agent.specialties.length > 0 ? { specialties: agent.specialties } : {}),
+    ...(isFrontier ? { runtime: "frontier" as const, frontier: agent.frontier } : {}),
+    ...(hostAttestation ? { hostAttestation } : {}),
     operator: operatorBinding
       ? {
           pubKey: operatorBinding.identityKey,
@@ -67,7 +132,8 @@ export function buildAgentManifest(
 }
 
 export async function registerAgentOnNetwork(agent: Agent): Promise<void> {
-  const keypair = getKeypair();
+  const isFrontier = agent.runtime === "frontier";
+  const keypair = isFrontier ? requireFrontierKeypair(agent) : getKeypair();
   const manifest = buildAgentManifest(agent, keypair.publicKey);
   const envelope = signEnvelope(manifest, keypair.privateKey, keypair.publicKey);
   try {
@@ -83,6 +149,11 @@ export async function registerAgentOnNetwork(agent: Agent): Promise<void> {
     throw err;
   }
   setOperatorGrantStale(false);
+
+  // Frontier agents have no local GGUF to detect capabilities from — the
+  // manifest's synthesized model ref is derived, not stored, on `agent`.
+  if (isFrontier) return;
+
   if (
     manifest.model.capabilities &&
     JSON.stringify(manifest.model.capabilities) !== JSON.stringify(agent.model?.capabilities)

@@ -1,5 +1,5 @@
 #!/bin/sh
-# stage-images.sh — Local staging script for Interloom Docker images.
+# stage-images.sh — Local staging script for Eris Docker images.
 #
 # Default: builds all targets for local arch (no push), loaded into local daemon.
 # Pass --push to build multi-arch and push to Docker Hub (requires docker login).
@@ -44,7 +44,7 @@ esac
 
 cd "$REPO_ROOT"
 
-printf '\nInterloom image staging\n'
+printf '\nEris image staging\n'
 printf '  Bake file : %s\n' "$BAKE_FILE"
 printf '  DOCKER_ORG: %s\n' "$DOCKER_ORG"
 printf '  TAG       : %s\n' "$TAG"

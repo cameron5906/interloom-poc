@@ -23,7 +23,12 @@ vi.mock("@interloom/keys", () => ({
   signEnvelope: (payload: unknown, _priv: string, key: string) => ({ payload, key, sig: "mocksig" }),
 }));
 
-let mockAgents: Array<{ agentId: string; registered: boolean; model?: { filename: string } }> = [];
+let mockAgents: Array<{
+  agentId: string;
+  registered: boolean;
+  model?: { filename: string };
+  runtime?: string;
+}> = [];
 vi.mock("../agents/store.js", () => ({
   listAgents: () => mockAgents,
 }));
@@ -139,5 +144,22 @@ describe("heartbeat loop — loaded-set filtering", () => {
     stopHeartbeatLoop();
 
     expect(heartbeatCalls).toEqual([]);
+  });
+
+  it("excludes frontier-runtime agents (CONTRACTS §14 — their MCP heartbeats for them, not the host)", async () => {
+    mockAgents = [
+      { agentId: "a1", registered: true, model: { filename: "qwen.gguf" } },
+      { agentId: "a2", registered: true, runtime: "frontier" },
+    ];
+    mockInstances = [{ modelPath: "/models/qwen.gguf" }];
+
+    const tunnelManager = { applyPlacements: vi.fn() };
+    const { startHeartbeatLoop, stopHeartbeatLoop } = await import("../heartbeat.js");
+    startHeartbeatLoop(tunnelManager as never);
+    await new Promise((r) => setTimeout(r, 10));
+    stopHeartbeatLoop();
+
+    expect(heartbeatCalls).toEqual(["a1"]);
+    expect(heartbeatCalls).not.toContain("a2");
   });
 });

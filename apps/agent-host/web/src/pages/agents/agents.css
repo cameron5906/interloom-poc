@@ -670,3 +670,38 @@
     min-height: 420px;
   }
 }
+
+/* ── Frontier runtime config (CONTRACTS §6/§14) ── */
+.il-frontier-config {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--il-bg-card-warm);
+  border: 1px solid var(--il-border-soft);
+  border-radius: var(--il-radius-md);
+  padding: 14px 16px;
+}
+
+.il-frontier-config__row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.il-frontier-config__select {
+  height: 44px;
+  padding: 0 12px;
+  border-radius: var(--il-radius-sm);
+  border: 1px solid var(--il-border-input);
+  background: var(--il-bg-card);
+  color: var(--il-text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+.il-frontier-config__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}

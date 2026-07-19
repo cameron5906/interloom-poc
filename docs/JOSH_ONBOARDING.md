@@ -1,4 +1,4 @@
-# Interloom PoC — Agent Owner Guide (Josh, start here)
+# Eris PoC — Agent Owner Guide (Josh, start here)
 
 You're about to run your own AI agent on your own GPUs and have it join a hosted chat
 workspace — without opening a single port or touching a config file. This guide covers
@@ -6,11 +6,11 @@ both of your machines: the DGX Spark (ARM64) and the dual-3090 rig (x86-64).
 
 ## What you're testing
 
-Interloom treats agents like people. You run the open-source **Agent Host** on your
-hardware; it serves *only* GPU inference over a tunnel it opens outbound. The agent's
+Eris treats agents like people. You run the open-source **Agent Host** on your
+hardware; it serves _only_ GPU inference over a tunnel it opens outbound. The agent's
 brain (context, tools, memory) runs in the workspace you're invited into — your machine
 never exposes anything, and the workspace never reaches into your box. You define an
-agent (name, personality), publish it to the **Interloom Network**, and we invite it
+agent (name, personality), publish it to the **Eris Network**, and we invite it
 into our demo workspace at https://interloom-demo.tryeris.com.
 
 ## Prerequisites
@@ -33,6 +33,7 @@ http://localhost:7420
 ```
 
 > **Prefer building from source?** (same stack — this repo IS the host's source):
+>
 > ```sh
 > git clone https://github.com/cameron5906/interloom-poc && cd interloom-poc
 > docker buildx bake -f docker/docker-bake.hcl
@@ -48,11 +49,23 @@ build for now; CUDA-on-ARM is on the roadmap.)
 
 ## The walkthrough (what we'll do together)
 
-1. **Onboarding** — the portal detects your hardware, shows the Ed25519 identity it
-   generated for you, and signs you into the Network (we use a magic-link stub: the
-   sign-in link appears right in the portal — click it, done).
-2. **Pick your models** — the Models page recommends known-good models *that fit your
-   hardware*, and downloads (once complete) are visible everywhere in the portal, not
+1. **Establish your identity once in Omni** — the desktop app opens the Eris
+   Network in your system browser; its embedded workspace and Agent Host views never
+   ask you to type credentials. A first-ever identity must be created with a passkey
+   (anonymous name-only signup is disabled). If you already have an identity, sign in
+   with its passkey or recover it by device link / key-file import instead.
+2. **Authorize the two surfaces** — adding the demo workspace opens one system-browser
+   consent step. Compare both codes shown by Omni with the browser: the handoff code
+   proves this is the request your app started, and the key fingerprint proves which
+   workspace key you are authorizing. Enter/approve only when both match. Opening the
+   Operator view does the same once for your Agent Host, again with both code
+   comparisons. These are authorizations for the already-established identity, not
+   two more sign-ins. Normal mode switches and app restarts are silent while the
+   grants and origin-scoped session cookies remain valid; if one expires or is revoked,
+   Omni shows Retry in its own shell rather than exposing a credential form inside the
+   embedded page.
+3. **Pick your models** — the Models page recommends known-good models _that fit your
+   hardware_, and downloads (once complete) are visible everywhere in the portal, not
    just on the Models page — the sidebar and mobile tab bar both carry a live progress
    badge. On the Spark grab a 70B Q4; on the 3090 rig a 7-8B Q4 per card. Add an
    `HF_TOKEN` env var to `~/.interloom/.env` first if you want gated models. Loading is
@@ -65,7 +78,7 @@ build for now; CUDA-on-ARM is on the roadmap.)
    a clear reason rather than crashing the container. You can have several models
    loaded at once — each gets its own inference slot — and unload any of them
    independently.
-3. **Build your agent** — name it, then design its character: pick Male / Female /
+4. **Build your agent** — name it, then design its character: pick Male / Female /
    Other and the portal rolls a hand-drawn avatar from your agent's name (DiceBear
    Notionists); every piece — hair, face, glasses, clothes, background — is overridable.
    Give it a title ("Archie the Archivist"), specialties, and a persona. If the model
@@ -74,30 +87,37 @@ build for now; CUDA-on-ARM is on the roadmap.)
    replies — flip it per model, not per agent. The preview chat on the right runs
    against **your** GPU — the agent re-introduces itself as you shape its personality,
    live, before you save.
-4. **Publish to Network** — one click. Your host signs the manifest; the agent appears
+5. **Publish to Network** — one click. Your host signs the manifest; the agent appears
    on https://interloom-net.tryeris.com with a LIVE badge while your host heartbeats.
-5. **We invite it** — from our demo workspace we hit Invite. Your host learns of the
+6. **We invite it** — from our demo workspace we hit Invite. Your host learns of the
    placement on its next heartbeat and opens the tunnel outbound. No router changes.
-6. **Group chat** — join https://interloom-demo.tryeris.com (claim a display name),
-   @mention your agent. Watch the **Overview page** on your portal while it answers:
+7. **Group chat** — join https://interloom-demo.tryeris.com. New users create an
+   identity with a passkey (or link/import an existing identity); anonymous
+   name-only signup is disabled. Then @mention your agent. Watch the **Overview
+   page** on your portal while it answers:
    GPU utilization, tokens/sec, and the request log light up in real time — with
    multiple models loaded, the request log shows which instance served which reply.
    You can drop images straight into the chat composer (attach, paste, or drag): a
    vision-capable agent actually sees the picture; agents without vision support are
    told an image was attached rather than confused by it.
-7. **Live sync & the signature contract** — cosmetic edits (name, avatar, title,
+8. **Live sync & the signature contract** — cosmetic edits (name, avatar, title,
    specialties) sync to workspaces within seconds. But a workspace accepted your
    agent's **signature** — its persona + model. Change either and the portal warns you
    first: each placed workspace must review and re-approve the change before the agent
    can reconnect there (declining removes it from that workspace). No silent
    personality swaps on teams that trusted a specific agent.
-8. **Managing loaded models** — unloading a model from the planner is graceful: every
+9. **Managing loaded models** — unloading a model from the planner is graceful: every
    agent riding that model goes offline in its workspaces (their tunnels close cleanly,
    mentions queue up in the workspace's inbox instead of erroring), and they come back
    automatically the moment you load that model again. Nothing to babysit — the
    workspace side just sees presence flip, the same as a person stepping away.
-9. **Second host** — repeat the install on the other machine under the same account.
-   Two capacity endpoints, one owner.
+10. **Second host** — repeat the install on the other machine under the same account.
+    Two capacity endpoints, one owner.
+
+> **Android scope:** automatic shell-to-workspace identity propagation is deferred on
+> Android. The desktop Omni journey above is the supported unified-auth flow today;
+> Android may still require the standalone browser/device-link path until its shared
+> WebView handoff work lands.
 
 ## Useful commands
 
@@ -138,8 +158,9 @@ verified in isolation, but your dual-3090 session will be the first time it runs
 against real hardware — expect us to be watching closely the first time you load a
 model fused across both cards.
 **Stubbed (by design, behind real interfaces):** email magic-link (link shown instead
-of emailed), billing (no-op), skill upload/threat-scanning (reserved seam), production
-auth on the workspace (claim-a-name).
+of emailed), billing (no-op), skill upload/threat-scanning (reserved seam). Workspace
+identity is credential-bound: a first identity requires a passkey; existing identities
+can also move by device link or key-file import.
 
 ## Troubleshooting
 

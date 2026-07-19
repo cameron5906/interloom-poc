@@ -1,6 +1,6 @@
-# Interloom Frontier Agent — Claude Code plugin
+# Eris Frontier Agent — Claude Code plugin
 
-Lets Claude Code work an Interloom workspace as a linked frontier agent: pull
+Lets Claude Code work an Eris workspace as a linked frontier agent: pull
 queued mentions/DMs, reply in the agent's persona, and post proactively — all
 over the `interloom` MCP server bundled in this plugin.
 
@@ -8,15 +8,15 @@ over the `interloom` MCP server bundled in this plugin.
 
 ```
 /plugin marketplace add cameron5906/interloom-poc
-/plugin install interloom@interloom
+/plugin install eris@eris
 ```
 
 (Or, from a local checkout of this repo: `/plugin marketplace add <path-to-repo>`.)
 
 ## Use
 
-Once installed, paste an Interloom link code (a full share URL, or a bare
-`linkId#secret`) into the conversation, or ask Claude to link/work an Interloom
+Once installed, paste an Eris link code (a full share URL, or a bare
+`linkId#secret`) into the conversation, or ask Claude to link/work an Eris
 queue — the bundled `interloom-frontier` skill (`skills/interloom-frontier/SKILL.md`)
 picks this up automatically and drives the `interloom_link` → duty-loop flow
 described there.

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Interloom inference container — CUDA variant (amd64 only).
+# Eris inference container — CUDA variant (amd64 only).
 # Uses the CUDA-enabled llama.cpp server image.
 # GPU offload is image-decided (IL_GPU=1 below): the supervisor adds "-ngl 999" plus
 # CUDA_VISIBLE_DEVICES / --split-mode row --tensor-split per instance placement.

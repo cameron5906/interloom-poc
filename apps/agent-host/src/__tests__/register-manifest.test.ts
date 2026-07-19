@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { generateKeypair, verifyEnvelope } from "@interloom/keys";
 import { buildAgentManifest } from "../agents/register.js";
 import type { Agent } from "../agents/store.js";
 
@@ -156,5 +157,81 @@ describe("buildAgentManifest (CONTRACTS §6/§12 profile stamping)", () => {
       imageUrl: "https://net.example/assets/av/abc.png",
     });
     expect("character" in manifest.avatar).toBe(false);
+  });
+});
+
+describe("buildAgentManifest (CONTRACTS §6/§14 frontier hostAttestation)", () => {
+  const frontierAgent: Agent = {
+    ...base,
+    model: undefined,
+    runtime: "frontier",
+    frontier: { provider: "anthropic", model: "claude-sonnet-5" },
+  };
+
+  const boundOperator = {
+    identityKey: "IDENTITY_PUBKEY",
+    displayName: "Cameron",
+    grant: {
+      payload: {
+        v: 1 as const,
+        identityKey: "IDENTITY_PUBKEY",
+        subjectKey: "HOST_PUBKEY_PLACEHOLDER",
+        scope: "host-operator" as const,
+        issuedAt: Date.now(),
+        epoch: 0,
+        nonce: "nonce-abc",
+      },
+      key: "IDENTITY_PUBKEY",
+      sig: "sig",
+    },
+    boundAt: new Date().toISOString(),
+  };
+
+  it("stamps a hostAttestation signed by the host key when frontier + bound", () => {
+    const hostKp = generateKeypair();
+    const manifest = buildAgentManifest(
+      frontierAgent,
+      "AGENT_PUBKEY",
+      () => undefined,
+      "Cameron's Host",
+      boundOperator,
+      hostKp,
+    );
+
+    expect(manifest.hostAttestation).toBeDefined();
+    expect(manifest.hostAttestation?.key).toBe(hostKp.publicKey);
+    expect(manifest.hostAttestation?.payload).toEqual({
+      agentId: frontierAgent.agentId,
+      agentPubKey: "AGENT_PUBKEY",
+      iat: expect.any(Number),
+    });
+    expect(verifyEnvelope(manifest.hostAttestation!)).toBe(true);
+    // The attestation is signed by the HOST key, never the agent's own
+    // manifest-signing key — that's the whole point of the extra hop.
+    expect(manifest.hostAttestation?.key).not.toBe(manifest.pubKey);
+  });
+
+  it("omits hostAttestation for a frontier agent on an unbound host", () => {
+    const manifest = buildAgentManifest(
+      frontierAgent,
+      "AGENT_PUBKEY",
+      () => undefined,
+      "Cameron's Host",
+      null,
+    );
+    expect(manifest.hostAttestation).toBeUndefined();
+  });
+
+  it("omits hostAttestation for a hosted agent even when the host is bound", () => {
+    const hostKp = generateKeypair();
+    const manifest = buildAgentManifest(
+      base,
+      "PUBKEY",
+      () => undefined,
+      "Cameron's Host",
+      boundOperator,
+      hostKp,
+    );
+    expect(manifest.hostAttestation).toBeUndefined();
   });
 });

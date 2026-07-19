@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AgentPendingChange, ChatMessage, Channel, Member, ServerWsEvent } from "../chat.js";
+import { AgentPendingChange, ChatMessage, Channel, ClientWsMessage, Member, ServerWsEvent } from "../chat.js";
 
 describe("ServerWsEvent — message.edited (CONTRACTS §5 A.5)", () => {
   it("round-trips a message.edited event", () => {
@@ -208,11 +208,11 @@ describe("Member additive field — bio (CONTRACTS §5 A.4)", () => {
       name: "Ada",
       isAgent: false,
       online: true,
-      bio: "Building things at Interloom.",
+      bio: "Building things at Eris.",
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.bio).toBe("Building things at Interloom.");
+      expect(result.data.bio).toBe("Building things at Eris.");
     }
   });
 });
@@ -274,5 +274,50 @@ describe("Channel additive fields — unread/hasMention/lastMessageAt (CONTRACTS
       expect(result.data.hasMention).toBe(true);
       expect(result.data.lastMessageAt).toBe(1_700_000_000_000);
     }
+  });
+});
+
+describe("flat thread and ambient-attention additions (CONTRACTS §18)", () => {
+  it("keeps old message/channel shapes valid and accepts thread summaries", () => {
+    const message = ChatMessage.parse({
+      id: "root-1",
+      channelId: "c1",
+      authorId: "u1",
+      authorName: "Cam",
+      isAgent: false,
+      text: "Thoughts?",
+      mentions: [],
+      createdAt: "2026-07-17T00:00:00Z",
+      threadSummary: {
+        replyCount: 2,
+        participantIds: ["u1", "agent-1"],
+        latestReplyAt: "2026-07-17T00:01:00Z",
+        unread: 1,
+      },
+    });
+    expect(message.threadSummary?.replyCount).toBe(2);
+    expect(Channel.parse({ id: "c1", name: "general", kind: "channel" }).ambientAttentionEnabled).toBeUndefined();
+    expect(Channel.parse({ id: "c1", name: "general", kind: "channel", ambientAttentionEnabled: true }).ambientAttentionEnabled).toBe(true);
+  });
+
+  it("round-trips thread-scoped send, typing, and summary events", () => {
+    expect(ClientWsMessage.parse({
+      type: "message.send",
+      channelId: "c1",
+      threadRootId: "root-1",
+      text: "A reply",
+    }).threadRootId).toBe("root-1");
+    expect(ClientWsMessage.parse({
+      type: "typing.start",
+      channelId: "c1",
+      threadRootId: "root-1",
+    }).threadRootId).toBe("root-1");
+    const event = ServerWsEvent.parse({
+      type: "thread.updated",
+      channelId: "c1",
+      rootMessageId: "root-1",
+      summary: { replyCount: 1, participantIds: ["agent-1"] },
+    });
+    expect(event.type).toBe("thread.updated");
   });
 });

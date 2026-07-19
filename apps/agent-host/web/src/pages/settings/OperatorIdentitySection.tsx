@@ -46,7 +46,7 @@ export function OperatorIdentitySection() {
     <section className="il-settings__section">
       <h2 className="il-settings__section-title">Operator identity</h2>
       <p className="il-settings__section-desc">
-        Shown as the owner on every agent you publish — your Interloom Network identity's name
+        Shown as the owner on every agent you publish — your Eris Network identity's name
         and avatar travel with them.
       </p>
 
@@ -153,7 +153,7 @@ function LegacyOperatorNameFallback() {
   return (
     <div className="il-op-identity__legacy">
       <p className="il-op-identity__legacy-note">
-        No Interloom identity connected yet — agents publish under this free-text name until you
+        No Eris identity connected yet — agents publish under this free-text name until you
         connect one from Settings → Operator identity.
       </p>
       {legacy.loading && legacy.initialLoad ? (

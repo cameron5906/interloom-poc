@@ -25,6 +25,10 @@ export interface LiveTunnel {
  *  - a single filename `string` — back-compat single-model filter (legacy
  *    callers / existing tests).
  *  - a `Set<string>` — the multi-instance loaded set.
+ *
+ * Frontier-runtime agents (CONTRACTS §14) are always skipped, independent of
+ * `loadedFilenames` — the host daemon never opens a tunnel for one; its
+ * linked MCP server does, over its own per-agent key.
  */
 export function diffPlacements(
   current: Map<string, LiveTunnel>,
@@ -49,9 +53,17 @@ export function diffPlacements(
       continue;
     }
 
+    const agentId = placement.voucher.payload.agentId;
+    const agent = getAgent(agentId);
+
+    if (agent?.runtime === "frontier") {
+      if (current.has(placement.placementId)) {
+        toClose.push(placement.placementId);
+      }
+      continue;
+    }
+
     if (loadedFilenames !== undefined) {
-      const agentId = placement.voucher.payload.agentId;
-      const agent = getAgent(agentId);
       if (!agent?.model || !isLoaded(agent.model.filename)) {
         if (current.has(placement.placementId)) {
           toClose.push(placement.placementId);

@@ -1,7 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { diffPlacements } from "../tunnel/manager.js";
 import type { LiveTunnel } from "../tunnel/manager.js";
 import type { Placement } from "@interloom/protocol";
+
+let mockAgent: { runtime?: string; model?: { filename: string } } | undefined;
+vi.mock("../agents/store.js", () => ({
+  getAgent: (_id: string) => mockAgent,
+}));
 
 function makeVoucher(agentId: string, instanceUrl: string, placementId: string, sig = "sig") {
   return {
@@ -40,6 +45,10 @@ function makeClientMap(ids: string[]): Map<string, LiveTunnel> {
 }
 
 describe("diffPlacements", () => {
+  beforeEach(() => {
+    mockAgent = undefined;
+  });
+
   it("opens new non-revoked placements not in current map", () => {
     const current = makeClientMap([]);
     const incoming = [makePlacement("p1"), makePlacement("p2")];
@@ -119,5 +128,41 @@ describe("diffPlacements", () => {
     const { toOpen, toClose } = diffPlacements(current, incoming);
     expect(toClose).not.toContain("p1");
     expect(toOpen.map((p) => p.placementId)).not.toContain("p1");
+  });
+
+  describe("frontier agents (CONTRACTS §14 — host never opens their tunnels)", () => {
+    it("does not open a tunnel for a frontier-runtime agent's placement", () => {
+      mockAgent = { runtime: "frontier" };
+      const current = makeClientMap([]);
+      const incoming = [makePlacement("p1")];
+      const { toOpen, toClose } = diffPlacements(current, incoming);
+      expect(toOpen).toHaveLength(0);
+      expect(toClose).toHaveLength(0);
+    });
+
+    it("closes an already-open tunnel once its agent is frontier-runtime", () => {
+      mockAgent = { runtime: "frontier" };
+      const current = makeClientMap(["p1"]);
+      const incoming = [makePlacement("p1")];
+      const { toOpen, toClose } = diffPlacements(current, incoming);
+      expect(toOpen).toHaveLength(0);
+      expect(toClose).toContain("p1");
+    });
+
+    it("skips frontier agents even when loadedFilenames is a Set (multi-instance mode)", () => {
+      mockAgent = { runtime: "frontier" };
+      const current = makeClientMap([]);
+      const incoming = [makePlacement("p1")];
+      const { toOpen } = diffPlacements(current, incoming, new Set(["qwen.gguf"]));
+      expect(toOpen).toHaveLength(0);
+    });
+
+    it("still opens tunnels for hosted-runtime agents (no filter)", () => {
+      mockAgent = { runtime: "hosted" };
+      const current = makeClientMap([]);
+      const incoming = [makePlacement("p1")];
+      const { toOpen } = diffPlacements(current, incoming);
+      expect(toOpen).toHaveLength(1);
+    });
   });
 });

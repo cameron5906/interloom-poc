@@ -41,7 +41,7 @@ export function StepIdentity({ onNext, onBack }: { onNext: () => void; onBack: (
           <div className="il-id-card__note">
             <span aria-hidden>🔒</span>
             The matching private key is custodied by the daemon on this device. You never type or
-            paste keys in Interloom.
+            paste keys in Eris.
           </div>
         </div>
       )}

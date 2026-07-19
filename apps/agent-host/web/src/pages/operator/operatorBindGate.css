@@ -5,7 +5,11 @@
   justify-content: center;
   padding: 40px 20px;
   background:
-    radial-gradient(1100px 500px at 50% -10%, color-mix(in srgb, var(--il-accent) 6%, transparent), transparent),
+    radial-gradient(
+      1100px 500px at 50% -10%,
+      color-mix(in srgb, var(--il-accent) 6%, transparent),
+      transparent
+    ),
     var(--il-bg-page);
 }
 
@@ -73,6 +77,19 @@
   font-size: 13.5px;
   font-weight: 600;
   margin-bottom: 2px;
+}
+
+.il-opbind__waiting--shell {
+  justify-content: center;
+}
+
+.il-opbind__waiting--shell .il-opbind__title,
+.il-opbind__waiting--shell .il-opbind__lede {
+  text-align: left;
+}
+
+.il-opbind__waiting--shell .il-opbind__lede {
+  margin-bottom: 0;
 }
 
 .il-opbind__error {

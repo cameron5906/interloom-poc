@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Avatar, Button, TextArea, TypingDots } from "@interloom/ui";
-import type { LoadedModel, LocalModel } from "@interloom/protocol";
+import type { FrontierProvider, LoadedModel, LocalModel } from "@interloom/protocol";
 import { streamPreview } from "../../api/preview.js";
 import type { PreviewMessage } from "../../api/preview.js";
 import type { AgentDraft } from "../../api/types.js";
@@ -19,7 +19,16 @@ interface PreviewChatProps {
   loadedModels: LoadedModel[];
   localModels: LocalModel[];
   onModelLoaded: () => void;
+  /** Live runtime-tab state from the editor (CONTRACTS §14) — swaps the
+   * composer's "runs on your GPU" note for a token-cost one in Frontier mode. */
+  runtime?: "hosted" | "frontier";
+  frontierProvider?: FrontierProvider;
 }
+
+const PROVIDER_LABEL: Record<FrontierProvider, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+};
 
 interface ChatTurn {
   role: "user" | "assistant";
@@ -65,7 +74,15 @@ type CannedKind = "no-model" | "not-loaded" | null;
  * model_not_active by driving the same guarded load flow, then auto-retries
  * whatever preview message triggered it.
  */
-export function PreviewChat({ agentId, draft, loadedModels, localModels, onModelLoaded }: PreviewChatProps) {
+export function PreviewChat({
+  agentId,
+  draft,
+  loadedModels,
+  localModels,
+  onModelLoaded,
+  runtime = "hosted",
+  frontierProvider = "anthropic",
+}: PreviewChatProps) {
   const toasts = useToasts();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
@@ -89,13 +106,16 @@ export function PreviewChat({ agentId, draft, loadedModels, localModels, onModel
   const disabled = noModel || !modelLoaded || agentId === null;
 
   const { loading: loadFlowLoading, spillConfirm, attemptLoad, confirmSpillAndRetry, cancelSpillConfirm } =
-    useGuardedModelLoad(() => {
-      onModelLoaded();
-      setPendingMessages((pending) => {
-        if (pending) startStream(pending);
-        return null;
-      });
-    });
+    useGuardedModelLoad(
+      () => {
+        onModelLoaded();
+        setPendingMessages((pending) => {
+          if (pending) startStream(pending);
+          return null;
+        });
+      },
+      () => setPendingMessages(null),
+    );
 
   // Reset the conversation when switching agents.
   useEffect(() => {
@@ -200,7 +220,7 @@ export function PreviewChat({ agentId, draft, loadedModels, localModels, onModel
             const localPath = body?.path;
             if (filename && localPath) {
               setPendingMessages(messages);
-              void attemptLoad(localPath, filename);
+              void attemptLoad(localPath, filename, { auto: true });
               return;
             }
             if (filename && !localPath) {
@@ -336,6 +356,7 @@ export function PreviewChat({ agentId, draft, loadedModels, localModels, onModel
             bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
             imageUrl={headerAvatarUrl}
             size="sm"
+            badge={runtime === "frontier" ? "frontier" : undefined}
           />
         </header>
 
@@ -356,6 +377,7 @@ export function PreviewChat({ agentId, draft, loadedModels, localModels, onModel
                     bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
                     imageUrl={headerAvatarUrl}
                     size="sm"
+                    badge={runtime === "frontier" ? "frontier" : undefined}
                   />
                   {cannedPhase === "typing" ? (
                     <div className="il-preview__bubble il-preview__bubble--typing">
@@ -412,6 +434,7 @@ export function PreviewChat({ agentId, draft, loadedModels, localModels, onModel
                       bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
                       imageUrl={headerAvatarUrl}
                       size="sm"
+                      badge={runtime === "frontier" ? "frontier" : undefined}
                     />
                     <div className="il-preview__bubble">
                       {parseThinkSegments(t.content).map((seg, j) =>
@@ -434,6 +457,7 @@ export function PreviewChat({ agentId, draft, loadedModels, localModels, onModel
                     bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
                     imageUrl={headerAvatarUrl}
                     size="sm"
+                    badge={runtime === "frontier" ? "frontier" : undefined}
                   />
                   <div className="il-preview__bubble il-preview__bubble--typing">
                     <TypingDots />
@@ -475,7 +499,11 @@ export function PreviewChat({ agentId, draft, loadedModels, localModels, onModel
                 {attachments.length > 0 ? ` ${attachments.length}` : ""}
               </label>
             ) : null}
-            <span className="il-meta">preview runs on your GPU</span>
+            <span className="il-meta">
+              {runtime === "frontier"
+                ? `runs on your ${PROVIDER_LABEL[frontierProvider]} API tokens`
+                : "preview runs on your GPU"}
+            </span>
             <Button
               size="sm"
               variant="primary"

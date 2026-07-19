@@ -363,7 +363,7 @@ export class TunnelClient {
         voucher: this.placement.voucher,
         sig,
         ctx,
-        features: ["tools"],
+        features: ["tools", "finish_reason_v1"],
       },
     });
   }
@@ -398,7 +398,7 @@ export class TunnelClient {
       params?: {
         temperature?: number;
         maxTokens?: number;
-        priority?: "interactive" | "maintenance";
+        priority?: "interactive" | "maintenance" | "background";
         tools?: unknown[];
         toolChoice?: "auto" | "none";
       };
@@ -454,6 +454,7 @@ export class TunnelClient {
 
         const data = await res.json() as {
           choices?: Array<{
+            finish_reason?: string;
             message?: {
               role: string;
               content: string;
@@ -465,6 +466,14 @@ export class TunnelClient {
         };
 
         const message = data.choices?.[0]?.message ?? { role: "assistant", content: "" };
+        const rawFinishReason = data.choices?.[0]?.finish_reason;
+        const finishReason =
+          rawFinishReason === "length" ||
+          rawFinishReason === "tool_calls" ||
+          rawFinishReason === "cancelled" ||
+          rawFinishReason === "error"
+            ? rawFinishReason
+            : "stop";
         // Backstop stripper (CONTRACTS §6.1) — the engine already separates
         // reasoning via --reasoning-format deepseek for families it knows;
         // this catches inline <think> content for families it doesn't.
@@ -497,17 +506,19 @@ export class TunnelClient {
           makeRes(frame.id, {
             message: { ...message, content: strippedContent, ...(toolCalls ? { toolCalls } : {}) },
             usage: { promptTokens, completionTokens, tokensPerSec },
+            finishReason,
           }),
         );
       } catch (err) {
         if (signal.aborted) {
-          this.send(makeErr(frame.id, "E_INTERNAL", "inference run timed out"));
+          const preempted = String(signal.reason ?? "").includes("preempted");
+          this.send(makeErr(frame.id, preempted ? "E_BUSY" : "E_INTERNAL", preempted ? "background inference preempted" : "inference run timed out"));
           return;
         }
         const msg = err instanceof Error ? err.message : String(err);
         this.send(makeErr(frame.id, "E_INTERNAL", msg));
       }
-    }, priority);
+    }, priority, priority === "background" ? 20_000 : undefined);
   }
 
   private async handleInferenceStream(
@@ -518,7 +529,7 @@ export class TunnelClient {
       params?: {
         temperature?: number;
         maxTokens?: number;
-        priority?: "interactive" | "maintenance";
+        priority?: "interactive" | "maintenance" | "background";
         tools?: unknown[];
         toolChoice?: "auto" | "none";
       };
@@ -598,6 +609,7 @@ export class TunnelClient {
       // own signal (not the combined one) plus live WS state to tell them
       // apart, mirroring the complete path's timeout handling (:441-443).
       let watchdogTimedOut = false;
+      let finishReason: "stop" | "length" | "tool_calls" | "cancelled" | "error" = "stop";
       const toolAcc = newToolCallAccumulator();
       const stripper = new ThinkStripper();
 
@@ -651,6 +663,16 @@ export class TunnelClient {
               if (toolCallDeltas) {
                 aggregateToolCallDelta(toolAcc, toolCallDeltas);
               }
+              const rawFinishReason = parsed.choices?.[0]?.finish_reason;
+              if (
+                rawFinishReason === "length" ||
+                rawFinishReason === "tool_calls" ||
+                rawFinishReason === "cancelled" ||
+                rawFinishReason === "error" ||
+                rawFinishReason === "stop"
+              ) {
+                finishReason = rawFinishReason;
+              }
               // llama.cpp sends usage and timings in the final stream frame
               // (when finish_reason is set or in a trailing frame after [DONE])
               if (parsed.usage?.prompt_tokens !== undefined) {
@@ -698,8 +720,9 @@ export class TunnelClient {
         makeRes(frame.id, {
           usage: { promptTokens, completionTokens, tokensPerSec },
           ...(toolCalls ? { toolCalls } : {}),
+          finishReason,
         }),
       );
-    }, priority);
+    }, priority, priority === "background" ? 20_000 : undefined);
   }
 }

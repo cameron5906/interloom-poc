@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Interloom inference container — llama.cpp llama-server under a supervisor.
+# Eris inference container — llama.cpp llama-server under a supervisor.
 # Multi-arch CPU image (linux/amd64 + linux/arm64).
 # GPU variant: see Dockerfile.cuda
 

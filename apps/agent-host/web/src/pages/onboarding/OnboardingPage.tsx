@@ -28,7 +28,7 @@ export function OnboardingPage({ onDone }: { onDone: () => void }) {
           <span className="il-onb__mark" aria-hidden>
             <LoomGlyph size={26} />
           </span>
-          <span className="il-onb__wordmark">Interloom</span>
+          <span className="il-onb__wordmark">Eris</span>
           <span className="il-onb__tag">Agent Host setup</span>
           <button className="il-onb__skip" onClick={skip}>
             Skip for now

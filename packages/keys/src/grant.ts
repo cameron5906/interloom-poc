@@ -1,7 +1,7 @@
 import type { SignedEnvelope } from "./envelope.js";
 import { verifyEnvelope } from "./envelope.js";
 
-export type GrantScope = "workspace-device" | "host-operator";
+export type GrantScope = "workspace-device" | "omni-device" | "host-operator";
 
 /**
  * Structural shape of an `IdentityGrant` payload (CONTRACTS §2), defined here
@@ -36,7 +36,7 @@ function isGrantPayload(value: unknown): value is GrantPayload {
     p.v === 1 &&
     typeof p.identityKey === "string" &&
     typeof p.subjectKey === "string" &&
-    (p.scope === "workspace-device" || p.scope === "host-operator") &&
+    (p.scope === "workspace-device" || p.scope === "omni-device" || p.scope === "host-operator") &&
     (p.audience === undefined || typeof p.audience === "string") &&
     typeof p.issuedAt === "number" &&
     (p.expiresAt === undefined || typeof p.expiresAt === "number") &&

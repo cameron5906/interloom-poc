@@ -16,6 +16,16 @@ function makeService(overrides: Partial<FrontierServiceLike> = {}): FrontierServ
     submit: vi.fn(async () => ({ messageId: "msg-1" })),
     skip: vi.fn(async () => undefined),
     post: vi.fn(async () => ({ messageId: "msg-2" })),
+    contextList: vi.fn(async () => ({ entries: [] })),
+    contextRead: vi.fn(async (agentId, params) => ({
+      path: params.path,
+      size: 0,
+      offset: 0,
+      binary: false,
+      truncated: false,
+      encoding: "utf8" as const,
+      content: "",
+    })),
     unlink: vi.fn(() => undefined),
     ...overrides,
   };
@@ -48,7 +58,18 @@ describe("createToolHandlers", () => {
   });
 
   it("interloom_status reports the facade's status verbatim", async () => {
-    const status = { agents: [{ agentId: "a1", agentName: "A", online: true, placements: [], queueDepth: 0, doneThisSession: 0 }] };
+    const status = {
+      agents: [
+        {
+          agentId: "a1",
+          agentName: "A",
+          online: true,
+          placements: [],
+          queueDepth: 0,
+          doneThisSession: 0,
+        },
+      ],
+    };
     const service = makeService({ status: vi.fn(() => status) });
     const handlers = createToolHandlers(service);
 
@@ -60,7 +81,9 @@ describe("createToolHandlers", () => {
 
   it("interloom_next_work returns afterWork guidance and calls work.begin via the facade when an item is available", async () => {
     const item = { workId: "w1", agentId: "a1" } as unknown;
-    const service = makeService({ nextWork: vi.fn(async () => ({ item, placementRef: "p1" }) as never) });
+    const service = makeService({
+      nextWork: vi.fn(async () => ({ item, placementRef: "p1" }) as never),
+    });
     const handlers = createToolHandlers(service);
 
     const result = await handlers.interloom_next_work({ waitSeconds: 5 });
@@ -145,7 +168,18 @@ describe("createToolHandlers", () => {
 
   it("never lets a provider API key or private key leak into a tool result", async () => {
     const service = makeService({
-      status: vi.fn(() => ({ agents: [{ agentId: "a1", agentName: "A", online: true, placements: [], queueDepth: 0, doneThisSession: 0 }] })),
+      status: vi.fn(() => ({
+        agents: [
+          {
+            agentId: "a1",
+            agentName: "A",
+            online: true,
+            placements: [],
+            queueDepth: 0,
+            doneThisSession: 0,
+          },
+        ],
+      })),
     });
     const handlers = createToolHandlers(service);
 

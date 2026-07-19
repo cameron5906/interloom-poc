@@ -212,7 +212,7 @@ describe("IdentityPublish / IdentityRecord schemas", () => {
       kind: "user",
       pubKey: "pub",
       displayName: "Cam",
-      workspaceName: "Interloom Demo",
+      workspaceName: "Eris Demo",
       ts: 1,
     });
     expect(result.success).toBe(true);

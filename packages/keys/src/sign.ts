@@ -3,7 +3,7 @@ import { sha512 } from "@noble/hashes/sha512";
 import { b64urlToBytes, bytesToB64url, utf8ToBytes } from "./base64url.js";
 
 // @noble/ed25519 v2 ships async-only by default. Wiring sha512Sync enables the
-// synchronous sign/verify/getPublicKey paths we use throughout Interloom.
+// synchronous sign/verify/getPublicKey paths we use throughout Eris.
 ed.etc.sha512Sync = (...messages: Uint8Array[]): Uint8Array =>
   sha512(ed.etc.concatBytes(...messages));
 

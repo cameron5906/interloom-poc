@@ -9,3 +9,18 @@ export * from "./modelCatalog.js";
 export * from "./chat.js";
 export * from "./mentions.js";
 export * from "./host.js";
+export * from "./scribe.js";
+export {
+  ShellNotifyPayload,
+  ShellNotificationClickPayload,
+  ShellBridgeNotifyMessage,
+  ShellBridgeNotificationClickMessage,
+  ShellBridgeWorkspaceAuthInitMessage,
+  ShellBridgeWorkspaceAuthRequestV1Message,
+  ShellBridgeWorkspaceAuthRequestMessage,
+  ShellBridgeWorkspaceAuthGrantV1Message,
+  ShellBridgeWorkspaceAuthGrantMessage,
+  ShellBridgeWorkspaceAuthStateMessage,
+  omniWorkspaceProofMessage,
+  type InterloomShellBridge,
+} from "./shellBridge.js";

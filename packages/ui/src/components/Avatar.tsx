@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 
 export type AvatarSize = "sm" | "md" | "lg";
 export type Presence = "online" | "away" | "offline" | null;
+export type AvatarBadge = "frontier";
 
 export interface AvatarProps {
   name: string;
@@ -12,10 +13,13 @@ export interface AvatarProps {
   imageUrl?: string;
   size?: AvatarSize;
   presence?: Presence;
+  /** Subtle corner badge, opposite the presence dot. "frontier" marks external CLI-run agents. */
+  badge?: AvatarBadge;
   className?: string;
 }
 
 const SIZE_PX: Record<AvatarSize, number> = { sm: 24, md: 32, lg: 44 };
+const BADGE_PX: Record<AvatarSize, number> = { sm: 9, md: 11, lg: 14 };
 
 // Deterministic pastel fill for human avatars derived from the name.
 // Warm peach family — default is `--il-avatar-human-bg` (#f2be93).
@@ -42,9 +46,11 @@ export function Avatar({
   imageUrl,
   size = "md",
   presence = null,
+  badge,
   className,
 }: AvatarProps) {
   const px = SIZE_PX[size];
+  const badgePx = BADGE_PX[size];
   const [imageFailed, setImageFailed] = useState(false);
   useEffect(() => setImageFailed(false), [imageUrl]);
   const showImage = Boolean(imageUrl) && !imageFailed;
@@ -74,6 +80,15 @@ export function Avatar({
         <span className="il-avatar__inner">{isAgent ? (emoji ?? "🤖") : initials(name)}</span>
       )}
       {presence ? <span className={`il-avatar__dot il-avatar__dot--${presence}`} /> : null}
+      {badge ? (
+        <span
+          className={`il-avatar__badge il-avatar__badge--${badge}`}
+          style={{ width: badgePx, height: badgePx, fontSize: Math.round(badgePx * 0.72) }}
+          title="Frontier agent"
+        >
+          ✦
+        </span>
+      ) : null}
     </span>
   );
 }

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Interloom model-fetcher — downloads GGUF models from Hugging Face Hub.
+# Eris model-fetcher — downloads GGUF models from Hugging Face Hub.
 
 FROM python:3.12-slim
 

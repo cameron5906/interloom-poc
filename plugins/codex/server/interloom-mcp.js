@@ -14740,7 +14740,7 @@ var LinkSignalFrame = external_exports.discriminatedUnion("t", [
   external_exports.object({
     t: external_exports.literal("join"),
     role: external_exports.enum(["issuer", "scanner"]),
-    /** Additive (CONTRACTS §4/§13) — a frontier-agent-kind session's issuer
+    /** Additive (CONTRACTS §4/§14) — a frontier-agent-kind session's issuer
      * carries this instead of an identity cookie; ignored for every other
      * join (device-kind issuer, and scanner joins of either kind). */
     auth: signedEnvelope(FrontierLinkIssuerAuth).optional()
@@ -14817,16 +14817,16 @@ var AgentManifest = external_exports.object({
   gender: AgentGender.optional(),
   specialties: external_exports.array(external_exports.string().min(1).max(32)).max(8).optional(),
   operator: AgentOperator.optional(),
-  /** Local model vs. an external frontier CLI agent (CONTRACTS §13). Absent ⇒ hosted. */
+  /** Local model vs. an external frontier CLI agent (CONTRACTS §14). Absent ⇒ hosted. */
   runtime: external_exports.enum(["hosted", "frontier"]).optional(),
   /**
    * Lazily bound to avoid a hard circular module-eval dependency
-   * (registry.ts -> frontier.ts -> chat.ts -> registry.ts, CONTRACTS §13).
+   * (registry.ts -> frontier.ts -> chat.ts -> registry.ts, CONTRACTS §14).
    */
   frontier: external_exports.lazy(() => FrontierRuntimeConfig).optional(),
   /**
    * Host-signed key attestation extending the operator grant chain to a
-   * frontier agent's own manifest-signing key (CONTRACTS §6/§13). Only
+   * frontier agent's own manifest-signing key (CONTRACTS §6/§14). Only
    * present on a frontier manifest built by a host with a bound operator
    * identity; absent everywhere else.
    */
@@ -14872,7 +14872,7 @@ var MarketplaceAgent = external_exports.object({
   specialties: external_exports.array(external_exports.string().min(1).max(32)).max(8).optional(),
   /** Network-computed: `manifest.operator` when present, else `{pubKey: agent.pubKey}`. */
   owner: AgentOperator.optional(),
-  /** Local model vs. an external frontier CLI agent (CONTRACTS §13). Absent ⇒ hosted. */
+  /** Local model vs. an external frontier CLI agent (CONTRACTS §14). Absent ⇒ hosted. */
   runtime: external_exports.enum(["hosted", "frontier"]).optional(),
   frontier: external_exports.lazy(() => FrontierRuntimeConfig).optional()
 });
@@ -14905,6 +14905,10 @@ var AvatarAssetUpload = external_exports.object({
   bytesB64: external_exports.string(),
   ts: external_exports.number()
 });
+var WrappedPrivateKey = external_exports.object({
+  ivB64: external_exports.string(),
+  ciphertextB64: external_exports.string()
+});
 var IdentityPublish = external_exports.object({
   kind: external_exports.enum(["operator", "user"]),
   pubKey: external_exports.string(),
@@ -14912,7 +14916,8 @@ var IdentityPublish = external_exports.object({
   workspaceName: external_exports.string().max(80).optional(),
   ts: external_exports.number(),
   avatarSha: external_exports.string().optional(),
-  workspaces: external_exports.array(WorkspaceAssociation).optional()
+  workspaces: external_exports.array(WorkspaceAssociation).optional(),
+  wrappedPrivateKey: WrappedPrivateKey.optional()
 });
 var IdentityRecord = external_exports.object({
   pubKey: external_exports.string(),
@@ -14960,7 +14965,16 @@ var ChatMessage = external_exports.object({
   /** Soft-deleted (CONTRACTS §5). `text` is blanked; clients render a tombstone. */
   deleted: external_exports.boolean().optional(),
   /** Image attachments uploaded via REST before send (CONTRACTS §5). */
-  attachments: external_exports.array(Attachment).optional()
+  attachments: external_exports.array(Attachment).optional(),
+  /** Durable invocation that produced this agent-authored message. */
+  agentRunId: external_exports.string().optional(),
+  threadRootId: external_exports.string().optional(),
+  threadSummary: external_exports.object({
+    replyCount: external_exports.number().int().nonnegative(),
+    participantIds: external_exports.array(external_exports.string()),
+    latestReplyAt: external_exports.string().optional(),
+    unread: external_exports.number().int().nonnegative().optional()
+  }).optional()
 });
 var Channel = external_exports.object({
   id: external_exports.string(),
@@ -14973,7 +14987,8 @@ var Channel = external_exports.object({
   /** Whether any unread message mentions the session member. */
   hasMention: external_exports.boolean().optional(),
   /** Unix ms of the most recent message, for float-up ordering. */
-  lastMessageAt: external_exports.number().optional()
+  lastMessageAt: external_exports.number().optional(),
+  ambientAttentionEnabled: external_exports.boolean().optional()
 });
 var Member = external_exports.object({
   id: external_exports.string(),
@@ -15008,7 +15023,7 @@ var Member = external_exports.object({
   identityKey: external_exports.string().optional(),
   /** Human profile bio, ≤500 chars (CONTRACTS §5, workspace-local). */
   bio: external_exports.string().optional(),
-  /** Agent only: local model vs. an external frontier CLI agent (CONTRACTS §13). Absent ⇒ hosted. */
+  /** Agent only: local model vs. an external frontier CLI agent (CONTRACTS §14). Absent ⇒ hosted. */
   runtime: external_exports.enum(["hosted", "frontier"]).optional()
 });
 var MemberRequest = external_exports.object({
@@ -15040,14 +15055,58 @@ var AgentPendingChange = external_exports.object({
     avatarImageUrl: external_exports.string().optional()
   }),
   // Lazily bound to avoid a hard circular module-eval dependency
-  // (chat.ts -> registry.ts -> frontier.ts -> chat.ts, CONTRACTS §13).
+  // (chat.ts -> registry.ts -> frontier.ts -> chat.ts, CONTRACTS §14).
   incomingManifest: external_exports.lazy(() => AgentManifest)
+});
+var AgentRunKind = external_exports.enum(["chat", "work", "subloop", "report"]);
+var AgentRunRuntime = external_exports.enum(["hosted", "frontier"]);
+var AgentRunStatus = external_exports.enum([
+  "queued",
+  "running",
+  "stopping",
+  "succeeded",
+  "partial",
+  "failed",
+  "timed_out",
+  "cancelled"
+]);
+var AgentRunStage = external_exports.enum([
+  "queued",
+  "preparing_context",
+  "compacting",
+  "waiting_model",
+  "using_tool",
+  "waiting_slot",
+  "verifying",
+  "posting",
+  "stopping"
+]);
+var AgentRunSummary = external_exports.object({
+  id: external_exports.string(),
+  parentRunId: external_exports.string().nullable(),
+  memberId: external_exports.string(),
+  channelId: external_exports.string(),
+  kind: AgentRunKind,
+  runtime: AgentRunRuntime,
+  status: AgentRunStatus,
+  stage: AgentRunStage.nullable(),
+  label: external_exports.string(),
+  model: ModelRef.optional(),
+  toolCalls: external_exports.number(),
+  queuedAt: external_exports.string(),
+  startedAt: external_exports.string().nullable(),
+  updatedAt: external_exports.string(),
+  endedAt: external_exports.string().nullable(),
+  lastSeq: external_exports.number(),
+  threadRootId: external_exports.string().optional(),
+  wakeReason: external_exports.enum(["ambient", "thread", "mention", "dm"]).optional()
 });
 var ClientWsMessage = external_exports.discriminatedUnion("type", [
   external_exports.object({
     type: external_exports.literal("message.send"),
     channelId: external_exports.string(),
     text: external_exports.string(),
+    threadRootId: external_exports.string().optional(),
     /** Member ids the sender confirmed to add to the channel (auto-join). */
     addMemberIds: external_exports.array(external_exports.string()).optional(),
     /** Image attachments uploaded via REST before send (CONTRACTS §5). */
@@ -15055,7 +15114,8 @@ var ClientWsMessage = external_exports.discriminatedUnion("type", [
   }),
   external_exports.object({
     type: external_exports.literal("typing.start"),
-    channelId: external_exports.string()
+    channelId: external_exports.string(),
+    threadRootId: external_exports.string().optional()
   })
 ]);
 var ServerWsEvent = external_exports.discriminatedUnion("type", [
@@ -15068,13 +15128,15 @@ var ServerWsEvent = external_exports.discriminatedUnion("type", [
     messageId: external_exports.string(),
     channelId: external_exports.string(),
     text: external_exports.string(),
-    complete: external_exports.boolean()
+    complete: external_exports.boolean(),
+    threadRootId: external_exports.string().optional()
   }),
   external_exports.object({
     type: external_exports.literal("typing"),
     channelId: external_exports.string(),
     memberId: external_exports.string(),
-    isAgent: external_exports.boolean()
+    isAgent: external_exports.boolean(),
+    threadRootId: external_exports.string().optional()
   }),
   external_exports.object({
     type: external_exports.literal("presence.update"),
@@ -15128,16 +15190,32 @@ var ServerWsEvent = external_exports.discriminatedUnion("type", [
     text: external_exports.string(),
     /** Unix ms. */
     editedAt: external_exports.number(),
-    mentions: external_exports.array(external_exports.string())
+    mentions: external_exports.array(external_exports.string()),
+    threadRootId: external_exports.string().optional()
   }),
   external_exports.object({
     type: external_exports.literal("message.deleted"),
     messageId: external_exports.string(),
-    channelId: external_exports.string()
+    channelId: external_exports.string(),
+    threadRootId: external_exports.string().optional()
+  }),
+  external_exports.object({
+    type: external_exports.literal("thread.updated"),
+    channelId: external_exports.string(),
+    rootMessageId: external_exports.string(),
+    summary: external_exports.object({
+      replyCount: external_exports.number().int().nonnegative(),
+      participantIds: external_exports.array(external_exports.string()),
+      latestReplyAt: external_exports.string().optional()
+    })
   }),
   external_exports.object({
     type: external_exports.literal("channel.deleted"),
     channelId: external_exports.string()
+  }),
+  external_exports.object({
+    type: external_exports.literal("agent.run.updated"),
+    run: AgentRunSummary
   })
 ]);
 
@@ -15162,8 +15240,12 @@ var FrontierWorkItem = external_exports.object({
     persona: external_exports.string().optional()
   }),
   enqueuedAt: external_exports.string(),
+  kind: external_exports.enum(["direct", "attention"]).optional(),
+  threadRootId: external_exports.string().optional(),
+  attentionTurnId: external_exports.string().optional(),
+  engagement: external_exports.enum(["discovery", "thread"]).optional(),
   /**
-   * Opaque token bound to this specific lease (CONTRACTS §13 "Lease
+   * Opaque token bound to this specific lease (CONTRACTS §14 "Lease
    * ownership"). Additive — absent only if delivered by a not-yet-upgraded
    * instance. Must be echoed back on `work.complete`/`work.fail`; the
    * instance rejects a mismatched/missing token with `E_STALE_LEASE`
@@ -15254,7 +15336,7 @@ var AuthIdentifyParams = external_exports.object({
   ctx: external_exports.number().optional(),
   /** Host feature advertisement (e.g. "tools", "frontierQueue"). Instances never
    *  offer tools over a tunnel that did not advertise them. A tunnel advertising
-   *  "frontierQueue" receives `work.*` methods, never `inference.*` (CONTRACTS §13). */
+   *  "frontierQueue" receives `work.*` methods, never `inference.*` (CONTRACTS §14). */
   features: external_exports.array(external_exports.string()).optional()
 });
 var AuthOkResult = external_exports.object({
@@ -15287,7 +15369,7 @@ var InferenceParams = external_exports.object({
   temperature: external_exports.number().optional(),
   maxTokens: external_exports.number().optional(),
   /** Traffic class on the shared model: interactive replies outrank maintenance (compaction etc.). */
-  priority: external_exports.enum(["interactive", "maintenance"]).optional(),
+  priority: external_exports.enum(["interactive", "maintenance", "background"]).optional(),
   tools: external_exports.array(ToolDef).optional(),
   toolChoice: external_exports.enum(["auto", "none"]).optional()
 });
@@ -15300,16 +15382,25 @@ var InferenceUsage = external_exports.object({
   completionTokens: external_exports.number(),
   tokensPerSec: external_exports.number()
 });
+var InferenceFinishReason = external_exports.enum([
+  "stop",
+  "length",
+  "tool_calls",
+  "cancelled",
+  "error"
+]);
 var InferenceCompleteResult = external_exports.object({
   message: InferenceMessage,
-  usage: InferenceUsage
+  usage: InferenceUsage,
+  finishReason: InferenceFinishReason.optional()
 });
 var InferenceChunkEvent = external_exports.object({
   delta: external_exports.string()
 });
 var InferenceStreamResult = external_exports.object({
   usage: InferenceUsage,
-  toolCalls: external_exports.array(ToolCall).optional()
+  toolCalls: external_exports.array(ToolCall).optional(),
+  finishReason: InferenceFinishReason.optional()
 });
 var HealthPingResult = external_exports.object({
   ok: external_exports.literal(true),
@@ -15338,7 +15429,8 @@ var WorkCompleteParams = external_exports.object({
 });
 var WorkCompleteResult = external_exports.object({
   ok: external_exports.literal(true),
-  messageId: external_exports.string()
+  messageId: external_exports.string().optional(),
+  posted: external_exports.boolean().optional()
 });
 var WorkFailParams = external_exports.object({
   workId: external_exports.string(),
@@ -15348,6 +15440,11 @@ var WorkFailParams = external_exports.object({
 var WorkFailResult = external_exports.object({
   ok: external_exports.literal(true)
 });
+var WorkPassParams = external_exports.object({
+  workId: external_exports.string(),
+  leaseToken: external_exports.string().optional()
+});
+var WorkPassResult = external_exports.object({ ok: external_exports.literal(true) });
 var ChatPostParams = external_exports.object({
   channelId: external_exports.string(),
   text: external_exports.string()
@@ -15565,7 +15662,7 @@ var HostAgent = external_exports.object({
   title: external_exports.string().min(1).max(60).optional(),
   gender: AgentGender.optional(),
   specialties: external_exports.array(external_exports.string().min(1).max(32)).max(8).optional(),
-  /** Local model vs. an external frontier CLI agent (CONTRACTS §13). Absent ⇒ hosted. */
+  /** Local model vs. an external frontier CLI agent (CONTRACTS §14). Absent ⇒ hosted. */
   runtime: external_exports.enum(["hosted", "frontier"]).optional(),
   frontier: FrontierRuntimeConfig.optional()
 });
@@ -15723,6 +15820,124 @@ var UpdateStatus = external_exports.object({
   checkError: external_exports.string().optional(),
   networkUrl: external_exports.string(),
   apply: UpdateApplyState
+});
+
+// ../protocol/dist/scribe.js
+var ScribeConnectionKind = external_exports.enum(["postgres", "http"]);
+var ScribeConnectionSlot = external_exports.object({
+  name: external_exports.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+  kind: ScribeConnectionKind,
+  label: external_exports.string().min(1).max(80),
+  description: external_exports.string().max(500).optional(),
+  required: external_exports.boolean().default(true)
+});
+var ScribeOutputContract = external_exports.object({
+  mode: external_exports.enum(["single-file", "tree"]),
+  defaultName: external_exports.string().min(1).max(255).optional(),
+  contentTypes: external_exports.array(external_exports.string()).max(32).optional()
+});
+var ScribeManifestV1 = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  slug: external_exports.string().regex(/^[a-z][a-z0-9-]{1,62}$/),
+  version: external_exports.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
+  name: external_exports.string().min(1).max(100),
+  description: external_exports.string().min(1).max(1e3),
+  runtime: external_exports.literal("node22"),
+  entrypoint: external_exports.string().regex(/^dist\/[A-Za-z0-9._/-]+\.mjs$/),
+  configSchema: external_exports.record(external_exports.unknown()).default({ type: "object", properties: {} }),
+  connections: external_exports.array(ScribeConnectionSlot).max(16).default([]),
+  output: ScribeOutputContract,
+  timeoutSeconds: external_exports.number().int().min(1).max(900).default(300),
+  homepage: external_exports.string().url().optional(),
+  license: external_exports.string().max(80).optional()
+});
+var ScribeReviewStatus = external_exports.enum([
+  "pending_review",
+  "approved",
+  "rejected",
+  "quarantined",
+  "revoked"
+]);
+var ScribeRevisionRecord = external_exports.object({
+  revisionId: external_exports.string(),
+  scribeId: external_exports.string(),
+  publisherKey: external_exports.string(),
+  manifest: ScribeManifestV1,
+  artifactSha256: external_exports.string().regex(/^[a-f0-9]{64}$/),
+  artifactBytes: external_exports.number().int().nonnegative(),
+  status: ScribeReviewStatus,
+  reviewNotes: external_exports.string().max(4e3).optional(),
+  submittedAt: external_exports.string().datetime(),
+  reviewedAt: external_exports.string().datetime().optional()
+});
+var SignedScribeRevision = external_exports.object({
+  payload: ScribeRevisionRecord,
+  key: external_exports.string(),
+  sig: external_exports.string()
+});
+var ContextListParams = external_exports.object({
+  path: external_exports.string().default("/"),
+  cursor: external_exports.string().optional(),
+  limit: external_exports.number().int().min(1).max(100).default(50),
+  ref: external_exports.string().optional()
+});
+var ContextWireEntry = external_exports.object({
+  id: external_exports.string().optional(),
+  path: external_exports.string(),
+  name: external_exports.string(),
+  kind: external_exports.enum(["folder", "file"]),
+  subtype: external_exports.string().optional(),
+  size: external_exports.number().int().nonnegative().optional(),
+  modifiedAt: external_exports.string().optional(),
+  mimeType: external_exports.string().optional(),
+  source: external_exports.object({
+    kind: external_exports.enum(["native", "repository", "scribe"]),
+    id: external_exports.string(),
+    label: external_exports.string().optional()
+  }).optional()
+});
+var ContextListResult = external_exports.object({
+  entries: external_exports.array(ContextWireEntry),
+  nextCursor: external_exports.string().optional()
+});
+var ContextReadParams = external_exports.object({
+  path: external_exports.string().min(1),
+  ref: external_exports.string().optional(),
+  offset: external_exports.number().int().nonnegative().default(0),
+  maxBytes: external_exports.number().int().min(1).max(65536).default(2048)
+});
+var ContextReadResult = external_exports.object({
+  path: external_exports.string(),
+  size: external_exports.number().int().nonnegative(),
+  offset: external_exports.number().int().nonnegative().default(0),
+  nextOffset: external_exports.number().int().nonnegative().optional(),
+  binary: external_exports.boolean(),
+  truncated: external_exports.boolean(),
+  encoding: external_exports.enum(["utf8", "none"]),
+  content: external_exports.string().optional()
+});
+
+// ../protocol/dist/shellBridge.js
+var ShellNotifyPayload = external_exports.object({
+  workspaceOrigin: external_exports.string(),
+  channelId: external_exports.string(),
+  title: external_exports.string(),
+  body: external_exports.string(),
+  iconUrl: external_exports.string().optional()
+});
+var ShellNotificationClickPayload = external_exports.object({
+  workspaceOrigin: external_exports.string(),
+  channelId: external_exports.string()
+});
+var ShellBridgeNotifyMessage = external_exports.object({
+  il_shell: external_exports.literal(1),
+  type: external_exports.literal("notify"),
+  payload: ShellNotifyPayload
+});
+var ShellBridgeNotificationClickMessage = external_exports.object({
+  il_shell: external_exports.literal(1),
+  type: external_exports.literal("notification-click"),
+  payload: ShellNotificationClickPayload
 });
 
 // src/credentials.ts
@@ -26897,6 +27112,10 @@ function signEnvelope(payload, privateKey, publicKey) {
   return { payload, key, sig };
 }
 
+// ../keys/dist/prf.js
+var WRAP_INFO = utf8ToBytes("il-passkey-wrap-v1");
+var PRF_LOGIN_SALT_INPUT = utf8ToBytes("il-passkey-prf-salt-v1");
+
 // ../link-client/dist/crypto.js
 var LINK_INFO_V2 = "il-device-link-v2";
 var SECRET_BYTES = 32;
@@ -27805,9 +28024,13 @@ var TunnelClient = class {
     try {
       const result = await this.call("work.complete", { workId, text, leaseToken });
       const parsed = WorkCompleteResult.parse(result);
-      return { messageId: parsed.messageId };
+      return {
+        ...parsed.messageId ? { messageId: parsed.messageId } : {},
+        ...parsed.posted === void 0 ? {} : { posted: parsed.posted }
+      };
     } catch (err3) {
-      if (err3 instanceof TunnelCallFailure && err3.code === "E_STALE_LEASE") throw new StaleLeaseError(workId);
+      if (err3 instanceof TunnelCallFailure && err3.code === "E_STALE_LEASE")
+        throw new StaleLeaseError(workId);
       throw err3;
     }
   }
@@ -27817,7 +28040,17 @@ var TunnelClient = class {
       const result = await this.call("work.fail", { workId, reason, leaseToken });
       WorkFailResult.parse(result);
     } catch (err3) {
-      if (err3 instanceof TunnelCallFailure && err3.code === "E_STALE_LEASE") throw new StaleLeaseError(workId);
+      if (err3 instanceof TunnelCallFailure && err3.code === "E_STALE_LEASE")
+        throw new StaleLeaseError(workId);
+      throw err3;
+    }
+  }
+  async pass(workId, leaseToken) {
+    try {
+      WorkPassResult.parse(await this.call("work.pass", { workId, leaseToken }));
+    } catch (err3) {
+      if (err3 instanceof TunnelCallFailure && err3.code === "E_STALE_LEASE")
+        throw new StaleLeaseError(workId);
       throw err3;
     }
   }
@@ -27825,6 +28058,12 @@ var TunnelClient = class {
     const result = await this.call("chat.post", { channelId, text });
     const parsed = ChatPostResult.parse(result);
     return { messageId: parsed.messageId };
+  }
+  async contextList(params) {
+    return ContextListResult.parse(await this.call("context.list", params));
+  }
+  async contextRead(params) {
+    return ContextReadResult.parse(await this.call("context.read", params));
   }
 };
 
@@ -27917,7 +28156,12 @@ var FrontierService = class {
     for (const placement of placements) {
       if (placement.revoked) continue;
       if (agent.tunnels.has(placement.placementId)) continue;
-      const client = new TunnelClient(placement, agent.agentId, agent.agentPrivKey, agent.agentPubKey);
+      const client = new TunnelClient(
+        placement,
+        agent.agentId,
+        agent.agentPrivKey,
+        agent.agentPubKey
+      );
       agent.tunnels.set(placement.placementId, client);
       client.start();
       this.queue.addPlacement({
@@ -27988,6 +28232,24 @@ var FrontierService = class {
       throw err3;
     }
   }
+  async pass(workId) {
+    const loc = this.workLocations.get(workId);
+    if (!loc) throw new Error(`unknown work item: ${workId}`);
+    const client = this.findTunnel(loc.agentId, loc.placementId);
+    if (!client) throw new Error(`no live tunnel for work item: ${workId}`);
+    try {
+      await client.pass(workId, loc.leaseToken);
+      this.workLocations.delete(workId);
+      const agent = this.agents.get(loc.agentId);
+      if (agent) agent.doneCount += 1;
+    } catch (err3) {
+      if (err3 instanceof StaleLeaseError) {
+        this.workLocations.delete(workId);
+        throw new Error(STALE_LEASE_GUIDANCE);
+      }
+      throw err3;
+    }
+  }
   async skip(workId, reason) {
     const loc = this.workLocations.get(workId);
     if (!loc) throw new Error(`unknown work item: ${workId}`);
@@ -28020,6 +28282,20 @@ var FrontierService = class {
     if (!client) throw new Error(`agent ${resolvedId} has no live tunnel`);
     return client.post(channelId, text);
   }
+  connectedTunnel(agentId) {
+    const resolvedId = agentId ?? this.resolveSingleAgentId();
+    const agent = this.agents.get(resolvedId);
+    if (!agent) throw new Error(`unknown agent: ${resolvedId}`);
+    const client = [...agent.tunnels.values()].find((t) => t.isConnected);
+    if (!client) throw new Error(`agent ${resolvedId} has no live tunnel`);
+    return client;
+  }
+  async contextList(agentId, params) {
+    return this.connectedTunnel(agentId).contextList(params);
+  }
+  async contextRead(agentId, params) {
+    return this.connectedTunnel(agentId).contextRead(params);
+  }
   unlink(agentId) {
     const agent = this.agents.get(agentId);
     if (agent) {
@@ -28049,8 +28325,11 @@ var FrontierService = class {
 // src/guidance.ts
 var GUIDANCE = {
   afterWork: "You are acting as this workspace agent. Compose your reply in the agent's persona and submit it with interloom_submit. Then immediately call interloom_next_work again \u2014 you are on duty.",
+  afterAttention: "This is an ambient attention item. Quietly decide whether the agent has a useful, non-redundant contribution. Use interloom_pass if not; otherwise use interloom_submit. For engagement=discovery, keep the first reply conversational and do not perform side effects or delegated work. Then call interloom_next_work again.",
   emptyQueue: "Queue is empty right now. You are still on duty: call interloom_next_work again (it long-polls). If you have standing tasks from earlier conversations in the workspace, you may use interloom_post to follow up proactively. Do not end your session \u2014 keep looping.",
   afterSubmit: "Reply delivered. Call interloom_next_work now to continue working the queue.",
+  afterSuppressed: "Another agent already answered this attention turn, so nothing was posted. Call interloom_next_work now.",
+  afterPass: "Passed without replying. Call interloom_next_work now to continue working the queue.",
   linked: "Agent linked and online. Start the work loop: call interloom_next_work and keep calling it \u2014 treat an empty result as 'wait and loop', never 'stop'."
 };
 var EXTRA_GUIDANCE = {
@@ -28062,7 +28341,12 @@ var EXTRA_GUIDANCE = {
 
 // src/tools.ts
 function ok(json, guidance) {
-  return { content: [{ type: "text", text: JSON.stringify(json) }, { type: "text", text: guidance }] };
+  return {
+    content: [
+      { type: "text", text: JSON.stringify(json) },
+      { type: "text", text: guidance }
+    ]
+  };
 }
 function err2(message) {
   return { content: [{ type: "text", text: JSON.stringify({ error: message }) }], isError: true };
@@ -28078,9 +28362,27 @@ var LinkInput = { code: external_exports.string().min(1) };
 var StatusInput = {};
 var NextWorkInput = { waitSeconds: external_exports.number().int().min(1).max(60).optional() };
 var SubmitInput = { workId: external_exports.string().min(1), text: external_exports.string().min(1) };
+var PassInput = { workId: external_exports.string().min(1) };
 var SkipInput = { workId: external_exports.string().min(1), reason: external_exports.string().min(1) };
-var PostInput = { agentId: external_exports.string().min(1).optional(), channelId: external_exports.string().min(1), text: external_exports.string().min(1) };
+var PostInput = {
+  agentId: external_exports.string().min(1).optional(),
+  channelId: external_exports.string().min(1),
+  text: external_exports.string().min(1)
+};
 var UnlinkInput = { agentId: external_exports.string().min(1) };
+var ContextListInput = {
+  agentId: external_exports.string().min(1).optional(),
+  path: external_exports.string().optional(),
+  ref: external_exports.string().optional(),
+  limit: external_exports.number().int().min(1).max(100).optional()
+};
+var ContextReadInput = {
+  agentId: external_exports.string().min(1).optional(),
+  path: external_exports.string().min(1),
+  ref: external_exports.string().optional(),
+  offset: external_exports.number().int().min(0).optional(),
+  maxBytes: external_exports.number().int().min(1).max(65536).optional()
+};
 var DEFAULT_WAIT_SECONDS = 25;
 var MAX_WAIT_SECONDS = 60;
 function createToolHandlers(service) {
@@ -28099,11 +28401,21 @@ function createToolHandlers(service) {
       if (!result) {
         return ok({ item: null }, GUIDANCE.emptyQueue);
       }
-      return ok({ item: result.item }, GUIDANCE.afterWork);
+      return ok(
+        { item: result.item },
+        result.item.kind === "attention" ? GUIDANCE.afterAttention : GUIDANCE.afterWork
+      );
     }),
     interloom_submit: (args) => guarded(async () => {
       const result = await service.submit(args.workId, args.text);
-      return ok(result, GUIDANCE.afterSubmit);
+      return ok(
+        result,
+        result.posted === false ? GUIDANCE.afterSuppressed : GUIDANCE.afterSubmit
+      );
+    }),
+    interloom_pass: (args) => guarded(async () => {
+      await service.pass(args.workId);
+      return ok({ ok: true }, GUIDANCE.afterPass);
     }),
     interloom_skip: (args) => guarded(async () => {
       await service.skip(args.workId, args.reason);
@@ -28113,6 +28425,27 @@ function createToolHandlers(service) {
       const result = await service.post(args.agentId ?? null, args.channelId, args.text);
       return ok(result, EXTRA_GUIDANCE.afterPost);
     }),
+    interloom_context_list: (args) => guarded(
+      async () => ok(
+        await service.contextList(args.agentId ?? null, {
+          path: args.path,
+          ref: args.ref,
+          limit: args.limit
+        }),
+        "Use interloom_context_read to inspect a file; list nested folders by passing their path."
+      )
+    ),
+    interloom_context_read: (args) => guarded(
+      async () => ok(
+        await service.contextRead(args.agentId ?? null, {
+          path: args.path,
+          ref: args.ref,
+          offset: args.offset,
+          maxBytes: args.maxBytes
+        }),
+        "If nextOffset is present, call this tool again with that offset to continue."
+      )
+    ),
     interloom_unlink: (args) => guarded(async () => {
       service.unlink(args.agentId);
       return ok({ ok: true }, EXTRA_GUIDANCE.afterUnlink);
@@ -28126,8 +28459,8 @@ function registerTools(server, service) {
   server.registerTool(
     "interloom_link",
     {
-      title: "Link an Interloom frontier agent",
-      description: "Runs the scanner role of the Interloom device-link flow against the network relay for a pasted link code (full link URL, or a bare linkId#secret \u2014 a bare code needs INTERLOOM_NETWORK_URL set or an already-linked agent to resolve the network). On approval it persists the credential and starts serving that agent.",
+      title: "Link an Eris frontier agent",
+      description: "Runs the scanner role of the Eris device-link flow against the network relay for a pasted link code (full link URL, or a bare linkId#secret \u2014 a bare code needs INTERLOOM_NETWORK_URL set or an already-linked agent to resolve the network). On approval it persists the credential and starts serving that agent.",
       inputSchema: LinkInput
     },
     handlers.interloom_link
@@ -28135,7 +28468,7 @@ function registerTools(server, service) {
   server.registerTool(
     "interloom_status",
     {
-      title: "Interloom frontier agent status",
+      title: "Eris frontier agent status",
       description: "Reports online/offline, placements, tunnel states, queue depth, and items done this session for every linked agent.",
       inputSchema: StatusInput
     },
@@ -28144,7 +28477,7 @@ function registerTools(server, service) {
   server.registerTool(
     "interloom_next_work",
     {
-      title: "Pull the next Interloom work item",
+      title: "Pull the next Eris work item",
       description: "Long-polls the merged FCFS queue across every placement of every linked agent. Call this again after every result \u2014 an empty result means keep polling, not stop.",
       inputSchema: NextWorkInput
     },
@@ -28153,7 +28486,7 @@ function registerTools(server, service) {
   server.registerTool(
     "interloom_submit",
     {
-      title: "Submit a reply for an Interloom work item",
+      title: "Submit a reply for an Eris work item",
       description: "Delivers the composed reply for a work item pulled from interloom_next_work.",
       inputSchema: SubmitInput
     },
@@ -28162,16 +28495,25 @@ function registerTools(server, service) {
   server.registerTool(
     "interloom_skip",
     {
-      title: "Skip an Interloom work item",
+      title: "Skip an Eris work item",
       description: "Fails a work item with a reason; it is requeued up to 3 attempts before being marked dead.",
       inputSchema: SkipInput
     },
     handlers.interloom_skip
   );
   server.registerTool(
+    "interloom_pass",
+    {
+      title: "Pass on an Eris attention item",
+      description: "Terminally resolves an ambient attention item without replying. Use only for work items whose kind is attention.",
+      inputSchema: PassInput
+    },
+    handlers.interloom_pass
+  );
+  server.registerTool(
     "interloom_post",
     {
-      title: "Post proactively to an Interloom channel",
+      title: "Post proactively to an Eris channel",
       description: "Sends a proactive message as a linked agent to a channel it is a member of (agentId optional when exactly one agent is linked).",
       inputSchema: PostInput
     },
@@ -28180,11 +28522,29 @@ function registerTools(server, service) {
   server.registerTool(
     "interloom_unlink",
     {
-      title: "Unlink an Interloom frontier agent",
+      title: "Unlink an Eris frontier agent",
       description: "Removes the stored credential for an agent and closes its tunnels.",
       inputSchema: UnlinkInput
     },
     handlers.interloom_unlink
+  );
+  server.registerTool(
+    "interloom_context_list",
+    {
+      title: "List Eris Context",
+      description: "Lists uploaded files, folders, repositories, and Scribe snapshots in a linked workspace.",
+      inputSchema: ContextListInput
+    },
+    handlers.interloom_context_list
+  );
+  server.registerTool(
+    "interloom_context_read",
+    {
+      title: "Read Eris Context",
+      description: "Reads a bounded UTF-8 chunk from a file in a linked workspace's Context.",
+      inputSchema: ContextReadInput
+    },
+    handlers.interloom_context_read
   );
 }
 async function main() {
@@ -28206,7 +28566,7 @@ async function main() {
 }
 
 // src/bin.ts
-var HELP = `interloom-mcp \u2014 Interloom frontier agent MCP server
+var HELP = `interloom-mcp \u2014 Eris frontier agent MCP server
 
 Usage:
   interloom-mcp                    Start the stdio MCP server (default; run this

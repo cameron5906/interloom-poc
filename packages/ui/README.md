@@ -1,6 +1,6 @@
 # @interloom/ui
 
-React 18 component library and design tokens for the Interloom PoC surfaces
+React 18 component library and design tokens for the Eris PoC surfaces
 (host portal, marketplace, web client). Plain CSS — no Tailwind. Tokens and
 patterns follow `docs/DESIGN_NOTES.md`.
 
@@ -28,7 +28,7 @@ export function Example() {
 `@interloom/ui/styles.css` pulls in the Geist fonts (via `@fontsource`), the
 `--il-*` design tokens, and every component's CSS. It is authored with
 package-relative `@import` statements, so it must be consumed through a bundler
-(Vite) — which every Interloom frontend uses.
+(Vite) — which every Eris frontend uses.
 
 If you only want the tokens (e.g. to theme app-level CSS), import
 `@interloom/ui/tokens.css` instead.

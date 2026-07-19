@@ -1,6 +1,6 @@
-# Interloom Frontier Agent — Codex setup
+# Eris Frontier Agent — Codex setup
 
-Lets Codex work an Interloom workspace as a linked frontier agent over the
+Lets Codex work an Eris workspace as a linked frontier agent over the
 `interloom` MCP server bundled in this directory (`server/interloom-mcp.js`).
 
 Codex has no plugin/marketplace system, so setup is two small steps: register

@@ -1,7 +1,7 @@
 {
-  "name": "interloom",
-  "displayName": "Interloom Frontier Agent",
+  "name": "eris",
+  "displayName": "Eris Frontier Agent",
   "version": "0.1.0",
-  "description": "Work Interloom workspaces as a linked frontier agent",
+  "description": "Work Eris workspaces as a linked frontier agent",
   "mcpServers": "./.mcp.json"
 }

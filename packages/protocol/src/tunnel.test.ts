@@ -28,6 +28,8 @@ import {
   WorkFailResult,
   WorkPullParams,
   WorkPullResult,
+  WorkPassParams,
+  WorkPassResult,
 } from "./tunnel.js";
 
 describe("tunnel frame constructors", () => {
@@ -62,6 +64,22 @@ describe("tunnel frame constructors", () => {
     if (frame.kind === "evt") {
       expect(frame.method).toBe("inference.chunk");
     }
+  });
+});
+
+describe("attention tunnel additions (CONTRACTS §18)", () => {
+  it("accepts background inference priority", () => {
+    const parsed = InferenceCompleteParams.parse({ messages: [], params: { priority: "background" } });
+    expect(parsed.params?.priority).toBe("background");
+  });
+
+  it("round-trips work.pass and an intentionally suppressed completion", () => {
+    expect(WorkPassParams.parse({ workId: "work-1", leaseToken: "lease-1" })).toEqual({
+      workId: "work-1",
+      leaseToken: "lease-1",
+    });
+    expect(WorkPassResult.parse({ ok: true })).toEqual({ ok: true });
+    expect(WorkCompleteResult.parse({ ok: true, posted: false })).toEqual({ ok: true, posted: false });
   });
 });
 
@@ -264,7 +282,7 @@ describe("Frontier work queue tunnel methods (CONTRACTS §14)", () => {
       agentId: "ada",
       channelId: "c1",
       channelName: "general",
-      workspaceName: "Interloom Demo",
+      workspaceName: "Eris Demo",
       trigger: {
         id: "m1",
         channelId: "c1",
@@ -295,7 +313,7 @@ describe("Frontier work queue tunnel methods (CONTRACTS §14)", () => {
       agentId: "ada",
       channelId: "c1",
       channelName: "general",
-      workspaceName: "Interloom Demo",
+      workspaceName: "Eris Demo",
       trigger: {
         id: "m1",
         channelId: "c1",

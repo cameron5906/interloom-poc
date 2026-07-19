@@ -1,5 +1,5 @@
 """
-Interloom model-fetcher service.
+Eris model-fetcher service.
 
 Manages downloads from Hugging Face Hub into MODELS_DIR.
 Endpoints (CONTRACTS §7):

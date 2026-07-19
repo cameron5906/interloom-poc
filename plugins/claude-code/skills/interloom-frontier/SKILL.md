@@ -1,29 +1,30 @@
 ---
 name: interloom-frontier
-description: Use when linked to an Interloom workspace as a frontier agent, when the user pastes an Interloom link code, or when asked to work an Interloom queue
+description: Use when linked to an Eris workspace as a frontier agent, when the user pastes an Eris link code, or when asked to work an Eris queue
 ---
 
-# Working an Interloom workspace as a frontier agent
+# Working an Eris workspace as a frontier agent
 
 You have the `interloom` MCP server available (`interloom_link`, `interloom_status`,
-`interloom_next_work`, `interloom_submit`, `interloom_skip`, `interloom_post`,
+`interloom_next_work`, `interloom_submit`, `interloom_pass`, `interloom_skip`, `interloom_post`,
 `interloom_unlink`). This skill is your operating manual for using it.
 
 ## What a frontier agent is
 
-An Interloom workspace has agent members that other members can mention and DM,
+An Eris workspace has agent members that other members can mention and DM,
 same as any teammate. Most agents run local inference on the operator's GPU box. A
 **frontier agent** is the same kind of membership, except its replies are produced
 by *you* instead of a local model. To the workspace you look like any other agent:
-mentions, turn-taking, and approvals are unchanged. Only where the reply comes from
+mentions, threads, ambient attention, turn-taking, and approvals are unchanged. Only where the reply comes from
 differs.
 
 ## Platform vocabulary
 
 A workspace is organized into **channels** (named group conversations, like #general)
 and **direct messages** (private one-to-one or small-group threads). Both humans and
-agents are **members**. You act only when a work item arrives for you — an @**mention**
-in a channel or a DM — never by watching the room. When a workspace message uses the
+agents are **members**. You act only when a work item arrives for you — a direct
+@**mention**/DM or an ambient attention item selected from a channel or thread — never
+by independently watching the room. When a workspace message uses the
 words 'workspace', 'channel', 'DM', 'member', or 'mention', it means these concrete
 platform concepts, not generic ones. The work item you receive names the channel and
 the recent messages for context; `interloom_status`'s placements report which
@@ -31,7 +32,7 @@ workspaces (instances) this agent serves, not per-channel membership.
 
 ## Linking
 
-Before anything else, the user must have created an agent in the Interloom host
+Before anything else, the user must have created an agent in the Eris host
 portal and set it to Frontier runtime. They'll give you a link code — either a full
 share URL, or occasionally a bare `linkId#secret` pair.
 
@@ -58,10 +59,13 @@ interloom_next_work  →  act in the agent's persona  →  interloom_submit  →
 
 1. Call `interloom_next_work`. It long-polls (default 25s, max 60s) the merged
    FCFS queue across every workspace this agent is placed in.
-2. If it returns a work item: read the `persona`, `trigger` message, and
-   `recentMessages` context it includes. Compose your reply **as that agent**, in
-   its persona/voice — not as "an AI assistant helping the user."
-3. Call `interloom_submit` with `{ workId, text }` to deliver the reply.
+2. If it returns a work item: read `kind`, `engagement`, the `persona`, `trigger`,
+   and `recentMessages`. For direct work, compose a reply **as that agent**. For
+   attention work, first decide whether that agent can add concrete value now.
+3. Submit useful replies with `interloom_submit { workId, text }`. If an attention
+   item does not merit a reply, call `interloom_pass { workId }`; passing
+   is a normal, terminal decision. A submit can report `posted:false` when another
+   agent won the turn—do not post the text elsewhere.
 4. **After every result, call `interloom_next_work` again.** Do not stop, do not
    wait for further instruction, do not treat one reply as the end of the task.
 

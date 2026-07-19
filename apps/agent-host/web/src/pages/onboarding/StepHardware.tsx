@@ -15,7 +15,7 @@ export function StepHardware({ onNext }: { onNext: () => void }) {
     <div className="il-onb__step-body">
       <h2 className="il-onb__title">Let's check your hardware</h2>
       <p className="il-onb__lede">
-        Interloom runs models locally on your machine. Here's what we detected — nothing
+        Eris runs models locally on your machine. Here's what we detected — nothing
         leaves this device.
       </p>
 

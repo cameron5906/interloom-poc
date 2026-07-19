@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Avatar, Button, CapabilityBadges, Input, Modal, StatusPill, TextArea } from "@interloom/ui";
-import type { AgentGender, HostAgent, LoadedModel, LocalModel, PlacementStatus } from "@interloom/protocol";
-import type { AgentDraft, CatalogModel } from "../../api/types.js";
+import { Avatar, Button, CapabilityBadges, Flipper, Input, Modal, StatusPill, TextArea } from "@interloom/ui";
+import type {
+  AgentGender,
+  FrontierProvider,
+  HostAgent,
+  LoadedModel,
+  LocalModel,
+  PlacementStatus,
+} from "@interloom/protocol";
+import type { AgentDraft, CatalogModel, FrontierConfigBody, MaskedFrontierConfig } from "../../api/types.js";
 import { EMPTY_AGENT_DRAFT } from "../../api/types.js";
+import { FrontierLinkModal } from "./FrontierLinkModal.js";
 import {
   agents as agentsApi,
   placements as placementsApi,
@@ -40,6 +48,12 @@ interface AgentEditorProps {
   onSaved: (saved: HostAgent) => void;
   onDeleted: (id: string) => void;
   onDraftChange: (draft: AgentDraft) => void;
+  /** Live runtime-tab state for the sibling preview pane (CONTRACTS §14) —
+   * kept OUT of `AgentDraft` deliberately: it's edit-time UI state (which tab
+   * is open, which provider is picked), not something the generic draft
+   * save/publish calls should ever persist (that stays the dedicated
+   * frontier-config endpoint's job, never the plain agent PATCH/POST). */
+  onRuntimeChange: (info: { runtime: "hosted" | "frontier"; frontierProvider: FrontierProvider }) => void;
 }
 
 type SyncState = "idle" | "saving" | "syncing" | "synced";
@@ -84,6 +98,7 @@ export function AgentEditor({
   onSaved,
   onDeleted,
   onDraftChange,
+  onRuntimeChange,
 }: AgentEditorProps) {
   const toasts = useToasts();
   const [draft, setDraft] = useState<AgentDraft>(() => initialDraft(agent));
@@ -98,6 +113,46 @@ export function AgentEditor({
   const prevNameRef = useRef(draft.name);
   const uploadedCharacterRef = useRef(agent?.avatar.character);
 
+  // Offline (local model) vs. Frontier (external CLI agent via MCP) runtime
+  // (CONTRACTS §14). The flipper defaults to Offline; Frontier stays
+  // disabled-with-tooltip until the agent has been saved once, since the
+  // frontier config endpoints 404 for an agent id that doesn't exist yet.
+  const [runtimeTab, setRuntimeTab] = useState<"hosted" | "frontier">(
+    agent?.runtime === "frontier" ? "frontier" : "hosted",
+  );
+  const [frontierProvider, setFrontierProvider] = useState<FrontierProvider>("anthropic");
+  const [frontierModel, setFrontierModel] = useState("");
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [apiKeyTouched, setApiKeyTouched] = useState(false);
+  const [savingFrontier, setSavingFrontier] = useState(false);
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const seededFrontierAgentId = useRef<string | null>(null);
+
+  const frontierConfig = useAsync<MaskedFrontierConfig | null>(
+    (s) => (agent ? agentsApi.frontierGet(agent.agentId, s) : Promise.resolve(null)),
+    [agent?.agentId],
+  );
+
+  // Seed the frontier form from the stored config once per agent — never
+  // re-seed on a background refetch, or an in-progress edit would vanish.
+  useEffect(() => {
+    if (!agent) {
+      setFrontierProvider("anthropic");
+      setFrontierModel("");
+      setApiKeyInput("");
+      setApiKeyTouched(false);
+      seededFrontierAgentId.current = null;
+      return;
+    }
+    if (frontierConfig.data && seededFrontierAgentId.current !== agent.agentId) {
+      setFrontierProvider(frontierConfig.data.provider ?? "anthropic");
+      setFrontierModel(frontierConfig.data.model ?? "");
+      setApiKeyInput("");
+      setApiKeyTouched(false);
+      seededFrontierAgentId.current = agent.agentId;
+    }
+  }, [agent, frontierConfig.data]);
+
   // Curated catalog (theirs) — used to label installed models with their
   // catalog name and to enrich the published ModelRef. `localModels` and
   // `loadedModels` arrive as props (multi-instance loaded set, CONTRACTS §6).
@@ -111,12 +166,19 @@ export function AgentEditor({
     setCharacterOverridden(!!agent?.avatar.character);
     uploadedCharacterRef.current = agent?.avatar.character;
     prevNameRef.current = agent?.name ?? "";
+    setRuntimeTab(agent?.runtime === "frontier" ? "frontier" : "hosted");
   }, [agent]);
 
   // Keep the parent (preview + marketplace card) in sync with edits.
   useEffect(() => {
     onDraftChange(draft);
   }, [draft, onDraftChange]);
+
+  // The live preview pane needs the runtime tab + provider to swap its
+  // "runs on your GPU" copy for a token-cost note in Frontier mode.
+  useEffect(() => {
+    onRuntimeChange({ runtime: runtimeTab, frontierProvider });
+  }, [runtimeTab, frontierProvider, onRuntimeChange]);
 
   useEffect(
     () => () => {
@@ -143,6 +205,8 @@ export function AgentEditor({
   const registered = agent?.registered ?? false;
   const canSave = draft.name.trim().length > 0;
   const hasModel = !!draft.model;
+  const isFrontier = runtimeTab === "frontier";
+  const frontierReady = agent?.runtime === "frontier" && !!agent?.frontier;
 
   const patch = (partial: Partial<AgentDraft>) => setDraft((d) => ({ ...d, ...partial }));
 
@@ -242,10 +306,44 @@ export function AgentEditor({
     setCascade(null);
   };
 
+  /** Saves provider/model/apiKey via the dedicated frontier endpoint
+   * (CONTRACTS §6) — never through the generic draft PATCH, since the API
+   * key and per-agent keypair live only in `frontier-keys.json`, not
+   * `agents.json`. Unconditionally flips the agent to `runtime: "frontier"`
+   * server-side, so this refetches the full agent afterward. */
+  const saveFrontierConfig = async () => {
+    if (!agent) return;
+    if (frontierModel.trim().length === 0) return;
+    setSavingFrontier(true);
+    try {
+      const body: FrontierConfigBody = { provider: frontierProvider, model: frontierModel.trim() };
+      if (apiKeyTouched) body.apiKey = apiKeyInput;
+      await agentsApi.frontierSet(agent.agentId, body);
+      const fresh = await agentsApi.get(agent.agentId);
+      onSaved(fresh);
+      frontierConfig.reload();
+      setApiKeyInput("");
+      setApiKeyTouched(false);
+      toasts.success("Frontier configuration saved");
+    } catch (err) {
+      toasts.error(
+        err instanceof ApiError && err.isOffline
+          ? "Daemon unreachable — save failed."
+          : "Failed to save frontier configuration.",
+      );
+    } finally {
+      setSavingFrontier(false);
+    }
+  };
+
   const publish = async () => {
     if (!canSave) return;
-    if (!hasModel) {
-      toasts.error("Assign a model before publishing.");
+    if (isFrontier ? !frontierReady : !hasModel) {
+      toasts.error(
+        isFrontier
+          ? "Save your frontier configuration before publishing."
+          : "Assign a model before publishing.",
+      );
       return;
     }
     setRegistering(true);
@@ -256,7 +354,7 @@ export function AgentEditor({
         const registeredAgent = await agentsApi.register(created.agentId);
         onSaved(registeredAgent);
         flashSynced();
-        toasts.success("Published to the Interloom network");
+        toasts.success("Published to the Eris network");
       } catch (err) {
         toasts.error(
           err instanceof ApiError && err.isOffline ? "Daemon unreachable." : "Publish failed.",
@@ -274,7 +372,7 @@ export function AgentEditor({
       const registeredAgent = await agentsApi.register(agent.agentId);
       onSaved(registeredAgent);
       flashSynced();
-      toasts.success("Published to the Interloom network");
+      toasts.success("Published to the Eris network");
     } catch (err) {
       setSyncState("idle");
       toasts.error(
@@ -341,6 +439,7 @@ export function AgentEditor({
               bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
               imageUrl={draftAvatarImageUrl(draft.avatar)}
               size="lg"
+              badge={runtimeTab === "frontier" ? "frontier" : undefined}
             />
             <GenderPicker value={draft.gender} onChange={changeGender} />
             <Button variant="secondary" size="sm" onClick={openCustomizer}>
@@ -387,73 +486,112 @@ export function AgentEditor({
           />
         </Field>
 
-        <Field
-          label="Model"
-          hint="Required to preview and publish. Drafting without a model is fine."
-          htmlFor="ag-model"
-        >
-          <ModelPicker
-            selected={draft.model?.filename ?? null}
-            localModels={localModels}
-            loadedModels={loadedModels}
-            catalogModels={catalogModels}
-            loading={localModelsLoading}
-            onChange={(m) =>
-              patch({
-                model: m
-                  ? buildModelRef(m, catalogModels)
-                  : undefined,
-              })
-            }
+        <Field label="Runtime" hint="Offline runs a model on this machine. Frontier pulls work into a CLI agent (Claude Code, Codex) running on your own machine.">
+          <Flipper
+            aria-label="Agent runtime"
+            value={runtimeTab}
+            onChange={setRuntimeTab}
+            options={[
+              { value: "hosted", label: "Offline Models" },
+              {
+                value: "frontier",
+                label: "Frontier Models",
+                disabled: !agent,
+                disabledReason: "Save the agent once to unlock Frontier mode",
+              },
+            ]}
           />
-          {draft.model ? (
-            <ModelStatusLine
-              filename={draft.model.filename}
-              loadedModels={loadedModels}
-              localModels={localModels}
-            />
-          ) : null}
-          {!hasModel ? (
-            <div className="il-field__note">
-              Preview and Publish to Network are locked until a model is selected.
-            </div>
-          ) : (
-            <div className="il-field__hint" style={{ marginTop: 6 }}>
-              Context is set when you load the model — configure it on the{" "}
-              <a href="/models" className="il-model-picker__link">
-                Models page
-              </a>
-              .
-            </div>
-          )}
         </Field>
 
-        <div className="il-editor__params il-editor__params--single">
-          <Field label={`Temperature · ${draft.params.temperature.toFixed(2)}`}>
-            <input
-              type="range"
-              className="il-slider"
-              min={0}
-              max={1.5}
-              step={0.05}
-              value={draft.params.temperature}
-              onChange={(e) =>
-                patch({ params: { ...draft.params, temperature: Number(e.target.value) } })
+        {runtimeTab === "hosted" ? (
+          <Field
+            label="Model"
+            hint="Required to preview and publish. Drafting without a model is fine."
+            htmlFor="ag-model"
+          >
+            <ModelPicker
+              selected={draft.model?.filename ?? null}
+              localModels={localModels}
+              loadedModels={loadedModels}
+              catalogModels={catalogModels}
+              loading={localModelsLoading}
+              onChange={(m) =>
+                patch({
+                  model: m
+                    ? buildModelRef(m, catalogModels)
+                    : undefined,
+                })
               }
             />
-            <div className="il-slider__scale il-meta">
-              <span>precise</span>
-              <span>creative</span>
-            </div>
+            {draft.model ? (
+              <ModelStatusLine
+                filename={draft.model.filename}
+                loadedModels={loadedModels}
+                localModels={localModels}
+              />
+            ) : null}
+            {!hasModel ? (
+              <div className="il-field__note">
+                Preview and Publish to Network are locked until a model is selected.
+              </div>
+            ) : (
+              <div className="il-field__hint" style={{ marginTop: 6 }}>
+                Context is set when you load the model — configure it on the{" "}
+                <a href="/models" className="il-model-picker__link">
+                  Models page
+                </a>
+                .
+              </div>
+            )}
           </Field>
-
-          <ContextBudgetField
-            draft={draft}
-            loadedModels={loadedModels}
-            agentModelFilename={draft.model?.filename ?? null}
-            patch={patch}
+        ) : (
+          <FrontierConfigFields
+            provider={frontierProvider}
+            model={frontierModel}
+            apiKeyInput={apiKeyInput}
+            hasKey={frontierConfig.data?.hasKey ?? false}
+            last4={frontierConfig.data?.last4 ?? null}
+            saving={savingFrontier}
+            ready={frontierReady}
+            onProviderChange={setFrontierProvider}
+            onModelChange={setFrontierModel}
+            onApiKeyChange={(v) => {
+              setApiKeyInput(v);
+              setApiKeyTouched(true);
+            }}
+            onSave={() => void saveFrontierConfig()}
+            onOpenLinkModal={() => setLinkModalOpen(true)}
           />
-        </div>
+        )}
+
+        {runtimeTab === "hosted" ? (
+          <div className="il-editor__params il-editor__params--single">
+            <Field label={`Temperature · ${draft.params.temperature.toFixed(2)}`}>
+              <input
+                type="range"
+                className="il-slider"
+                min={0}
+                max={1.5}
+                step={0.05}
+                value={draft.params.temperature}
+                onChange={(e) =>
+                  patch({ params: { ...draft.params, temperature: Number(e.target.value) } })
+                }
+              />
+              <div className="il-slider__scale il-meta">
+                <span>precise</span>
+                <span>creative</span>
+              </div>
+            </Field>
+
+            <ContextBudgetField
+              draft={draft}
+              loadedModels={loadedModels}
+              agentModelFilename={draft.model?.filename ?? null}
+              patch={patch}
+            />
+          </div>
+        ) : null}
 
         <MarketplacePreview draft={draft} live={registered} />
 
@@ -468,8 +606,16 @@ export function AgentEditor({
                 <Button
                   variant="accent"
                   onClick={publish}
-                  disabled={!canSave || !hasModel || registering}
-                  title={!hasModel ? "Select a model to publish" : undefined}
+                  disabled={!canSave || (isFrontier ? !frontierReady : !hasModel) || registering}
+                  title={
+                    isFrontier
+                      ? !frontierReady
+                        ? "Save your frontier configuration to publish"
+                        : undefined
+                      : !hasModel
+                        ? "Select a model to publish"
+                        : undefined
+                  }
                 >
                   {registering ? "Publishing…" : "Publish to Network"}
                 </Button>
@@ -520,7 +666,130 @@ export function AgentEditor({
         onConfirm={confirmCascade}
         onCancel={() => setCascade(null)}
       />
+
+      {agent ? (
+        <FrontierLinkModal
+          open={linkModalOpen}
+          onClose={() => setLinkModalOpen(false)}
+          agentId={agent.agentId}
+        />
+      ) : null}
     </div>
+  );
+}
+
+const FRONTIER_MODEL_SUGGESTIONS: Record<FrontierProvider, string[]> = {
+  anthropic: ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
+  openai: ["gpt-5-codex", "gpt-5"],
+};
+
+/** Provider/model/API-key form for the Frontier runtime (CONTRACTS §6/§14).
+ * Saves through its own dedicated endpoint (never the generic draft PATCH) —
+ * the API key never rides `AgentDraft`. "Link a device" only appears once
+ * the config has actually been persisted (`ready`). */
+function FrontierConfigFields({
+  provider,
+  model,
+  apiKeyInput,
+  hasKey,
+  last4,
+  saving,
+  ready,
+  onProviderChange,
+  onModelChange,
+  onApiKeyChange,
+  onSave,
+  onOpenLinkModal,
+}: {
+  provider: FrontierProvider;
+  model: string;
+  apiKeyInput: string;
+  hasKey: boolean;
+  last4: string | null;
+  saving: boolean;
+  ready: boolean;
+  onProviderChange: (provider: FrontierProvider) => void;
+  onModelChange: (model: string) => void;
+  onApiKeyChange: (value: string) => void;
+  onSave: () => void;
+  onOpenLinkModal: () => void;
+}) {
+  const canSave = model.trim().length > 0 && !saving;
+
+  return (
+    <Field
+      label="Frontier configuration"
+      hint="Runs this agent through an external CLI agent (Claude Code, Codex) on your own machine instead of a local model. Saving switches this agent to the Frontier runtime."
+    >
+      <div className="il-frontier-config">
+        <div className="il-frontier-config__row">
+          <label className="il-field__label" htmlFor="ag-frontier-provider">
+            Provider
+          </label>
+          <select
+            id="ag-frontier-provider"
+            className="il-frontier-config__select"
+            value={provider}
+            onChange={(e) => onProviderChange(e.target.value as FrontierProvider)}
+          >
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+
+        <div className="il-frontier-config__row">
+          <label className="il-field__label" htmlFor="ag-frontier-model">
+            Model
+          </label>
+          <Input
+            id="ag-frontier-model"
+            list="ag-frontier-model-suggestions"
+            placeholder="e.g. claude-sonnet-5"
+            value={model}
+            onChange={(e) => onModelChange(e.target.value)}
+          />
+          <datalist id="ag-frontier-model-suggestions">
+            {FRONTIER_MODEL_SUGGESTIONS[provider].map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
+        </div>
+
+        <div className="il-frontier-config__row">
+          <label className="il-field__label" htmlFor="ag-frontier-key">
+            API key
+          </label>
+          <Input
+            id="ag-frontier-key"
+            type="password"
+            autoComplete="off"
+            placeholder={hasKey ? `•••• ${last4}` : "Paste the provider API key"}
+            value={apiKeyInput}
+            onChange={(e) => onApiKeyChange(e.target.value)}
+          />
+          {!hasKey ? (
+            <div className="il-field__hint" style={{ marginTop: 4 }}>
+              No key stored yet — the agent isn't linked to an MCP server until you save one.
+            </div>
+          ) : null}
+        </div>
+
+        <div className="il-frontier-config__actions">
+          <Button variant="secondary" size="sm" onClick={onSave} disabled={!canSave}>
+            {saving ? "Saving…" : "Save frontier configuration"}
+          </Button>
+          {ready ? (
+            <Button variant="accent" size="sm" onClick={onOpenLinkModal}>
+              Link a device
+            </Button>
+          ) : null}
+        </div>
+
+        {!ready ? (
+          <div className="il-field__note">Not linked yet — save the configuration to enable linking.</div>
+        ) : null}
+      </div>
+    </Field>
   );
 }
 
