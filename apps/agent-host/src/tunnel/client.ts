@@ -6,6 +6,7 @@ import {
   makeRes,
   makeErr,
   makeEvt,
+  type ToolDef,
   type TunnelFrame,
 } from "@interloom/protocol";
 import type { Placement } from "@interloom/protocol";
@@ -20,6 +21,7 @@ import { capabilitiesForFilename } from "../models/scan.js";
 import { isThinkingDisabled } from "../models/settingsStore.js";
 import { clampMaxTokens } from "../inference/limits.js";
 import { ThinkStripper, stripThinkTags } from "../inference/thinkStripper.js";
+import { toLlamaTools } from "../inference/toolSchema.js";
 import { getAgent } from "../agents/store.js";
 import {
   newToolCallAccumulator,
@@ -38,7 +40,6 @@ export interface TunnelInfo {
   agentId: string;
   status: TunnelStatus;
 }
-
 interface PendingReq {
   resolve: (frame: TunnelFrame) => void;
   reject: (err: Error) => void;
@@ -399,7 +400,7 @@ export class TunnelClient {
         temperature?: number;
         maxTokens?: number;
         priority?: "interactive" | "maintenance" | "background";
-        tools?: unknown[];
+        tools?: ToolDef[];
         toolChoice?: "auto" | "none";
       };
     };
@@ -437,9 +438,7 @@ export class TunnelClient {
             ...(thinkingDisabled ? { chat_template_kwargs: { enable_thinking: false } } : {}),
             ...(params.params?.tools && params.params.tools.length > 0
               ? {
-                  tools: (params.params.tools as Array<{ name: string; description: string; parameters: unknown }>).map(
-                    (t) => ({ type: "function", function: t }),
-                  ),
+                  tools: toLlamaTools(params.params.tools),
                   tool_choice: params.params?.toolChoice ?? "auto",
                 }
               : {}),
@@ -530,7 +529,7 @@ export class TunnelClient {
         temperature?: number;
         maxTokens?: number;
         priority?: "interactive" | "maintenance" | "background";
-        tools?: unknown[];
+        tools?: ToolDef[];
         toolChoice?: "auto" | "none";
       };
     };
@@ -573,9 +572,7 @@ export class TunnelClient {
             ...(thinkingDisabled ? { chat_template_kwargs: { enable_thinking: false } } : {}),
             ...(params.params?.tools && params.params.tools.length > 0
               ? {
-                  tools: (params.params.tools as Array<{ name: string; description: string; parameters: unknown }>).map(
-                    (t) => ({ type: "function", function: t }),
-                  ),
+                  tools: toLlamaTools(params.params.tools),
                   tool_choice: params.params?.toolChoice ?? "auto",
                 }
               : {}),
