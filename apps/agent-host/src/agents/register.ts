@@ -162,21 +162,34 @@ export async function registerAgentOnNetwork(agent: Agent): Promise<void> {
   }
 }
 
+export function capabilitiesNeedRefresh(
+  stored: ModelCapabilities | undefined,
+  detected: ModelCapabilities,
+): boolean {
+  return (
+    !stored ||
+    stored.tools !== detected.tools ||
+    stored.vision !== detected.vision ||
+    stored.thinking !== detected.thinking
+  );
+}
+
 /**
- * One-time boot backfill: registered agents whose stored model lacks
- * capabilities but is locally parseable get re-registered once, so existing
- * agents don't wait for a manual edit (spec: cross-service flow).
+ * One-time boot reconciliation: registered agents whose stored capabilities
+ * are missing OR differ from the definitive local detector get re-registered,
+ * so publisher-backed corrections reach existing agents without a manual edit.
  */
 export async function backfillCapabilities(log: (msg: string) => void): Promise<void> {
   for (const agent of listAgents()) {
-    if (!agent.registered || !agent.model || agent.model.capabilities) continue;
-    if (!localLookup(agent.model.filename)) continue;
+    if (!agent.registered || !agent.model) continue;
+    const detected = localLookup(agent.model.filename);
+    if (!detected || !capabilitiesNeedRefresh(agent.model.capabilities, detected)) continue;
     try {
       await registerAgentOnNetwork(agent);
       updateAgent(agent.agentId, { syncedAt: new Date().toISOString() });
-      log(`capability backfill re-registered ${agent.name}`);
+      log(`capability reconciliation re-registered ${agent.name}`);
     } catch (err) {
-      log(`capability backfill failed for ${agent.name}: ${String(err)}`);
+      log(`capability reconciliation failed for ${agent.name}: ${String(err)}`);
     }
   }
 }

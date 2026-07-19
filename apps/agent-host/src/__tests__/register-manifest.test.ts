@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateKeypair, verifyEnvelope } from "@interloom/keys";
-import { buildAgentManifest } from "../agents/register.js";
+import { buildAgentManifest, capabilitiesNeedRefresh } from "../agents/register.js";
 import type { Agent } from "../agents/store.js";
 
 const base: Agent = {
@@ -60,6 +60,24 @@ describe("buildAgentManifest (CONTRACTS §4 capability stamping)", () => {
     const manifest = buildAgentManifest(base, "PUBKEY", () => undefined);
     expect(manifest.params.contextLength).toBe(0);
     expect(manifest.params.temperature).toBe(0.7);
+  });
+});
+
+describe("capability boot reconciliation (CONTRACTS §6)", () => {
+  const detected = { tools: true, vision: false, thinking: true };
+
+  it("refreshes missing and stale capability metadata", () => {
+    expect(capabilitiesNeedRefresh(undefined, detected)).toBe(true);
+    expect(
+      capabilitiesNeedRefresh(
+        { tools: false, vision: false, thinking: false },
+        detected,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not re-register when the definitive metadata is already stored", () => {
+    expect(capabilitiesNeedRefresh({ ...detected }, detected)).toBe(false);
   });
 });
 

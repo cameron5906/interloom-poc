@@ -67,6 +67,16 @@ describe("detectCapabilities (definitive, CONTRACTS §4)", () => {
     expect(caps?.thinking).toBe(true);
   });
 
+  it("applies the publisher-backed GPT-OSS tool + thinking correction without template markers", () => {
+    const p = writeGguf("gpt-oss-20b.gguf", textModelKvs("{% for m in messages %}{{ m.content }}{% endfor %}"));
+    const caps = detectCapabilities({
+      meta: parseGgufMeta(p),
+      filename: "gpt-oss-20b-Q4_K_M.gguf",
+      repoId: "openai/gpt-oss-20b-GGUF",
+    });
+    expect(caps).toEqual({ tools: true, vision: false, thinking: true });
+  });
+
   it("vision from an mmproj sibling", () => {
     const p = writeGguf("vis.gguf", textModelKvs());
     const caps = detectCapabilities({
@@ -97,6 +107,14 @@ describe("estimateCapabilities (search results)", () => {
   it("family heuristics: qwen3 repo → tools + thinking", () => {
     const caps = estimateCapabilities({ repoId: "Qwen/Qwen3-8B-GGUF" });
     expect(caps).toEqual({ tools: true, vision: false, thinking: true });
+  });
+
+  it("family heuristics: gpt_oss variants are tool- and thinking-capable", () => {
+    expect(estimateCapabilities({ repoId: "openai/gpt_oss_120b-GGUF" })).toEqual({
+      tools: true,
+      vision: false,
+      thinking: true,
+    });
   });
 
   it("mmproj sibling or vision tag → vision", () => {

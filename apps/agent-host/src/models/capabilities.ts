@@ -3,7 +3,8 @@ import type { GgufMeta } from "./gguf.js";
 
 /**
  * Capability detection (CONTRACTS §4). Local files: definitive from the GGUF
- * header. Search results: estimates from names/tags/siblings — callers must
+ * header plus narrow curated model-family corrections backed by the model
+ * publisher. Search results: estimates from names/tags/siblings — callers must
  * render estimates as such. A null header parse yields undefined (unknown),
  * never a guessed capability set.
  */
@@ -11,15 +12,17 @@ import type { GgufMeta } from "./gguf.js";
 const TOOL_TEMPLATE_MARKERS = [/\btools\b/, /tool_calls/];
 const THINK_TEMPLATE_MARKERS = [/<think>/, /enable_thinking/, /reasoning_content/];
 
-const THINKING_FAMILIES = /(deepseek[-_]?r1|qwq|qwen[-_]?3|openthinker|magistral|smallthinker)/i;
+const THINKING_FAMILIES =
+  /(deepseek[-_]?r1|qwq|qwen[-_]?3|openthinker|magistral|smallthinker|gpt[-_]?oss)/i;
 const TOOL_FAMILIES =
-  /(qwen[-_]?2\.5|qwen[-_]?3|llama[-_]?3\.[123]|mistral|ministral|hermes|functionary|command[-_]?r|granite)/i;
+  /(qwen[-_]?2\.5|qwen[-_]?3|llama[-_]?3\.[123]|mistral|ministral|hermes|functionary|command[-_]?r|granite|gpt[-_]?oss)/i;
 const VISION_ARCHES = /(llava|qwen2vl|qwen2\.5vl|mllama|smolvlm|idefics|paligemma|pixtral|minicpmv)/i;
 const VISION_TAGS = new Set(["image-text-to-text", "visual-question-answering", "image-to-text"]);
 const MMPROJ = /mmproj/i;
 
 /** Corrections where headers or heuristics are known-wrong. Wins last. */
 const OVERRIDES: Array<{ pattern: RegExp; set: Partial<ModelCapabilities> }> = [
+  { pattern: /gpt[-_]?oss/i, set: { tools: true, thinking: true } },
   { pattern: /gemma[-_]?2/i, set: { tools: false } },
   { pattern: /phi[-_]?3/i, set: { tools: false } },
 ];
