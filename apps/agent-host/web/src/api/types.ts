@@ -30,15 +30,18 @@ export interface OperatorIdentity {
  * since binding (a revoke-all bumped its session_epoch) — re-registers now
  * 403 until the operator reconnects. */
 export type OperatorState =
-  | { bound: false }
-  | { bound: true; operator: OperatorIdentity; staleGrant?: boolean };
+  { bound: false } | { bound: true; operator: OperatorIdentity; staleGrant?: boolean };
 
 /** `POST /api/operator/link/start` — everything the portal needs to open `/authorize`. */
 export interface OperatorLinkStart {
-  networkUrl: string;
-  hostPubKey: string;
-  nonce: string;
+  handoffId: string;
+  expiresAt: string;
+  authorizeUrl: string;
+  userCode: string;
+  subjectFp: string;
 }
+
+export type OperatorLinkComplete = { pending: true } | { bound: true; operator: OperatorIdentity };
 
 // --- Curated model registry (CONTRACTS §4/§6, Local LLM Atlas v2 verbatim) ---
 

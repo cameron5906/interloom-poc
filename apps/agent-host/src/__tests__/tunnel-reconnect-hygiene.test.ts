@@ -196,16 +196,23 @@ describe("TunnelClient reconnect hygiene", () => {
     socketC.emit("open");
 
     // Complete the auth handshake on socketC.
-    const nonce = "test-nonce";
-    socketC.emit("message", JSON.stringify(makeEvt("auth.challenge", { nonce })));
+    const challenge = {
+      challengeId: crypto.randomUUID(),
+      nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
+      issuedAt: Date.now(),
+    };
+    socketC.emit("message", JSON.stringify(makeEvt("auth.challenge.v2", challenge)));
     await vi.advanceTimersByTimeAsync(0);
 
     const identifyFrame = socketC.sent
       .map((raw) => JSON.parse(raw))
-      .find((f) => f.kind === "req" && f.method === "auth.identify");
+      .find((f) => f.kind === "req" && f.method === "auth.identify.v2");
     expect(identifyFrame).toBeDefined();
 
-    socketC.emit("message", JSON.stringify(makeRes(identifyFrame.id, { ok: true })));
+    socketC.emit(
+      "message",
+      JSON.stringify(makeRes(identifyFrame.id, { ok: true, ctx: identifyFrame.params.ctx })),
+    );
     await vi.advanceTimersByTimeAsync(0);
     expect(client.info.status).toBe("connected");
 

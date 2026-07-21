@@ -1,19 +1,12 @@
-/**
- * Tests for the operator stale-grant flag (fix wave, CONTRACTS §11.7): a
- * network revoke-all bumps the bound identity's session_epoch, so the next
- * agent register/re-register 403s "operator grant epoch stale". That must
- * surface as `staleGrant: true` on `GET /api/operator` — not vanish into a
- * `log.warn` — so the portal can prompt a reconnect, and clear again once
- * the operator successfully re-binds.
- */
+/** Operator session-epoch invalidation and reconnect tests (CONTRACTS §11.7). */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import fs from "fs";
-import os from "os";
-import path from "path";
-import Fastify from "fastify";
-import type { FastifyInstance } from "fastify";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import fastifyCookie from "@fastify/cookie";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateKeypair, signEnvelope } from "@interloom/keys";
 
 const state = vi.hoisted(() => ({ dataDir: "" }));
@@ -30,6 +23,7 @@ vi.mock("../config.js", () => ({
 }));
 
 const hostKeypair = generateKeypair();
+const identityKeypair = generateKeypair();
 
 vi.mock("../keys.js", () => ({
   getKeypair: () => hostKeypair,
@@ -37,7 +31,19 @@ vi.mock("../keys.js", () => ({
   registerKeysRoutes: vi.fn(),
 }));
 
-const identityKeypair = generateKeypair();
+interface TestHandoff {
+  handoffId: string;
+  codeChallenge: string;
+  subjectKey: string;
+  scope: string;
+  nonce: string;
+  expiresAt: string;
+  userCode?: string;
+  subjectFp?: string;
+  completed: boolean;
+  consumed: boolean;
+  grant?: unknown;
+}
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -48,12 +54,76 @@ function jsonResponse(status: number, body: unknown): Response {
 
 describe("operator grant stale flag", () => {
   let app: FastifyInstance;
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let handoffs: Map<string, TestHandoff>;
+  let agentStatus: 200 | 403;
+  let nextHandoff: number;
 
   beforeEach(async () => {
     state.dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "il-stale-grant-"));
-    fetchMock = vi.fn().mockRejectedValue(new Error("network unreachable in test"));
-    vi.stubGlobal("fetch", fetchMock);
+    handoffs = new Map();
+    agentStatus = 200;
+    nextHandoff = 1;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/api/handoff/grant/start" && init?.method === "POST") {
+          const request = JSON.parse(String(init.body)) as Omit<
+            TestHandoff,
+            "handoffId" | "expiresAt" | "completed" | "consumed"
+          >;
+          const handoffId = `handoff-${nextHandoff++}`;
+          const expiresAt = new Date(Date.now() + 4 * 60_000).toISOString();
+          handoffs.set(handoffId, {
+            handoffId,
+            expiresAt,
+            completed: true,
+            consumed: false,
+            ...request,
+          });
+          return jsonResponse(200, { handoffId, expiresAt });
+        }
+        if (url.pathname === "/api/handoff/grant/exchange" && init?.method === "POST") {
+          const request = JSON.parse(String(init.body)) as {
+            handoffId: string;
+            codeVerifier: string;
+          };
+          const handoff = handoffs.get(request.handoffId);
+          const challenge = createHash("sha256")
+            .update(request.codeVerifier, "utf8")
+            .digest("base64url");
+          if (!handoff || handoff.consumed || challenge !== handoff.codeChallenge) {
+            return jsonResponse(400, { error: "invalid_handoff" });
+          }
+          handoff.consumed = true;
+          return jsonResponse(200, { grant: handoff.grant });
+        }
+        const statusMatch = /^\/api\/handoff\/grant\/([^/]+)$/.exec(url.pathname);
+        if (statusMatch && (!init?.method || init.method === "GET")) {
+          const handoff = handoffs.get(decodeURIComponent(statusMatch[1]!));
+          if (!handoff) return jsonResponse(404, { error: "not_found" });
+          return jsonResponse(200, {
+            subjectKey: handoff.subjectKey,
+            scope: handoff.scope,
+            nonce: handoff.nonce,
+            userCode: handoff.userCode,
+            subjectFp: handoff.subjectFp,
+            completed: handoff.completed,
+            consumed: handoff.consumed,
+          });
+        }
+        if (url.pathname === "/api/identities/resolve") {
+          return jsonResponse(200, { identities: {} });
+        }
+        if (url.pathname === "/api/agents") {
+          return agentStatus === 403
+            ? jsonResponse(403, { error: "operator grant epoch stale" })
+            : jsonResponse(200, { ok: true });
+        }
+        throw new Error(`unexpected fetch in test: ${url}`);
+      }),
+    );
 
     vi.resetModules();
     const { registerOperatorBindRoutes } = await import("../operatorBind.js");
@@ -71,8 +141,16 @@ describe("operator grant stale flag", () => {
 
   async function bindOperator(): Promise<void> {
     const start = await app.inject({ method: "POST", url: "/api/operator/link/start" });
-    const { nonce } = JSON.parse(start.body) as { nonce: string };
-    const grant = signEnvelope(
+    expect(start.statusCode).toBe(200);
+    const started = JSON.parse(start.body) as {
+      handoffId: string;
+      userCode: string;
+      subjectFp: string;
+    };
+    const handoff = handoffs.get(started.handoffId)!;
+    handoff.userCode = started.userCode;
+    handoff.subjectFp = started.subjectFp;
+    handoff.grant = signEnvelope(
       {
         v: 1 as const,
         identityKey: identityKeypair.publicKey,
@@ -80,17 +158,17 @@ describe("operator grant stale flag", () => {
         scope: "host-operator" as const,
         issuedAt: Date.now(),
         epoch: 0,
-        nonce,
+        nonce: handoff.nonce,
       },
       identityKeypair.privateKey,
       identityKeypair.publicKey,
     );
-    const res = await app.inject({
+    const response = await app.inject({
       method: "POST",
       url: "/api/operator/link/complete",
-      payload: { grant },
+      payload: { handoffId: started.handoffId },
     });
-    expect(res.statusCode).toBe(200);
+    expect(response.statusCode).toBe(200);
   }
 
   async function createRegisteredAgent() {
@@ -106,75 +184,47 @@ describe("operator grant stale flag", () => {
     return updateAgent(agent.agentId, { registered: true })!;
   }
 
-  it("a 403 stale-grant register response flags staleGrant: true on GET /api/operator", async () => {
+  async function getOperator() {
+    return JSON.parse((await app.inject({ method: "GET", url: "/api/operator" })).body) as {
+      bound: boolean;
+      staleGrant?: boolean;
+    };
+  }
+
+  it("surfaces a stale operator grant after Network rejects registration", async () => {
     await bindOperator();
     const agent = await createRegisteredAgent();
     const { registerAgentOnNetwork } = await import("../agents/register.js");
-
-    fetchMock.mockImplementation(async (url: string) => {
-      if (String(url).includes("/api/agents")) {
-        return jsonResponse(403, { error: "operator grant epoch stale" });
-      }
-      throw new Error(`unexpected fetch in test: ${url}`);
-    });
+    agentStatus = 403;
 
     await expect(registerAgentOnNetwork(agent)).rejects.toThrow();
-
-    const getRes = await app.inject({ method: "GET", url: "/api/operator" });
-    expect(JSON.parse(getRes.body)).toMatchObject({ bound: true, staleGrant: true });
+    expect(await getOperator()).toMatchObject({ bound: true, staleGrant: true });
   });
 
-  it("a successful register clears a previously-set staleGrant flag", async () => {
+  it("clears the flag after a later successful registration", async () => {
     await bindOperator();
     const agent = await createRegisteredAgent();
     const { registerAgentOnNetwork } = await import("../agents/register.js");
-
-    fetchMock.mockImplementation(async (url: string) => {
-      if (String(url).includes("/api/agents")) {
-        return jsonResponse(403, { error: "operator grant epoch stale" });
-      }
-      throw new Error(`unexpected fetch in test: ${url}`);
-    });
+    agentStatus = 403;
     await expect(registerAgentOnNetwork(agent)).rejects.toThrow();
-    let getRes = await app.inject({ method: "GET", url: "/api/operator" });
-    expect(JSON.parse(getRes.body)).toMatchObject({ staleGrant: true });
+    expect(await getOperator()).toMatchObject({ staleGrant: true });
 
-    fetchMock.mockImplementation(async (url: string) => {
-      if (String(url).includes("/api/agents")) {
-        return jsonResponse(200, { ok: true });
-      }
-      throw new Error(`unexpected fetch in test: ${url}`);
-    });
+    agentStatus = 200;
     await registerAgentOnNetwork(agent);
-
-    getRes = await app.inject({ method: "GET", url: "/api/operator" });
-    expect(JSON.parse(getRes.body).staleGrant).toBeUndefined();
+    expect((await getOperator()).staleGrant).toBeUndefined();
   });
 
-  it("clears staleGrant on a fresh successful link/complete (reconnect)", async () => {
+  it("clears the flag after a fresh PKCE reconnect", async () => {
     await bindOperator();
     const agent = await createRegisteredAgent();
     const { registerAgentOnNetwork } = await import("../agents/register.js");
-
-    fetchMock.mockImplementation(async (url: string) => {
-      if (String(url).includes("/api/agents")) {
-        return jsonResponse(403, { error: "operator grant epoch stale" });
-      }
-      throw new Error(`unexpected fetch in test: ${url}`);
-    });
+    agentStatus = 403;
     await expect(registerAgentOnNetwork(agent)).rejects.toThrow();
+    expect(await getOperator()).toMatchObject({ staleGrant: true });
 
-    let getRes = await app.inject({ method: "GET", url: "/api/operator" });
-    expect(JSON.parse(getRes.body)).toMatchObject({ staleGrant: true });
-
-    // Reconnect — link/complete clears the flag immediately, independent of
-    // whether the daemon gets a chance to re-register any agent afterward.
-    fetchMock.mockRejectedValue(new Error("network unreachable in test"));
+    agentStatus = 200;
     await bindOperator();
-
-    getRes = await app.inject({ method: "GET", url: "/api/operator" });
-    const body = JSON.parse(getRes.body) as { bound: boolean; staleGrant?: boolean };
-    expect(body.bound).toBe(true);
-    expect(body.staleGrant).toBeUndefined();
+    expect(await getOperator()).toMatchObject({ bound: true });
+    expect((await getOperator()).staleGrant).toBeUndefined();
   });
 });

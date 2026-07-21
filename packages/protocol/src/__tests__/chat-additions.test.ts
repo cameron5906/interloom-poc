@@ -1,5 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { AgentPendingChange, ChatMessage, Channel, ClientWsMessage, Member, ServerWsEvent } from "../chat.js";
+import {
+  AgentPendingChange,
+  ChatMessage,
+  Channel,
+  ClientWsMessage,
+  Member,
+  ServerWsEvent,
+} from "../chat.js";
+
+describe("ClientWsMessage — attachment-only send (CONTRACTS §5)", () => {
+  it("accepts empty text when an attachment is present", () => {
+    expect(
+      ClientWsMessage.safeParse({
+        type: "message.send",
+        channelId: "c1",
+        text: "",
+        attachments: [{ url: "/api/assets/av/image.png", mimeType: "image/png" }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a send with neither text nor attachments", () => {
+    expect(
+      ClientWsMessage.safeParse({ type: "message.send", channelId: "c1", text: "" }).success,
+    ).toBe(false);
+    expect(
+      ClientWsMessage.safeParse({
+        type: "message.send",
+        channelId: "c1",
+        text: "",
+        attachments: [],
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("ServerWsEvent — message.edited (CONTRACTS §5 A.5)", () => {
   it("round-trips a message.edited event", () => {
@@ -73,7 +107,7 @@ describe("AgentPendingChange — extended changedFields (CONTRACTS §5 A.3)", ()
     model: { filename: "qwen2.5-7b-q4.gguf", displayName: "Qwen 2.5 7B" },
   };
 
-  it("accepts a changedFields:[\"title\"] case with title on current/incoming", () => {
+  it('accepts a changedFields:["title"] case with title on current/incoming', () => {
     const result = AgentPendingChange.safeParse({
       memberId: "m1",
       agentId: "a1",
@@ -296,22 +330,31 @@ describe("flat thread and ambient-attention additions (CONTRACTS §18)", () => {
       },
     });
     expect(message.threadSummary?.replyCount).toBe(2);
-    expect(Channel.parse({ id: "c1", name: "general", kind: "channel" }).ambientAttentionEnabled).toBeUndefined();
-    expect(Channel.parse({ id: "c1", name: "general", kind: "channel", ambientAttentionEnabled: true }).ambientAttentionEnabled).toBe(true);
+    expect(
+      Channel.parse({ id: "c1", name: "general", kind: "channel" }).ambientAttentionEnabled,
+    ).toBeUndefined();
+    expect(
+      Channel.parse({ id: "c1", name: "general", kind: "channel", ambientAttentionEnabled: true })
+        .ambientAttentionEnabled,
+    ).toBe(true);
   });
 
   it("round-trips thread-scoped send, typing, and summary events", () => {
-    expect(ClientWsMessage.parse({
-      type: "message.send",
-      channelId: "c1",
-      threadRootId: "root-1",
-      text: "A reply",
-    }).threadRootId).toBe("root-1");
-    expect(ClientWsMessage.parse({
-      type: "typing.start",
-      channelId: "c1",
-      threadRootId: "root-1",
-    }).threadRootId).toBe("root-1");
+    expect(
+      ClientWsMessage.parse({
+        type: "message.send",
+        channelId: "c1",
+        threadRootId: "root-1",
+        text: "A reply",
+      }).threadRootId,
+    ).toBe("root-1");
+    expect(
+      ClientWsMessage.parse({
+        type: "typing.start",
+        channelId: "c1",
+        threadRootId: "root-1",
+      }).threadRootId,
+    ).toBe("root-1");
     const event = ServerWsEvent.parse({
       type: "thread.updated",
       channelId: "c1",

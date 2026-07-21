@@ -78,8 +78,16 @@ export class HeartbeatLoop {
       }
     };
 
-    void run();
-    const timer = setInterval(() => void run(), this.intervalMs);
+    const startRun = () => {
+      void run().catch((error) =>
+        log.warn("frontier heartbeat tick failed", {
+          agentId: agent.agentId,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    };
+    startRun();
+    const timer = setInterval(startRun, this.intervalMs);
     timer.unref?.();
     this.timers.set(agent.agentId, timer);
   }

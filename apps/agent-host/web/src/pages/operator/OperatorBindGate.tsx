@@ -49,9 +49,7 @@ function ShellOperatorBindGate() {
             <Spinner size="md" />
             <div>
               <h1 className="il-opbind__title">Waiting for the app to connect this host…</h1>
-              <p className="il-opbind__lede">
-                Authorization continues securely in the Eris app.
-              </p>
+              <p className="il-opbind__lede">Authorization continues securely in the Eris app.</p>
             </div>
           </div>
         </div>
@@ -61,10 +59,9 @@ function ShellOperatorBindGate() {
 }
 
 function StandaloneOperatorBindGate({ mode, onBound }: OperatorBindGateProps) {
-  const { phase, error, boundIdentity, start } = useOperatorBindFlow(onBound);
+  const { phase, error, boundIdentity, codes, start } = useOperatorBindFlow(onBound);
 
-  const title =
-    mode === "unbound" ? "Connect your Eris identity" : "Reconnect your Eris identity";
+  const title = mode === "unbound" ? "Connect your Eris identity" : "Reconnect your Eris identity";
   const lede =
     mode === "unbound"
       ? "This host is unclaimed. Sign in with your Eris Network identity to unlock the portal — every agent you publish will carry your name and avatar."
@@ -110,6 +107,18 @@ function StandaloneOperatorBindGate({ mode, onBound }: OperatorBindGateProps) {
                     <div className="il-meta">
                       Complete the consent step in the opened window — this updates automatically.
                     </div>
+                    {codes ? (
+                      <dl className="il-opbind__codes" aria-label="Authorization comparison codes">
+                        <div>
+                          <dt>Session</dt>
+                          <dd>{codes.userCode}</dd>
+                        </div>
+                        <div>
+                          <dt>Host</dt>
+                          <dd>{codes.subjectFp}</dd>
+                        </div>
+                      </dl>
+                    ) : null}
                   </div>
                 </div>
               ) : (

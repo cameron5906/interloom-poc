@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import "./Toasts.css";
 
@@ -56,15 +49,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="il-toasts" role="region" aria-live="polite" aria-label="Notifications">
         {toasts.map((t) => (
-          <div
+          <button
+            type="button"
             key={t.id}
             className={`il-toast il-toast--${t.tone}`}
-            role="status"
+            aria-label={`${t.message}. Dismiss notification`}
             onClick={() => dismiss(t.id)}
           >
             <span className="il-toast__dot" />
             <span className="il-toast__msg">{t.message}</span>
-          </div>
+          </button>
         ))}
       </div>
     </ToastContext.Provider>

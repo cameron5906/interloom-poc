@@ -26,7 +26,11 @@ vi.mock("../telemetry/collector.js", () => ({
 }));
 
 vi.mock("../network/client.js", () => ({
-  networkRegisterAgent: vi.fn().mockResolvedValue({}),
+  NetworkApiError: class NetworkApiError extends Error {
+    status = 500;
+    body = "";
+  },
+  networkRegisterAgent: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../keys.js", () => ({
@@ -35,8 +39,37 @@ vi.mock("../keys.js", () => ({
   registerKeysRoutes: vi.fn(),
 }));
 
+// Registration tests exercise a Host that has already completed the
+// operator-binding bootstrap. Unbound behavior is covered by the dedicated
+// operator-bind suite.
+vi.mock("../operatorBind.js", () => ({
+  getOperatorBinding: () => ({
+    identityKey: "operator-pub",
+    displayName: "Test Operator",
+    grant: {
+      payload: {
+        v: 1,
+        identityKey: "operator-pub",
+        subjectKey: "pub",
+        scope: "host-operator",
+        issuedAt: 1,
+        epoch: 0,
+        nonce: "test-nonce",
+      },
+      key: "operator-pub",
+      sig: "mocksig",
+    },
+    boundAt: "2026-01-01T00:00:00.000Z",
+  }),
+  setOperatorGrantStale: vi.fn(),
+}));
+
 vi.mock("@interloom/keys", () => ({
-  signEnvelope: (payload: unknown, _priv: string, key: string) => ({ payload, key, sig: "mocksig" }),
+  signEnvelope: (payload: unknown, _priv: string, key: string) => ({
+    payload,
+    key,
+    sig: "mocksig",
+  }),
   sign: vi.fn().mockReturnValue("mocksig"),
   verify: vi.fn().mockReturnValue(true),
 }));
@@ -60,12 +93,21 @@ vi.mock("../agents/store.js", () => ({
 
 // Controlled loaded instance (CONTRACTS §6 multi-instance loading — preview
 // now routes via the loaded registry, not a single "active model").
-let mockLoadedInstance: { filename: string; port: number; ctx: number; mmprojPath?: string | null } | null = null;
+let mockLoadedInstance: {
+  filename: string;
+  port: number;
+  ctx: number;
+  mmprojPath?: string | null;
+} | null = null;
 
 vi.mock("../models/active.js", () => ({
   getActiveModel: async () =>
     mockLoadedInstance
-      ? { path: `/models/${mockLoadedInstance.filename}`, filename: mockLoadedInstance.filename, ctx: mockLoadedInstance.ctx }
+      ? {
+          path: `/models/${mockLoadedInstance.filename}`,
+          filename: mockLoadedInstance.filename,
+          ctx: mockLoadedInstance.ctx,
+        }
       : null,
   getConfiguredModelFilename: () => mockLoadedInstance?.filename ?? null,
   findLocalModelPath: vi.fn().mockReturnValue(null),
@@ -108,25 +150,33 @@ vi.mock("../inference/gate.js", () => ({
 // Track fetch calls to verify max_tokens
 let fetchCalls: Array<{ body: unknown }> = [];
 
-vi.stubGlobal("fetch", vi.fn().mockImplementation(async (_url: string, opts?: RequestInit) => {
-  const body = opts?.body ? JSON.parse(opts.body as string) as unknown : undefined;
-  fetchCalls.push({ body });
+vi.stubGlobal(
+  "fetch",
+  vi.fn().mockImplementation(async (_url: string, opts?: RequestInit) => {
+    const body = opts?.body ? (JSON.parse(opts.body as string) as unknown) : undefined;
+    fetchCalls.push({ body });
 
-  // Return a minimal SSE stream for preview
-  const encoder = new TextEncoder();
-  const streamData = [
-    "data: " + JSON.stringify({ choices: [{ delta: { content: "hi" } }] }) + "\n\n",
-    "data: " + JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 3 }, timings: { predicted_per_second: 42 } }) + "\n\n",
-    "data: [DONE]\n\n",
-  ].join("");
-  const stream = new ReadableStream({
-    start(ctrl) {
-      ctrl.enqueue(encoder.encode(streamData));
-      ctrl.close();
-    },
-  });
-  return { ok: true, status: 200, body: stream };
-}));
+    // Return a minimal SSE stream for preview
+    const encoder = new TextEncoder();
+    const streamData = [
+      "data: " + JSON.stringify({ choices: [{ delta: { content: "hi" } }] }) + "\n\n",
+      "data: " +
+        JSON.stringify({
+          usage: { prompt_tokens: 5, completion_tokens: 3 },
+          timings: { predicted_per_second: 42 },
+        }) +
+        "\n\n",
+      "data: [DONE]\n\n",
+    ].join("");
+    const stream = new ReadableStream({
+      start(ctrl) {
+        ctrl.enqueue(encoder.encode(streamData));
+        ctrl.close();
+      },
+    });
+    return { ok: true, status: 200, body: stream };
+  }),
+);
 
 describe("agent model guards", () => {
   let app: FastifyInstance;
@@ -135,6 +185,8 @@ describe("agent model guards", () => {
     mockAgents = new Map();
     mockLoadedInstance = null;
     fetchCalls = [];
+    const { networkRegisterAgent } = await import("../network/client.js");
+    vi.mocked(networkRegisterAgent).mockReset().mockResolvedValue(undefined);
 
     app = Fastify({ logger: false });
     await app.register(fastifyCookie);
@@ -252,7 +304,11 @@ describe("agent model guards", () => {
 
     // Verify max_tokens sent to inference was clamped, NOT contextLength
     const inferenceCall = fetchCalls.find(
-      (c) => c.body !== undefined && typeof c.body === "object" && c.body !== null && "max_tokens" in (c.body as Record<string, unknown>),
+      (c) =>
+        c.body !== undefined &&
+        typeof c.body === "object" &&
+        c.body !== null &&
+        "max_tokens" in (c.body as Record<string, unknown>),
     );
     expect(inferenceCall).toBeDefined();
     const body = inferenceCall?.body as { max_tokens?: number; messages?: unknown[] };
@@ -286,10 +342,17 @@ describe("agent model guards", () => {
     // llama-server sends only when the request opts in via
     // stream_options.include_usage. Confirm the request actually asked for it.
     const streamCall = fetchCalls.find(
-      (c) => c.body !== undefined && typeof c.body === "object" && c.body !== null && "stream_options" in (c.body as Record<string, unknown>),
+      (c) =>
+        c.body !== undefined &&
+        typeof c.body === "object" &&
+        c.body !== null &&
+        "stream_options" in (c.body as Record<string, unknown>),
     );
     expect(streamCall).toBeDefined();
-    const sentBody = streamCall?.body as { stream?: boolean; stream_options?: { include_usage?: boolean } };
+    const sentBody = streamCall?.body as {
+      stream?: boolean;
+      stream_options?: { include_usage?: boolean };
+    };
     expect(sentBody.stream).toBe(true);
     expect(sentBody.stream_options).toEqual({ include_usage: true });
 
@@ -355,6 +418,82 @@ describe("agent model guards", () => {
     expect(registerSpy).toHaveBeenCalledOnce();
     const [envelope] = registerSpy.mock.calls[0] as [{ payload: { model?: unknown } }];
     expect(envelope.payload.model).toMatchObject({ filename: "qwen.gguf" });
+  });
+
+  it("PATCH commits a registered agent only after Network re-registration succeeds", async () => {
+    mockAgents.set("a1", {
+      agentId: "a1",
+      name: "Ada",
+      persona: "old persona",
+      params: { temperature: 0.7, contextLength: 4096 },
+      registered: true,
+      syncedAt: "2026-01-01T00:00:00.000Z",
+      avatar: { emoji: "🤖", bg: "#fff" },
+      capabilityBlurb: "does stuff",
+      model: { filename: "qwen.gguf", displayName: "Qwen" },
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/agents/a1",
+      payload: { persona: "new persona" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockAgents.get("a1")).toMatchObject({ persona: "new persona" });
+    expect((mockAgents.get("a1") as { syncedAt: string }).syncedAt).not.toBe(
+      "2026-01-01T00:00:00.000Z",
+    );
+  });
+
+  it("PATCH preserves a registered agent when Network re-registration fails", async () => {
+    const { networkRegisterAgent } = await import("../network/client.js");
+    vi.mocked(networkRegisterAgent).mockRejectedValueOnce(new Error("network down"));
+    mockAgents.set("a1", {
+      agentId: "a1",
+      name: "Ada",
+      persona: "old persona",
+      params: { temperature: 0.7, contextLength: 4096 },
+      registered: true,
+      syncedAt: "2026-01-01T00:00:00.000Z",
+      avatar: { emoji: "🤖", bg: "#fff" },
+      capabilityBlurb: "does stuff",
+      model: { filename: "qwen.gguf", displayName: "Qwen" },
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/agents/a1",
+      payload: { persona: "new persona" },
+    });
+
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body)).toEqual({ error: "registration failed: network down" });
+    expect(mockAgents.get("a1")).toMatchObject({
+      persona: "old persona",
+      syncedAt: "2026-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("PATCH rejects server-owned registry state", async () => {
+    mockAgents.set("a1", {
+      agentId: "a1",
+      name: "Ada",
+      persona: "old persona",
+      params: { temperature: 0.7, contextLength: 4096 },
+      registered: false,
+      avatar: { emoji: "🤖", bg: "#fff" },
+      capabilityBlurb: "does stuff",
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/agents/a1",
+      payload: { registered: true },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockAgents.get("a1")).toMatchObject({ registered: false });
   });
 });
 

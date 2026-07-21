@@ -77,7 +77,6 @@ export function ApprovalRequest({
         <div className="il-approval__reject">
           <TextArea
             rows={2}
-            autoFocus
             placeholder="Add a note for the agent (optional)"
             value={note}
             disabled={busy}

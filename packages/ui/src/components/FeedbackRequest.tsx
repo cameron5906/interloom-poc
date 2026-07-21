@@ -160,7 +160,6 @@ export function FeedbackRequest({
             <div className="il-feedback__free">
               <TextArea
                 rows={2}
-                autoFocus={!freeTextOnly}
                 placeholder={freeTextPlaceholder}
                 value={text}
                 disabled={busy}
@@ -182,17 +181,24 @@ export function FeedbackRequest({
           {answeredOptions.length > 0 && (
             <div className="il-feedback__options">
               {answeredOptions.map((o) => (
-                <div key={o.id} className="il-feedback__opt il-feedback__opt--on il-feedback__opt--static">
+                <div
+                  key={o.id}
+                  className="il-feedback__opt il-feedback__opt--on il-feedback__opt--static"
+                >
                   <OptionControl multi={multiSelect} on />
                   <span className="il-feedback__opt-text">
                     <span className="il-feedback__opt-label">{o.label}</span>
-                    {o.description && <span className="il-feedback__opt-desc">{o.description}</span>}
+                    {o.description && (
+                      <span className="il-feedback__opt-desc">{o.description}</span>
+                    )}
                   </span>
                 </div>
               ))}
             </div>
           )}
-          {answer?.freeText && <div className="il-feedback__quote">&ldquo;{answer.freeText}&rdquo;</div>}
+          {answer?.freeText && (
+            <div className="il-feedback__quote">&ldquo;{answer.freeText}&rdquo;</div>
+          )}
           <div className="il-feedback__resolution">
             <StatusPill tone="success">answered</StatusPill>
             {(answeredBy || answeredAt) && (

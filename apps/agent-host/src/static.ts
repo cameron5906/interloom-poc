@@ -7,9 +7,9 @@ import fastifyStatic from "@fastify/static";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIST = path.resolve(__dirname, "../web/dist");
 
-export function registerStatic(app: FastifyInstance): void {
+export async function registerStatic(app: FastifyInstance): Promise<void> {
   if (fs.existsSync(WEB_DIST)) {
-    void app.register(fastifyStatic, {
+    await app.register(fastifyStatic, {
       root: WEB_DIST,
       prefix: "/",
     });

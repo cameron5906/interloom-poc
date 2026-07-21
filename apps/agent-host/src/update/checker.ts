@@ -16,10 +16,7 @@ export function getCheckState(): CheckState {
 }
 
 /** "dev" builds never see updates; an unseen manifest means nothing to offer. */
-export function isUpdateAvailable(
-  ownVersion: string,
-  latestVersion: string | undefined,
-): boolean {
+export function isUpdateAvailable(ownVersion: string, latestVersion: string | undefined): boolean {
   return ownVersion !== "dev" && latestVersion !== undefined && latestVersion !== ownVersion;
 }
 
@@ -43,9 +40,9 @@ export async function checkForUpdate(): Promise<CheckState> {
 
 export function startUpdateCheckLoop(): void {
   if (HOST_VERSION === "dev") return;
-  void checkForUpdate();
+  void checkForUpdate().catch(() => {});
   const timer = setInterval(() => {
-    void checkForUpdate();
+    void checkForUpdate().catch(() => {});
   }, CHECK_INTERVAL_MS);
   timer.unref();
 }

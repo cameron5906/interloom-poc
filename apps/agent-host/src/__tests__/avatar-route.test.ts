@@ -33,8 +33,36 @@ vi.mock("../keys.js", () => ({
   registerKeysRoutes: vi.fn(),
 }));
 
+// Re-registration is only reachable after the Host has been bound to an
+// operator identity. The unbound gate has its own focused test suite.
+vi.mock("../operatorBind.js", () => ({
+  getOperatorBinding: () => ({
+    identityKey: "operator-pub",
+    displayName: "Test Operator",
+    grant: {
+      payload: {
+        v: 1,
+        identityKey: "operator-pub",
+        subjectKey: "PUBKEY",
+        scope: "host-operator",
+        issuedAt: 1,
+        epoch: 0,
+        nonce: "test-nonce",
+      },
+      key: "operator-pub",
+      sig: "mocksig",
+    },
+    boundAt: "2026-01-01T00:00:00.000Z",
+  }),
+  setOperatorGrantStale: vi.fn(),
+}));
+
 vi.mock("@interloom/keys", () => ({
-  signEnvelope: (payload: unknown, _priv: string, key: string) => ({ payload, key, sig: "mocksig" }),
+  signEnvelope: (payload: unknown, _priv: string, key: string) => ({
+    payload,
+    key,
+    sig: "mocksig",
+  }),
   sign: vi.fn().mockReturnValue("mocksig"),
   verify: vi.fn().mockReturnValue(true),
 }));
@@ -55,10 +83,17 @@ vi.mock("../agents/store.js", () => ({
   deleteAgent: vi.fn(),
 }));
 
-let uploadResult: { sha: string; url: string } | Error = { sha: "abc", url: "https://net.example/assets/av/abc.png" };
+let uploadResult: { sha: string; url: string } | Error = {
+  sha: "abc",
+  url: "https://net.example/assets/av/abc.png",
+};
 let registerSpy: ReturnType<typeof vi.fn>;
 
 vi.mock("../network/client.js", () => ({
+  NetworkApiError: class NetworkApiError extends Error {
+    status = 500;
+    body = "";
+  },
   networkUploadAvatar: async () => {
     if (uploadResult instanceof Error) throw uploadResult;
     return uploadResult;
@@ -232,5 +267,33 @@ describe("POST /api/agents/:id/avatar", () => {
     expect(registerSpy).toHaveBeenCalledOnce();
     const updated = mockAgents.get("a1") as { syncedAt?: string };
     expect(updated.syncedAt).toBeDefined();
+  });
+
+  it("does not save a registered agent's imageUrl when re-registration fails", async () => {
+    mockAgents.set("a1", {
+      agentId: "a1",
+      name: "Ada",
+      avatar: { emoji: "🤖", bg: "#fff" },
+      persona: "helpful",
+      capabilityBlurb: "does stuff",
+      params: { temperature: 0.7, contextLength: 4096 },
+      registered: true,
+      syncedAt: "2026-01-01T00:00:00.000Z",
+      model: { filename: "qwen.gguf", displayName: "Qwen" },
+    });
+    registerSpy.mockRejectedValueOnce(new Error("network down"));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/agents/a1/avatar",
+      payload: { dataUrl: `data:image/png;base64,${TINY_PNG_B64}` },
+    });
+
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body)).toEqual({ error: "network_unreachable" });
+    expect(mockAgents.get("a1")).toMatchObject({
+      avatar: { emoji: "🤖", bg: "#fff" },
+      syncedAt: "2026-01-01T00:00:00.000Z",
+    });
   });
 });

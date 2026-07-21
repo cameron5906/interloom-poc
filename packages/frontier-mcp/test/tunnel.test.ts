@@ -1,20 +1,40 @@
-import { generateKeypair, sign } from "@interloom/keys";
-import { afterEach, describe, expect, it } from "vitest";
+import { canonicalSha256, generateKeypair, signEnvelope } from "@interloom/keys";
+import {
+  canonicalOrigin,
+  type HostTunnelProofV2Payload,
+  type InviteVoucher,
+  type TunnelAuthChallengeV2,
+} from "@interloom/protocol";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { StaleLeaseError, TunnelClient } from "../src/tunnel.js";
-import { makePlacement, makeVoucher, MockStaleLeaseError, startMockInstance, type MockInstance } from "./mockInstance.js";
+import {
+  makePlacement,
+  makeVoucher,
+  MockStaleLeaseError,
+  startMockInstance,
+  type MockInstance,
+} from "./mockInstance.js";
 
 const networkKeys = generateKeypair();
 const agentKeys = generateKeypair();
 
 let instance: MockInstance | undefined;
 let client: TunnelClient | undefined;
+let previousLoopbackSetting: string | undefined;
+
+beforeEach(() => {
+  previousLoopbackSetting = process.env.ALLOW_LOOPBACK_INSTANCE_ORIGINS;
+  process.env.ALLOW_LOOPBACK_INSTANCE_ORIGINS = "true";
+});
 
 afterEach(async () => {
   client?.destroy();
   client = undefined;
   await instance?.cleanup();
   instance = undefined;
+  if (previousLoopbackSetting === undefined) delete process.env.ALLOW_LOOPBACK_INSTANCE_ORIGINS;
+  else process.env.ALLOW_LOOPBACK_INSTANCE_ORIGINS = previousLoopbackSetting;
 });
 
 async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
@@ -25,7 +45,9 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void
   }
 }
 
-async function connectedClient(handlers: Parameters<typeof startMockInstance>[1] = {}): Promise<TunnelClient> {
+async function connectedClient(
+  handlers: Parameters<typeof startMockInstance>[1] = {},
+): Promise<TunnelClient> {
   instance = await startMockInstance(networkKeys.publicKey, handlers);
   const voucher = makeVoucher(networkKeys, {
     agentId: "agent-1",
@@ -49,28 +71,49 @@ async function rawAuthIdentify(
   params: Record<string, unknown>,
 ): Promise<{ kind: string; error?: { code: string; message: string } }> {
   const ws = new WebSocket(`${target.instanceUrl.replace(/^http/, "ws")}/tunnel`);
-  const nonce = await new Promise<string>((resolve) => {
+  const challenge = await new Promise<TunnelAuthChallengeV2>((resolve) => {
     ws.on("message", (data) => {
-      const frame = JSON.parse(String(data)) as { kind: string; method?: string; params?: { nonce?: string } };
-      if (frame.kind === "evt" && frame.method === "auth.challenge") resolve(frame.params!.nonce!);
+      const frame = JSON.parse(String(data)) as {
+        kind: string;
+        method?: string;
+        params?: TunnelAuthChallengeV2;
+      };
+      if (frame.kind === "evt" && frame.method === "auth.challenge.v2") resolve(frame.params!);
     });
   });
-  const sig = sign(nonce, agentKeys.privateKey);
-  const result = await new Promise<{ kind: string; error?: { code: string; message: string } }>((resolve) => {
-    ws.on("message", (data) => {
-      const frame = JSON.parse(String(data)) as { kind: string; error?: { code: string; message: string } };
-      if (frame.kind === "res" || frame.kind === "err") resolve(frame);
-    });
-    ws.send(
-      JSON.stringify({
-        il: 1,
-        id: "req-1",
-        kind: "req",
-        method: "auth.identify",
-        params: { ...params, sig },
-      }),
-    );
-  });
+  const voucher = params.voucher as { payload: InviteVoucher; key: string; sig: string };
+  const agentId = params.agentId as string;
+  const proofPayload: HostTunnelProofV2Payload = {
+    purpose: "interloom.tunnel-auth.v2",
+    challengeId: challenge.challengeId,
+    nonce: challenge.nonce,
+    placementId: voucher.payload.placementId,
+    agentId,
+    instanceOrigin: canonicalOrigin(target.instanceUrl),
+    voucherDigest: canonicalSha256(voucher),
+    issuedAt: challenge.issuedAt,
+  };
+  const proof = signEnvelope(proofPayload, agentKeys.privateKey, agentKeys.publicKey);
+  const result = await new Promise<{ kind: string; error?: { code: string; message: string } }>(
+    (resolve) => {
+      ws.on("message", (data) => {
+        const frame = JSON.parse(String(data)) as {
+          kind: string;
+          error?: { code: string; message: string };
+        };
+        if (frame.kind === "res" || frame.kind === "err") resolve(frame);
+      });
+      ws.send(
+        JSON.stringify({
+          il: 1,
+          id: "req-1",
+          kind: "req",
+          method: "auth.identify.v2",
+          params: { ...params, proof },
+        }),
+      );
+    },
+  );
   ws.close();
   return result;
 }
@@ -119,7 +162,7 @@ describe("TunnelClient (CONTRACTS §3/§14 host side, frontierQueue tunnel)", ()
     });
     expect(result.kind).toBe("err");
     expect(result.error?.code).toBe("E_AUTH");
-    expect(result.error?.message).toMatch(/expired/);
+    expect(result.error?.message).toBe("authentication failed");
   });
 
   it("rejects a claimed agentPubKey that doesn't match the voucher's bound key", async () => {
@@ -139,7 +182,7 @@ describe("TunnelClient (CONTRACTS §3/§14 host side, frontierQueue tunnel)", ()
     });
     expect(result.kind).toBe("err");
     expect(result.error?.code).toBe("E_AUTH");
-    expect(result.error?.message).toMatch(/agentPubKey mismatch/);
+    expect(result.error?.message).toBe("authentication failed");
   });
 
   it("rejects a claimed agentId that doesn't match the voucher's bound agent", async () => {
@@ -158,7 +201,7 @@ describe("TunnelClient (CONTRACTS §3/§14 host side, frontierQueue tunnel)", ()
     });
     expect(result.kind).toBe("err");
     expect(result.error?.code).toBe("E_AUTH");
-    expect(result.error?.message).toMatch(/agentId mismatch/);
+    expect(result.error?.message).toBe("authentication failed");
   });
 
   it("rejects a voucher scoped to a different instanceUrl", async () => {
@@ -177,7 +220,7 @@ describe("TunnelClient (CONTRACTS §3/§14 host side, frontierQueue tunnel)", ()
     });
     expect(result.kind).toBe("err");
     expect(result.error?.code).toBe("E_AUTH");
-    expect(result.error?.message).toMatch(/instanceUrl mismatch/);
+    expect(result.error?.message).toBe("authentication failed");
   });
 
   it("answers an instance-initiated health.ping with { ok: true, ts }", async () => {
@@ -224,7 +267,9 @@ describe("TunnelClient (CONTRACTS §3/§14 host side, frontierQueue tunnel)", ()
     expect(receivedCompleteToken).toBe("lease-tok-1");
     await expect(c.fail("work-2", "lease-tok-2", "gave up")).resolves.toBeUndefined();
     expect(receivedFailToken).toBe("lease-tok-2");
-    await expect(c.post("ch-1", "proactive update")).resolves.toEqual({ messageId: "post-in-ch-1" });
+    await expect(c.post("ch-1", "proactive update")).resolves.toEqual({
+      messageId: "post-in-ch-1",
+    });
   });
 
   it("rejects the call promise when the instance answers with an err frame", async () => {
@@ -233,7 +278,9 @@ describe("TunnelClient (CONTRACTS §3/§14 host side, frontierQueue tunnel)", ()
         throw new Error("unknown work item");
       },
     });
-    await expect(c.complete("missing-work-id", "lease-tok", "text")).rejects.toThrow(/unknown work item/);
+    await expect(c.complete("missing-work-id", "lease-tok", "text")).rejects.toThrow(
+      /unknown work item/,
+    );
   });
 
   it("complete() throws StaleLeaseError (not a generic error) on E_STALE_LEASE", async () => {

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, EmptyState } from "@interloom/ui";
 import type { DownloadJob, LoadedModel, LocalModel, SystemInfo } from "@interloom/protocol";
-import type { CatalogModel } from "../../../api/types.js";
+import type { CatalogModel, RegistryFit } from "../../../api/types.js";
 import { models as modelsApi } from "../../../api/endpoints.js";
 import { useAsync } from "../../../hooks/useAsync.js";
 import { Skeleton } from "../../../components/States.js";
@@ -27,6 +27,9 @@ const INITIAL_FILTERS: CatalogFilterState = {
   sort: "fit",
 };
 
+const EMPTY_FIT_MAP: Record<string, RegistryFit> = {};
+const EMPTY_MODELS: CatalogModel[] = [];
+
 export function CatalogTab({
   rig,
   downloads,
@@ -40,8 +43,8 @@ export function CatalogTab({
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const doc = registry.data?.doc;
-  const fitMap = registry.data?.fit ?? {};
-  const models = doc?.catalog.models ?? [];
+  const fitMap = registry.data?.fit ?? EMPTY_FIT_MAP;
+  const models = doc?.catalog.models ?? EMPTY_MODELS;
 
   const categories = useMemo(() => {
     const seen = new Set<string>();
@@ -69,7 +72,7 @@ export function CatalogTab({
     return list;
   }, [models, filters, fitMap]);
 
-  const selected = selectedId ? models.find((m) => m.id === selectedId) ?? null : null;
+  const selected = selectedId ? (models.find((m) => m.id === selectedId) ?? null) : null;
 
   if (registry.loading && registry.initialLoad) {
     return (
@@ -90,7 +93,9 @@ export function CatalogTab({
     const offline = registry.error.isOffline;
     return (
       <EmptyState
-        title={offline ? "Agent Host daemon unreachable" : "The curated catalog isn't available yet"}
+        title={
+          offline ? "Agent Host daemon unreachable" : "The curated catalog isn't available yet"
+        }
         hint={
           offline
             ? "Reconnecting to the daemon on port 7420. You can still search all of Hugging Face directly."

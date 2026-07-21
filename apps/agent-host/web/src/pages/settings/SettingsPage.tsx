@@ -15,9 +15,7 @@ export function SettingsPage() {
       <div className="il-page">
         <div className="il-page__head">
           <h1 className="il-page__title">Settings</h1>
-          <p className="il-page__sub">
-            Configure integrations and host preferences.
-          </p>
+          <p className="il-page__sub">Configure integrations and host preferences.</p>
         </div>
 
         <div className="il-settings__sections">
@@ -97,20 +95,13 @@ function HfAccountSection() {
             <span className="il-settings__hf-dot il-settings__hf-dot--on" />
             <div>
               <div className="il-settings__hf-label">Connected</div>
-              {hf.data.username ? (
-                <div className="il-meta">as {hf.data.username}</div>
-              ) : null}
+              {hf.data.username ? <div className="il-meta">as {hf.data.username}</div> : null}
             </div>
           </div>
           <div className="il-settings__hf-note">
             Token is stored securely and never returned by any endpoint.
           </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={disconnect}
-            disabled={disconnecting}
-          >
+          <Button size="sm" variant="secondary" onClick={disconnect} disabled={disconnecting}>
             {disconnecting ? "Disconnecting…" : "Disconnect"}
           </Button>
         </div>
@@ -125,7 +116,6 @@ function HfAccountSection() {
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   autoComplete="off"
-                  autoFocus
                 />
                 <Button
                   size="sm"

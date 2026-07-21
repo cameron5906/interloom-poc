@@ -1,6 +1,7 @@
 import WebSocket from "ws";
-import { sign } from "@interloom/keys";
+import { canonicalSha256, signEnvelope } from "@interloom/keys";
 import {
+  AuthOkResult,
   ChatPostResult,
   ContextListResult,
   ContextReadResult,
@@ -8,6 +9,10 @@ import {
   makeReq,
   makeRes,
   parseTunnelFrame,
+  canonicalOrigin,
+  HostTunnelProofV2Payload,
+  TunnelAuthChallengeV2,
+  WIRE_LIMITS,
   WorkBeginResult,
   WorkCompleteResult,
   WorkFailResult,
@@ -18,6 +23,7 @@ import {
   type TunnelFrame,
 } from "@interloom/protocol";
 import { log } from "./log.js";
+import { createSafeLookup } from "./security/safeLookup.js";
 
 /**
  * Slim host-side tunnel client for a frontier agent's placement (CONTRACTS
@@ -69,14 +75,14 @@ export class StaleLeaseError extends Error {
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
 const DEFAULT_CALL_TIMEOUT_MS = 30_000;
+const TUNNEL_CONNECT_TIMEOUT_MS = 10_000;
+const TUNNEL_AUTH_TIMEOUT_MS = 15_000;
 
 function buildTunnelUrl(instanceUrl: string): string {
-  return (
-    instanceUrl
-      .replace(/^https:\/\//, "wss://")
-      .replace(/^http:\/\//, "ws://")
-      .replace(/\/$/, "") + "/tunnel"
-  );
+  const url = new URL(canonicalOrigin(instanceUrl));
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = "/tunnel";
+  return url.toString();
 }
 
 export class TunnelClient {
@@ -84,6 +90,8 @@ export class TunnelClient {
   private status: TunnelStatus = "connecting";
   private destroyed = false;
   private backoffMs = INITIAL_BACKOFF_MS;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private authTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly pendingRequests = new Map<string, PendingReq>();
   private authReqId: string | null = null;
   private _authFailed = false;
@@ -135,8 +143,11 @@ export class TunnelClient {
 
   destroy(): void {
     this.destroyed = true;
-    this.ws?.close();
-    this.ws = null;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    const ws = this.ws;
+    if (ws) this.handleSocketDown(ws);
+    ws?.close();
     for (const pending of this.pendingRequests.values()) {
       pending.reject(new Error("tunnel destroyed"));
     }
@@ -144,17 +155,38 @@ export class TunnelClient {
   }
 
   private connect(): void {
-    if (this.destroyed) return;
+    if (this.destroyed || this.ws) return;
     this.status = "connecting";
     const url = buildTunnelUrl(this.placement.instanceUrl);
-    const ws = new WebSocket(url);
+    let ws: WebSocket;
+    try {
+      const allowLoopback = process.env["ALLOW_LOOPBACK_INSTANCE_ORIGINS"] === "true";
+      ws = new WebSocket(url, {
+        maxPayload: WIRE_LIMITS.tunnelFrameBytes,
+        perMessageDeflate: false,
+        handshakeTimeout: TUNNEL_CONNECT_TIMEOUT_MS,
+        lookup: createSafeLookup(this.placement.instanceUrl, allowLoopback),
+      });
+    } catch (error) {
+      this.status = "down";
+      log.warn("frontier tunnel destination rejected", {
+        instanceUrl: this.placement.instanceUrl,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.scheduleReconnect();
+      return;
+    }
     this.ws = ws;
-
-    ws.on("open", () => {
-      this.backoffMs = INITIAL_BACKOFF_MS;
-    });
+    this.clearAuthTimer();
+    this.authTimer = setTimeout(() => {
+      if (this.ws !== ws || this.status === "connected") return;
+      this._authFailed = true;
+      ws.close(4408, "authentication timed out");
+    }, TUNNEL_AUTH_TIMEOUT_MS);
+    this.authTimer.unref?.();
 
     ws.on("message", (data) => {
+      if (this.ws !== ws) return;
       const raw = typeof data === "string" ? data : data.toString();
       let frame: TunnelFrame;
       try {
@@ -166,34 +198,43 @@ export class TunnelClient {
     });
 
     ws.on("close", () => {
-      this.ws = null;
-      for (const pending of this.pendingRequests.values()) {
-        pending.reject(new Error("tunnel closed"));
-      }
-      this.pendingRequests.clear();
-      if (!this.destroyed) {
-        this.status = "down";
-        this.scheduleReconnect();
-      }
+      this.handleSocketDown(ws);
     });
 
     ws.on("error", () => {
-      this.ws = null;
-      if (!this.destroyed) {
-        this.status = "down";
-        this.scheduleReconnect();
-      }
+      this.handleSocketDown(ws);
     });
   }
 
+  private handleSocketDown(ws: WebSocket): void {
+    if (this.ws !== ws) return;
+    this.ws = null;
+    this.authReqId = null;
+    this.clearAuthTimer();
+    for (const pending of this.pendingRequests.values()) {
+      pending.reject(new Error("tunnel closed"));
+    }
+    this.pendingRequests.clear();
+    if (!this.destroyed) {
+      this.status = "down";
+      this.scheduleReconnect();
+    }
+  }
+
+  private clearAuthTimer(): void {
+    if (this.authTimer) clearTimeout(this.authTimer);
+    this.authTimer = null;
+  }
+
   private scheduleReconnect(): void {
-    if (this.destroyed) return;
+    if (this.destroyed || this.reconnectTimer) return;
     const jitter = Math.random() * 1000;
     const delay = this.backoffMs + jitter;
-    const timer = setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       if (!this.destroyed) this.connect();
     }, delay);
-    timer.unref?.();
+    this.reconnectTimer.unref?.();
     this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS);
   }
 
@@ -204,8 +245,15 @@ export class TunnelClient {
   }
 
   private handleFrame(frame: TunnelFrame): void {
-    if (frame.kind === "evt" && frame.method === "auth.challenge") {
+    if (frame.kind === "evt" && frame.method === "auth.challenge.v2") {
       this.handleAuthChallenge(frame);
+      return;
+    }
+
+    if (frame.kind === "evt" && frame.method === "auth.challenge") {
+      this._authFailed = true;
+      this.status = "down";
+      this.ws?.close(4403, "legacy authentication rejected");
       return;
     }
 
@@ -216,6 +264,7 @@ export class TunnelClient {
 
     if (frame.kind === "err" && this.authReqId && frame.id === this.authReqId) {
       this.authReqId = null;
+      this.clearAuthTimer();
       this._authFailed = true;
       this.backoffMs = MAX_BACKOFF_MS;
       this.status = "down";
@@ -228,12 +277,17 @@ export class TunnelClient {
     }
 
     if (frame.kind === "res" && this.authReqId && frame.id === this.authReqId) {
-      const result = frame.result as { ok?: boolean } | undefined;
-      if (result?.ok === true) {
+      const result = AuthOkResult.safeParse(frame.result);
+      if (result.success && result.data.ctx === undefined) {
         this._authFailed = false;
         this.backoffMs = INITIAL_BACKOFF_MS;
         this.status = "connected";
+        this.clearAuthTimer();
         for (const cb of this.connectedListeners) cb();
+      } else {
+        this._authFailed = true;
+        this.status = "down";
+        this.ws?.close(4403, "authentication failed");
       }
       this.authReqId = null;
       return;
@@ -254,7 +308,10 @@ export class TunnelClient {
 
     if (frame.kind === "req") {
       if (frame.method === "health.ping") {
-        this.status = "connected";
+        if (this.status !== "connected") {
+          this.send(makeErr(frame.id, "E_AUTH", "tunnel is not authenticated"));
+          return;
+        }
         this.send(makeRes(frame.id, { ok: true, ts: Date.now() }));
         return;
       }
@@ -263,11 +320,55 @@ export class TunnelClient {
   }
 
   private handleAuthChallenge(frame: Extract<TunnelFrame, { kind: "evt" }>): void {
-    const params = frame.params as { nonce?: string } | undefined;
-    const nonce = params?.nonce;
-    if (!nonce || typeof nonce !== "string") return;
+    if (this.authReqId) {
+      this._authFailed = true;
+      this.ws?.close(4403, "duplicate authentication challenge");
+      return;
+    }
+    const parsed = TunnelAuthChallengeV2.safeParse(frame.params);
+    if (!parsed.success) {
+      this._authFailed = true;
+      this.ws?.close(4403, "invalid authentication challenge");
+      return;
+    }
+    const challenge = parsed.data;
+    const now = Date.now();
+    if (challenge.issuedAt > now + 5_000 || now - challenge.issuedAt > 30_000) {
+      this._authFailed = true;
+      this.ws?.close(4403, "expired authentication challenge");
+      return;
+    }
 
-    const sig = sign(nonce, this.agentPrivKey);
+    let instanceOrigin: string;
+    let voucherOrigin: string;
+    try {
+      instanceOrigin = canonicalOrigin(this.placement.instanceUrl);
+      voucherOrigin = canonicalOrigin(this.placement.voucher.payload.instanceUrl);
+    } catch {
+      this._authFailed = true;
+      this.ws?.close(4403, "invalid placement origin");
+      return;
+    }
+    if (instanceOrigin !== voucherOrigin) {
+      this._authFailed = true;
+      this.ws?.close(4403, "placement origin mismatch");
+      return;
+    }
+
+    const proof = signEnvelope(
+      HostTunnelProofV2Payload.parse({
+        purpose: "interloom.tunnel-auth.v2",
+        challengeId: challenge.challengeId,
+        nonce: challenge.nonce,
+        placementId: this.placement.placementId,
+        agentId: this.agentId,
+        instanceOrigin,
+        voucherDigest: canonicalSha256(this.placement.voucher),
+        issuedAt: challenge.issuedAt,
+      }),
+      this.agentPrivKey,
+      this.agentPubKey,
+    );
     const reqId = crypto.randomUUID();
     this.authReqId = reqId;
 
@@ -275,12 +376,12 @@ export class TunnelClient {
       il: 1,
       id: reqId,
       kind: "req",
-      method: "auth.identify",
+      method: "auth.identify.v2",
       params: {
         agentId: this.agentId,
         agentPubKey: this.agentPubKey,
         voucher: this.placement.voucher,
-        sig,
+        proof,
         features: ["frontierQueue"],
       },
     });

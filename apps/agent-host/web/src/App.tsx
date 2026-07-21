@@ -10,6 +10,8 @@ import { useAsync } from "./hooks/useAsync.js";
 import { useDaemonHealth } from "./hooks/useDaemonHealth.js";
 import { useUpdateStatus } from "./hooks/useUpdateStatus.js";
 import { useDownloads } from "./state/DownloadsContext.js";
+import { DownloadsProvider } from "./state/DownloadsContext.js";
+import type { OperatorState } from "./api/types.js";
 import { ONBOARDING_DONE_KEY, UPDATE_NOTIFIED_KEY } from "./lib/constants.js";
 import { OperatorBindGate } from "./pages/operator/OperatorBindGate.js";
 import { OperatorStaleGrantBanner } from "./pages/operator/OperatorStaleGrantBanner.js";
@@ -27,17 +29,9 @@ function activeNavKey(pathname: string): string {
 }
 
 export function App() {
-  const location = useLocation();
-  const navigate = useNavigate();
   const daemonOnline = useDaemonHealth();
 
   const operator = useAsync((s) => operatorBindApi.get(s), []);
-
-  const toasts = useToasts();
-  const { status: updateStatus } = useUpdateStatus();
-  const { active: activeDownloads, aggregatePct } = useDownloads();
-  const downloadsSummary =
-    activeDownloads.length > 0 ? { count: activeDownloads.length, pct: aggregatePct } : null;
 
   // Full-screen bind gate state. Starts at "none" and flips the moment we
   // either learn the host is unbound (GET /api/operator) or ANY request
@@ -53,9 +47,56 @@ export function App() {
     }
   }, [operator.data]);
 
-  const availableVersion = updateStatus?.updateAvailable
-    ? updateStatus.latest?.version
-    : undefined;
+  // Nothing renders until we know the bind state — avoids a flash of the
+  // app shell (or the onboarding flow) for a host that turns out unbound.
+  if (operator.loading && operator.initialLoad) return null;
+
+  // Derive the initial unbound state synchronously from the response. Waiting
+  // for the effect above would mount protected pollers for one render and
+  // produce avoidable 401s before the gate appeared.
+  const effectiveAuthGate = operator.data?.bound === false ? "operator_not_bound" : authGate;
+
+  if (effectiveAuthGate !== "none") {
+    return (
+      <OperatorBindGate
+        mode={effectiveAuthGate === "operator_not_bound" ? "unbound" : "unauthenticated"}
+        onBound={() => {
+          setAuthGate("none");
+          operator.reload();
+        }}
+      />
+    );
+  }
+
+  return (
+    <DownloadsProvider>
+      <AuthenticatedPortal
+        operator={operator.data}
+        operatorReload={operator.reload}
+        daemonOnline={daemonOnline}
+      />
+    </DownloadsProvider>
+  );
+}
+
+function AuthenticatedPortal({
+  operator,
+  operatorReload,
+  daemonOnline,
+}: {
+  operator: OperatorState | undefined;
+  operatorReload: () => void;
+  daemonOnline: boolean;
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const toasts = useToasts();
+  const { status: updateStatus } = useUpdateStatus();
+  const { active: activeDownloads, aggregatePct } = useDownloads();
+  const downloadsSummary =
+    activeDownloads.length > 0 ? { count: activeDownloads.length, pct: aggregatePct } : null;
+
+  const availableVersion = updateStatus?.updateAvailable ? updateStatus.latest?.version : undefined;
   useEffect(() => {
     if (!availableVersion) return;
     if (window.localStorage.getItem(UPDATE_NOTIFIED_KEY) === availableVersion) return;
@@ -64,22 +105,6 @@ export function App() {
   }, [availableVersion, toasts]);
 
   const isOnboarding = location.pathname === "/onboarding";
-
-  // Nothing renders until we know the bind state — avoids a flash of the
-  // app shell (or the onboarding flow) for a host that turns out unbound.
-  if (operator.loading && operator.initialLoad) return null;
-
-  if (authGate !== "none") {
-    return (
-      <OperatorBindGate
-        mode={authGate === "operator_not_bound" ? "unbound" : "unauthenticated"}
-        onBound={() => {
-          setAuthGate("none");
-          operator.reload();
-        }}
-      />
-    );
-  }
 
   if (isOnboarding) {
     return (
@@ -94,13 +119,13 @@ export function App() {
   return (
     <div className="il-app">
       <NavRail
-        operator={operator.data}
+        operator={operator}
         daemonOnline={daemonOnline}
         updateAvailable={updateStatus?.updateAvailable ?? false}
         version={updateStatus?.current.version}
         downloads={downloadsSummary}
       />
-      <MobileTopBar operator={operator.data} daemonOnline={daemonOnline} />
+      <MobileTopBar operator={operator} daemonOnline={daemonOnline} />
       <main className="il-content-outer">
         {!daemonOnline && (
           <div className="il-offline-banner" role="alert">
@@ -108,8 +133,8 @@ export function App() {
             The Agent Host daemon is unreachable on port 7420 — reconnecting…
           </div>
         )}
-        {operator.data?.bound && operator.data.staleGrant && (
-          <OperatorStaleGrantBanner onReconnected={() => operator.reload()} />
+        {operator?.bound && operator.staleGrant && (
+          <OperatorStaleGrantBanner onReconnected={operatorReload} />
         )}
         <OnboardingGate>
           <Routes>

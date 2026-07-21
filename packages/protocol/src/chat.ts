@@ -2,13 +2,14 @@ import { z } from "zod";
 import { ModelRef } from "./model.js";
 import { AgentGender } from "./avatar.js";
 import { AgentManifest, AgentOperator } from "./registry.js";
+import { BoundedId, WIRE_LIMITS } from "./limits.js";
 
 /** An image attachment persisted on a chat message (CONTRACTS §5). */
 export const Attachment = z.object({
-  id: z.string(),
+  id: BoundedId,
   kind: z.literal("image"),
-  url: z.string(),
-  mimeType: z.string(),
+  url: z.string().min(1).max(2048),
+  mimeType: z.string().min(1).max(128),
   sizeBytes: z.number().optional(),
   width: z.number().optional(),
   height: z.number().optional(),
@@ -17,8 +18,8 @@ export type Attachment = z.infer<typeof Attachment>;
 
 /** An attachment reference sent by the client on `message.send` (CONTRACTS §5) — pre-uploaded via REST. */
 export const AttachmentRef = z.object({
-  url: z.string(),
-  mimeType: z.string(),
+  url: z.string().min(1).max(2048),
+  mimeType: z.string().min(1).max(128),
   sizeBytes: z.number().optional(),
   width: z.number().optional(),
   height: z.number().optional(),
@@ -27,13 +28,14 @@ export type AttachmentRef = z.infer<typeof AttachmentRef>;
 
 /** A chat message (CONTRACTS §5). `mentions` holds member ids. */
 export const ChatMessage = z.object({
-  id: z.string(),
-  channelId: z.string(),
-  authorId: z.string(),
-  authorName: z.string(),
+  id: BoundedId,
+  channelId: BoundedId,
+  authorId: BoundedId,
+  // Client-synthesized system announcements intentionally use an empty author.
+  authorName: z.string().max(256),
   isAgent: z.boolean(),
-  text: z.string(),
-  mentions: z.array(z.string()),
+  text: z.string().max(WIRE_LIMITS.chatTextChars),
+  mentions: z.array(BoundedId).max(WIRE_LIMITS.chatMentions),
   createdAt: z.string(),
   /** Client-synthesized announce line (e.g. "X added Y"); never persisted. */
   system: z.boolean().optional(),
@@ -42,26 +44,28 @@ export const ChatMessage = z.object({
   /** Soft-deleted (CONTRACTS §5). `text` is blanked; clients render a tombstone. */
   deleted: z.boolean().optional(),
   /** Image attachments uploaded via REST before send (CONTRACTS §5). */
-  attachments: z.array(Attachment).optional(),
+  attachments: z.array(Attachment).max(WIRE_LIMITS.chatAttachments).optional(),
   /** Durable invocation that produced this agent-authored message. */
-  agentRunId: z.string().optional(),
-  threadRootId: z.string().optional(),
-  threadSummary: z.object({
-    replyCount: z.number().int().nonnegative(),
-    participantIds: z.array(z.string()),
-    latestReplyAt: z.string().optional(),
-    unread: z.number().int().nonnegative().optional(),
-  }).optional(),
+  agentRunId: BoundedId.optional(),
+  threadRootId: BoundedId.optional(),
+  threadSummary: z
+    .object({
+      replyCount: z.number().int().nonnegative(),
+      participantIds: z.array(BoundedId).max(256),
+      latestReplyAt: z.string().optional(),
+      unread: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
 /** A channel or DM location (CONTRACTS §5). */
 export const Channel = z.object({
-  id: z.string(),
-  name: z.string(),
+  id: BoundedId,
+  name: z.string().min(1).max(256),
   kind: z.enum(["channel", "dm"]),
   /** Participant member ids: both DM partners, or a public channel's roster (who gets woken / was pulled in). */
-  memberIds: z.array(z.string()).optional(),
+  memberIds: z.array(BoundedId).max(1024).optional(),
   /** Unread message count for the session member (CONTRACTS §5 read tracking). Server-computed. */
   unread: z.number().optional(),
   /** Whether any unread message mentions the session member. */
@@ -220,23 +224,37 @@ export type AgentRunSummary = z.infer<typeof AgentRunSummary>;
 
 // --- Client → server WS messages (§5) ---
 
-export const ClientWsMessage = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("message.send"),
-    channelId: z.string(),
-    text: z.string(),
-    threadRootId: z.string().optional(),
-    /** Member ids the sender confirmed to add to the channel (auto-join). */
-    addMemberIds: z.array(z.string()).optional(),
-    /** Image attachments uploaded via REST before send (CONTRACTS §5). */
-    attachments: z.array(AttachmentRef).optional(),
-  }),
-  z.object({
-    type: z.literal("typing.start"),
-    channelId: z.string(),
-    threadRootId: z.string().optional(),
-  }),
-]);
+export const ClientWsMessage = z
+  .discriminatedUnion("type", [
+    z.object({
+      type: z.literal("message.send"),
+      channelId: BoundedId,
+      text: z.string().max(WIRE_LIMITS.chatTextChars),
+      threadRootId: BoundedId.optional(),
+      /** Member ids the sender confirmed to add to the channel (auto-join). */
+      addMemberIds: z.array(BoundedId).max(WIRE_LIMITS.chatMentions).optional(),
+      /** Image attachments uploaded via REST before send (CONTRACTS §5). */
+      attachments: z.array(AttachmentRef).max(WIRE_LIMITS.chatAttachments).optional(),
+    }),
+    z.object({
+      type: z.literal("typing.start"),
+      channelId: BoundedId,
+      threadRootId: BoundedId.optional(),
+    }),
+  ])
+  .superRefine((message, ctx) => {
+    if (
+      message.type === "message.send" &&
+      message.text.length === 0 &&
+      (message.attachments?.length ?? 0) === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["text"],
+        message: "message.send requires text or an attachment",
+      });
+    }
+  });
 export type ClientWsMessage = z.infer<typeof ClientWsMessage>;
 
 // --- Server → client WS events (§5) ---

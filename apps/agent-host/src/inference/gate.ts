@@ -92,7 +92,14 @@ class InstanceGate {
       if (priority === "interactive" && this.currentPriority === "background") {
         this.currentAbort?.abort(new Error("background inference preempted by interactive work"));
       }
-      void this.dispatch();
+      void this.dispatch().catch((error) => {
+        this.running = false;
+        this.servingLane = null;
+        for (const entries of this.laneQueues.values()) {
+          for (const entry of entries) entry.reject(error);
+        }
+        this.laneQueues.clear();
+      });
     });
   }
 

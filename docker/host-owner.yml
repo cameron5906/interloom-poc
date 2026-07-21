@@ -30,7 +30,19 @@ services:
       inference:
         condition: service_started
       model-fetcher:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7420/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
   inference:
     image: ${DOCKER_ORG:-cameron59061}/interloom-inference:${TAG:-latest}
@@ -42,17 +54,52 @@ services:
     # health: image HEALTHCHECK (supervisor heartbeat) — a port-8080 probe would
     # report unhealthy in the legal zero-loaded-models state
 
+  # Existing installs predate the fetcher's non-root boundary and can have a
+  # root-owned model volume. This finite, networkless migration changes only the
+  # paths the fetcher must mutate; completed model payload files stay untouched.
+  model-volume-init:
+    image: ${DOCKER_ORG:-cameron59061}/interloom-model-fetcher:${TAG:-latest}
+    restart: "no"
+    user: "0:0"
+    read_only: true
+    network_mode: none
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    command: ["/usr/local/bin/interloom-model-volume-init"]
+    volumes:
+      - il_models:/models
+
   model-fetcher:
     image: ${DOCKER_ORG:-cameron59061}/interloom-model-fetcher:${TAG:-latest}
     restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       MODELS_DIR: /models
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - il_models:/models
+    depends_on:
+      model-volume-init:
+        condition: service_completed_successfully
     healthcheck:
       # python probe — the slim fetcher image ships no curl
-      test: ["CMD-SHELL", "python -c \"import urllib.request as u; u.urlopen('http://localhost:7423/health', timeout=3)\""]
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request as u; u.urlopen(''http://localhost:7423/readyz'', timeout=3)"',
+        ]
       interval: 10s
       timeout: 5s
       retries: 3

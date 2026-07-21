@@ -3,6 +3,7 @@ import { Placement } from "./registry.js";
 import { ModelRef, ModelCapabilities } from "./model.js";
 import { AgentGender, AvatarCharacter } from "./avatar.js";
 import { FrontierRuntimeConfig } from "./frontier.js";
+import { BoundedId } from "./limits.js";
 
 /** A detected GPU (CONTRACTS §6, `GET /api/system`). */
 export const GpuInfo = z.object({
@@ -87,7 +88,7 @@ export type HostAgent = z.infer<typeof HostAgent>;
 // --- Telemetry WS frame (§6) ---
 
 export const TelemetryGpu = z.object({
-  name: z.string(),
+  name: z.string().max(256),
   utilPct: z.number(),
   vramUsedMB: z.number(),
   vramTotalMB: z.number(),
@@ -96,8 +97,8 @@ export type TelemetryGpu = z.infer<typeof TelemetryGpu>;
 
 export const TelemetryRequestLogEntry = z.object({
   ts: z.number(),
-  source: z.string(),
-  agentName: z.string(),
+  source: z.string().max(256),
+  agentName: z.string().max(256),
   promptTokens: z.number(),
   completionTokens: z.number(),
   tokensPerSec: z.number(),
@@ -105,16 +106,16 @@ export const TelemetryRequestLogEntry = z.object({
 export type TelemetryRequestLogEntry = z.infer<typeof TelemetryRequestLogEntry>;
 
 export const TelemetryTunnel = z.object({
-  instanceName: z.string(),
-  instanceUrl: z.string(),
-  agentName: z.string(),
+  instanceName: z.string().max(256),
+  instanceUrl: z.string().max(2048),
+  agentName: z.string().max(256),
   status: z.enum(["connected", "connecting", "down"]),
 });
 export type TelemetryTunnel = z.infer<typeof TelemetryTunnel>;
 
 export const TelemetryAgent = z.object({
-  agentId: z.string(),
-  name: z.string(),
+  agentId: BoundedId,
+  name: z.string().max(256),
   /** "serving" while this agent's request is in flight; "idle" when active-model-attached; "offline" when its model isn't loaded. */
   status: z.enum(["idle", "serving", "offline"]),
   registered: z.boolean(),
@@ -125,11 +126,11 @@ export type TelemetryAgent = z.infer<typeof TelemetryAgent>;
 /** 1 Hz host telemetry frame (CONTRACTS §6). */
 export const TelemetryFrame = z.object({
   ts: z.number(),
-  gpus: z.array(TelemetryGpu),
+  gpus: z.array(TelemetryGpu).max(32),
   tokensPerSec: z.number(),
-  requestLog: z.array(TelemetryRequestLogEntry),
-  tunnels: z.array(TelemetryTunnel),
-  agents: z.array(TelemetryAgent),
+  requestLog: z.array(TelemetryRequestLogEntry).max(100),
+  tunnels: z.array(TelemetryTunnel).max(256),
+  agents: z.array(TelemetryAgent).max(256),
   inference: z
     .object({
       activeModel: ModelRef.nullable(),
@@ -145,6 +146,7 @@ export const TelemetryFrame = z.object({
             gpus: z.array(z.number()),
           }),
         )
+        .max(64)
         .optional(),
     })
     .optional(),

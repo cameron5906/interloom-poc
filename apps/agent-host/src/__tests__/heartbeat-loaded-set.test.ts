@@ -20,7 +20,11 @@ vi.mock("../keys.js", () => ({
 }));
 
 vi.mock("@interloom/keys", () => ({
-  signEnvelope: (payload: unknown, _priv: string, key: string) => ({ payload, key, sig: "mocksig" }),
+  signEnvelope: (payload: unknown, _priv: string, key: string) => ({
+    payload,
+    key,
+    sig: "mocksig",
+  }),
 }));
 
 let mockAgents: Array<{
@@ -43,10 +47,11 @@ vi.mock("../models/loaded.js", async (importOriginal) => {
 });
 
 const heartbeatCalls: string[] = [];
+let heartbeatImpl: (agentId: string) => Promise<unknown> = async () => ({ placements: [] });
 vi.mock("../network/client.js", () => ({
   networkHeartbeat: async (agentId: string) => {
     heartbeatCalls.push(agentId);
-    return { placements: [] };
+    return heartbeatImpl(agentId);
   },
 }));
 
@@ -56,6 +61,7 @@ describe("heartbeat loop — loaded-set filtering", () => {
     mockAgents = [];
     mockInstances = [];
     heartbeatCalls.length = 0;
+    heartbeatImpl = async () => ({ placements: [] });
   });
 
   afterEach(() => {
@@ -161,5 +167,46 @@ describe("heartbeat loop — loaded-set filtering", () => {
 
     expect(heartbeatCalls).toEqual(["a1"]);
     expect(heartbeatCalls).not.toContain("a2");
+  });
+
+  it("retains the last verified placements across a transient Network failure", async () => {
+    mockAgents = [{ agentId: "a1", registered: true, model: { filename: "qwen.gguf" } }];
+    mockInstances = [{ modelPath: "/models/qwen.gguf" }];
+    const placement = {
+      placementId: "placement-1",
+      instanceUrl: "https://instance.example",
+      instanceName: "Workspace",
+      revoked: false,
+      voucher: {
+        key: "network-key",
+        sig: "signature",
+        payload: {
+          v: 1 as const,
+          placementId: "placement-1",
+          agentId: "a1",
+          agentPubKey: "agent-key",
+          instanceUrl: "https://instance.example",
+          instanceName: "Workspace",
+          iat: Date.now(),
+          exp: Date.now() + 60_000,
+          nonce: "nonce",
+        },
+      },
+    };
+    heartbeatImpl = async () => ({ placements: [placement] });
+    const tunnelManager = { applyPlacements: vi.fn() };
+
+    const { startHeartbeatLoop, stopHeartbeatLoop, triggerHeartbeat } =
+      await import("../heartbeat.js");
+    startHeartbeatLoop(tunnelManager as never);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    heartbeatImpl = async () => {
+      throw new Error("temporary outage");
+    };
+    triggerHeartbeat();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    stopHeartbeatLoop();
+
+    expect(tunnelManager.applyPlacements).toHaveBeenLastCalledWith([placement], expect.any(Set));
   });
 });

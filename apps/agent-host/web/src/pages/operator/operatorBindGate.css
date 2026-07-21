@@ -79,6 +79,32 @@
   margin-bottom: 2px;
 }
 
+.il-opbind__codes {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  font-family: var(--il-font-mono);
+}
+
+.il-opbind__codes div {
+  display: grid;
+  gap: 2px;
+}
+
+.il-opbind__codes dt {
+  color: var(--il-text-muted);
+  font-family: var(--il-font-ui);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.il-opbind__codes dd {
+  margin: 0;
+  color: var(--il-text-primary);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
 .il-opbind__waiting--shell {
   justify-content: center;
 }

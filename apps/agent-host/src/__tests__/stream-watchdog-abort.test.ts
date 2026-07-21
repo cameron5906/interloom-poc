@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AddressInfo } from "net";
-import { generateKeypair, signEnvelope, verify } from "@interloom/keys";
+import { generateKeypair, signEnvelope, verifyEnvelope } from "@interloom/keys";
 import { parseTunnelFrame, makeEvt, makeRes, type TunnelFrame } from "@interloom/protocol";
 
 vi.mock("../config.js", () => ({
@@ -72,7 +72,11 @@ vi.mock("../inference/gate.js", () => ({
   drainLane: vi.fn(),
 }));
 
-function makePlacement(port: number, agentPubKey: string, networkKp: { privateKey: string; publicKey: string }) {
+function makePlacement(
+  port: number,
+  agentPubKey: string,
+  networkKp: { privateKey: string; publicKey: string },
+) {
   const voucherPayload = {
     v: 1 as const,
     placementId: "p1",
@@ -97,64 +101,101 @@ function makePlacement(port: number, agentPubKey: string, networkKp: { privateKe
 describe("inference.stream watchdog abort (WS stays open)", () => {
   it("sends a terminal E_INTERNAL err frame instead of silently dropping the request", async () => {
     let resolveFirstPull!: () => void;
-    const firstPull = new Promise<void>((res) => { resolveFirstPull = res; });
+    const firstPull = new Promise<void>((res) => {
+      resolveFirstPull = res;
+    });
 
-    vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, opts?: RequestInit) => {
-      let streamController!: ReadableStreamDefaultController<Uint8Array>;
-      const body = new ReadableStream<Uint8Array>({
-        start(ctrl) {
-          streamController = ctrl;
-          opts?.signal?.addEventListener("abort", () => {
-            try { streamController.error(new DOMException("The operation was aborted.", "AbortError")); } catch { /* already closed */ }
-          });
-        },
-        pull() {
-          if (!resolveFirstPull) return;
-          const notify = resolveFirstPull;
-          resolveFirstPull = null!;
-          const line = "data: " + JSON.stringify({ choices: [{ delta: { content: "hi" } }] }) + "\n\n";
-          streamController.enqueue(new TextEncoder().encode(line));
-          notify();
-          // Stall: no further chunks — the client's reader.read() blocks
-          // until the watchdog aborts the combined signal.
-        },
-        cancel() {
-          try { streamController.close(); } catch { /* already closed */ }
-        },
-      });
-      return Promise.resolve({ ok: true, status: 200, body });
-    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((_url: string, opts?: RequestInit) => {
+        let streamController!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({
+          start(ctrl) {
+            streamController = ctrl;
+            opts?.signal?.addEventListener("abort", () => {
+              try {
+                streamController.error(
+                  new DOMException("The operation was aborted.", "AbortError"),
+                );
+              } catch {
+                /* already closed */
+              }
+            });
+          },
+          pull() {
+            if (!resolveFirstPull) return;
+            const notify = resolveFirstPull;
+            resolveFirstPull = null!;
+            const line =
+              "data: " + JSON.stringify({ choices: [{ delta: { content: "hi" } }] }) + "\n\n";
+            streamController.enqueue(new TextEncoder().encode(line));
+            notify();
+            // Stall: no further chunks — the client's reader.read() blocks
+            // until the watchdog aborts the combined signal.
+          },
+          cancel() {
+            try {
+              streamController.close();
+            } catch {
+              /* already closed */
+            }
+          },
+        });
+        return Promise.resolve({ ok: true, status: 200, body });
+      }),
+    );
 
     const networkKp = generateKeypair();
     const agentKp = generateKeypair();
 
     const wss = new WebSocketServer({ port: 0 });
-    const port = await new Promise<number>((res) => wss.on("listening", () => res((wss.address() as AddressInfo).port)));
+    const port = await new Promise<number>((res) =>
+      wss.on("listening", () => res((wss.address() as AddressInfo).port)),
+    );
 
     const receivedFrames: TunnelFrame[] = [];
     let serverWs: WebSocket | undefined;
 
     wss.on("connection", (ws) => {
       serverWs = ws;
-      const nonce = crypto.randomUUID();
-      ws.send(JSON.stringify(makeEvt("auth.challenge", { nonce })));
+      const challenge = {
+        challengeId: crypto.randomUUID(),
+        nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
+        issuedAt: Date.now(),
+      };
+      ws.send(JSON.stringify(makeEvt("auth.challenge.v2", challenge)));
       ws.on("message", (data) => {
         const raw = typeof data === "string" ? data : data.toString();
         let frame: TunnelFrame;
-        try { frame = parseTunnelFrame(raw); } catch { return; }
+        try {
+          frame = parseTunnelFrame(raw);
+        } catch {
+          return;
+        }
         receivedFrames.push(frame);
 
-        if (frame.kind === "req" && frame.method === "auth.identify") {
-          const params = frame.params as { agentPubKey: string; sig: string };
-          if (verify(nonce, params.sig, params.agentPubKey)) {
-            ws.send(JSON.stringify(makeRes(frame.id, { ok: true })));
-            ws.send(JSON.stringify({
-              il: 1,
-              id: "stream-req-1",
-              kind: "req",
-              method: "inference.stream",
-              params: { messages: [{ role: "user", content: "hello" }] },
-            }));
+        if (frame.kind === "req" && frame.method === "auth.identify.v2") {
+          const params = frame.params as {
+            agentPubKey: string;
+            proof: { payload: { challengeId: string; nonce: string }; key: string; sig: string };
+            ctx?: number;
+          };
+          if (
+            verifyEnvelope(params.proof) &&
+            params.proof.key === params.agentPubKey &&
+            params.proof.payload.challengeId === challenge.challengeId &&
+            params.proof.payload.nonce === challenge.nonce
+          ) {
+            ws.send(JSON.stringify(makeRes(frame.id, { ok: true, ctx: params.ctx })));
+            ws.send(
+              JSON.stringify({
+                il: 1,
+                id: "stream-req-1",
+                kind: "req",
+                method: "inference.stream",
+                params: { messages: [{ role: "user", content: "hello" }] },
+              }),
+            );
           }
         }
       });
@@ -167,7 +208,9 @@ describe("inference.stream watchdog abort (WS stays open)", () => {
 
     await Promise.race([
       firstPull,
-      new Promise<void>((_, rej) => setTimeout(() => rej(new Error("stream read never started")), 5000)),
+      new Promise<void>((_, rej) =>
+        setTimeout(() => rej(new Error("stream read never started")), 5000),
+      ),
     ]);
 
     // Wait past the mocked 50ms watchdog fire, plus slack for the frame to arrive.

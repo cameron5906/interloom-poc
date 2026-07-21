@@ -1,7 +1,12 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { HostAgent, FrontierRuntimeConfig, type FrontierLinkIssuerAuth } from "@interloom/protocol";
+import {
+  HostAgent,
+  FrontierRuntimeConfig,
+  type AgentManifest,
+  type FrontierLinkIssuerAuth,
+} from "@interloom/protocol";
 import { bytesToB64url, signEnvelope } from "@interloom/keys";
 import { MODELS_DIR, NETWORK_URL } from "../config.js";
 import { addRequestLogEntry } from "../telemetry/collector.js";
@@ -23,13 +28,7 @@ import {
   deleteFrontierConfig,
   maskFrontierEntry,
 } from "./frontierKeys.js";
-import {
-  listAgents,
-  getAgent,
-  createAgent,
-  updateAgent,
-  deleteAgent,
-} from "./store.js";
+import { listAgents, getAgent, createAgent, updateAgent, deleteAgent } from "./store.js";
 
 const FrontierConfigBody = FrontierRuntimeConfig.extend({
   apiKey: z.string().optional(),
@@ -55,33 +54,41 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     return reply.status(201).send(agent);
   });
 
-  app.patch<{ Params: { id: string }; Body: unknown }>(
-    "/api/agents/:id",
-    async (req, reply) => {
-      const existing = getAgent(req.params.id);
-      if (!existing) return reply.status(404).send({ error: "not found" });
+  app.patch<{ Params: { id: string }; Body: unknown }>("/api/agents/:id", async (req, reply) => {
+    const existing = getAgent(req.params.id);
+    if (!existing) return reply.status(404).send({ error: "not found" });
 
-      const parsed = HostAgent.partial().omit({ agentId: true }).safeParse(req.body);
-      if (!parsed.success) {
-        return reply.status(400).send({ error: parsed.error.message });
+    const parsed = HostAgent.partial()
+      .omit({ agentId: true, registered: true, syncedAt: true })
+      .strict()
+      .safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
+
+    const patch = parsed.data;
+    if (existing.registered) {
+      const candidate = HostAgent.parse({ ...existing, ...patch });
+      let manifest: AgentManifest;
+      try {
+        manifest = await registerAgentOnNetwork(candidate);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(502).send({ error: `registration failed: ${message}` });
       }
-
-      const patch = parsed.data;
-      let updated = updateAgent(req.params.id, patch);
+      const updated = updateAgent(req.params.id, {
+        ...patch,
+        ...(candidate.runtime === "frontier" ? {} : { model: manifest.model }),
+        syncedAt: new Date().toISOString(),
+      });
       if (!updated) return reply.status(404).send({ error: "not found" });
-
-      if (existing.registered) {
-        try {
-          await registerAgentOnNetwork(updated);
-          updated = updateAgent(req.params.id, { syncedAt: new Date().toISOString() }) ?? updated;
-        } catch (err) {
-          app.log.warn({ err }, "auto re-register failed on patch");
-        }
-      }
-
       return reply.send(updated);
-    },
-  );
+    }
+
+    const updated = updateAgent(req.params.id, patch);
+    if (!updated) return reply.status(404).send({ error: "not found" });
+    return reply.send(updated);
+  });
 
   app.delete<{ Params: { id: string } }>("/api/agents/:id", async (req, reply) => {
     const deleted = deleteAgent(req.params.id);
@@ -107,7 +114,9 @@ export function registerAgentRoutes(app: FastifyInstance): void {
       const instance = findInstanceByFilename(agent.model.filename);
       if (!instance) {
         const localPath = agent.model.filename ? findLocalModelPath(agent.model.filename) : null;
-        return reply.status(409).send({ error: "model_not_active", model: agent.model, path: localPath });
+        return reply
+          .status(409)
+          .send({ error: "model_not_active", model: agent.model, path: localPath });
       }
 
       const { persona, temperature } = resolvePreviewOptions(req.body, agent);
@@ -326,61 +335,58 @@ export function registerAgentRoutes(app: FastifyInstance): void {
     return reply.send(maskFrontierEntry(getFrontierKeyEntry(agent.agentId)));
   });
 
-  app.post<{ Params: { id: string } }>(
-    "/api/agents/:id/frontier/link",
-    async (req, reply) => {
-      const agent = getAgent(req.params.id);
-      if (!agent) return reply.status(404).send({ error: "not found" });
-      if (agent.runtime !== "frontier") {
-        return reply.status(400).send({ error: "not_frontier_agent" });
-      }
+  app.post<{ Params: { id: string } }>("/api/agents/:id/frontier/link", async (req, reply) => {
+    const agent = getAgent(req.params.id);
+    if (!agent) return reply.status(404).send({ error: "not found" });
+    if (agent.runtime !== "frontier") {
+      return reply.status(400).send({ error: "not_frontier_agent" });
+    }
 
-      const keyEntry = getFrontierKeyEntry(agent.agentId);
-      if (!keyEntry) {
-        return reply.status(400).send({ error: "frontier_config_required" });
-      }
+    const keyEntry = getFrontierKeyEntry(agent.agentId);
+    if (!keyEntry) {
+      return reply.status(400).send({ error: "frontier_config_required" });
+    }
 
-      let session: { linkId: string };
-      try {
-        session = await networkCreateLinkSession("frontier-agent", agent.agentId);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return reply.status(502).send({ error: `link session create failed: ${message}` });
-      }
+    let session: { linkId: string };
+    try {
+      session = await networkCreateLinkSession("frontier-agent", agent.agentId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(502).send({ error: `link session create failed: ${message}` });
+    }
 
-      // The QR-fragment secret (CONTRACTS §4 Device link) — generated here
-      // since this route plays the issuer's session-setup role; never sent
-      // to the network, only ever appended to the share URL's fragment.
-      const secret = bytesToB64url(randomBytes(32));
-      const url = `${NETWORK_URL}/link/${session.linkId}#${secret}`;
-      const wsUrl = `${NETWORK_URL.replace(/^http/, "ws")}/ws/link/${session.linkId}`;
+    // The QR-fragment secret (CONTRACTS §4 Device link) — generated here
+    // since this route plays the issuer's session-setup role; never sent
+    // to the network, only ever appended to the share URL's fragment.
+    const secret = bytesToB64url(randomBytes(32));
+    const url = `${NETWORK_URL}/link/${session.linkId}#${secret}`;
+    const wsUrl = `${NETWORK_URL.replace(/^http/, "ws")}/ws/link/${session.linkId}`;
 
-      // Cleartext FrontierLinkPayload fields (localhost trust surface, same
-      // as today's device-link issuer) — the portal encrypts this into the
-      // AES-GCM blob once it holds the admitted scanner's ephemeral key.
-      const payload = {
-        agentId: agent.agentId,
-        agentName: agent.name,
-        agentPrivKey: keyEntry.agentPrivKey,
-        agentPubKey: keyEntry.agentPubKey,
-        networkUrl: NETWORK_URL,
-        provider: keyEntry.provider,
-        model: keyEntry.model,
-        ...(keyEntry.apiKey ? { apiKey: keyEntry.apiKey } : {}),
-      };
+    // Cleartext FrontierLinkPayload fields (localhost trust surface, same
+    // as today's device-link issuer) — the portal encrypts this into the
+    // AES-GCM blob once it holds the admitted scanner's ephemeral key.
+    const payload = {
+      agentId: agent.agentId,
+      agentName: agent.name,
+      agentPrivKey: keyEntry.agentPrivKey,
+      agentPubKey: keyEntry.agentPubKey,
+      networkUrl: NETWORK_URL,
+      provider: keyEntry.provider,
+      model: keyEntry.model,
+      ...(keyEntry.apiKey ? { apiKey: keyEntry.apiKey } : {}),
+    };
 
-      // The portal browser holds no network identity cookie (CONTRACTS
-      // §4/§14), so it joins `/ws/link/:linkId` as issuer with this envelope
-      // instead, signed under the same per-agent keypair as the payload above.
-      const issuerAuthPayload: FrontierLinkIssuerAuth = {
-        linkId: session.linkId,
-        role: "issuer",
-        nonce: bytesToB64url(randomBytes(24)),
-        iat: Date.now(),
-      };
-      const issuerAuth = signEnvelope(issuerAuthPayload, keyEntry.agentPrivKey, keyEntry.agentPubKey);
+    // The portal browser holds no network identity cookie (CONTRACTS
+    // §4/§14), so it joins `/ws/link/:linkId` as issuer with this envelope
+    // instead, signed under the same per-agent keypair as the payload above.
+    const issuerAuthPayload: FrontierLinkIssuerAuth = {
+      linkId: session.linkId,
+      role: "issuer",
+      nonce: bytesToB64url(randomBytes(24)),
+      iat: Date.now(),
+    };
+    const issuerAuth = signEnvelope(issuerAuthPayload, keyEntry.agentPrivKey, keyEntry.agentPubKey);
 
-      return reply.send({ linkId: session.linkId, secret, url, wsUrl, payload, issuerAuth });
-    },
-  );
+    return reply.send({ linkId: session.linkId, secret, url, wsUrl, payload, issuerAuth });
+  });
 }

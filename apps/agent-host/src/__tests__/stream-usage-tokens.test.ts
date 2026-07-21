@@ -11,7 +11,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AddressInfo } from "net";
-import { generateKeypair, signEnvelope, verify } from "@interloom/keys";
+import { generateKeypair, signEnvelope, verifyEnvelope } from "@interloom/keys";
 import { parseTunnelFrame, makeEvt, makeRes, type TunnelFrame } from "@interloom/protocol";
 
 vi.mock("../config.js", () => ({
@@ -63,7 +63,11 @@ vi.mock("../inference/gate.js", () => ({
   drainLane: vi.fn(),
 }));
 
-function makePlacement(port: number, agentPubKey: string, networkKp: { privateKey: string; publicKey: string }) {
+function makePlacement(
+  port: number,
+  agentPubKey: string,
+  networkKp: { privateKey: string; publicKey: string },
+) {
   const voucherPayload = {
     v: 1 as const,
     placementId: "p1",
@@ -93,7 +97,7 @@ function makeUsageBearingStream(): ReadableStream<Uint8Array> {
     "data: " + JSON.stringify({ choices: [{ delta: { content: "hi" } }] }) + "\n\n",
     "data: " +
       JSON.stringify({
-        choices: [],
+        choices: [{ delta: {}, finish_reason: "stop" }],
         usage: { prompt_tokens: 11, completion_tokens: 7 },
         timings: { predicted_per_second: 33 },
       }) +
@@ -106,6 +110,83 @@ function makeUsageBearingStream(): ReadableStream<Uint8Array> {
       ctrl.close();
     },
   });
+}
+
+function makeSseStream(payloads: unknown[]): ReadableStream<Uint8Array> {
+  const lines = [
+    ...payloads.map((payload) => `data: ${JSON.stringify(payload)}\n\n`),
+    "data: [DONE]\n\n",
+  ].join("");
+  return new ReadableStream<Uint8Array>({
+    start(ctrl) {
+      ctrl.enqueue(new TextEncoder().encode(lines));
+      ctrl.close();
+    },
+  });
+}
+
+async function runFinishReasonCase(body: ReadableStream<Uint8Array>): Promise<TunnelFrame> {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, body }));
+  const networkKp = generateKeypair();
+  const agentKp = generateKeypair();
+  const wss = new WebSocketServer({ port: 0 });
+  const port = await new Promise<number>((resolve) =>
+    wss.on("listening", () => resolve((wss.address() as AddressInfo).port)),
+  );
+  const terminal = new Promise<TunnelFrame>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("terminal frame never arrived")), 5000);
+    wss.on("connection", (ws) => {
+      const challenge = {
+        challengeId: crypto.randomUUID(),
+        nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
+        issuedAt: Date.now(),
+      };
+      ws.send(JSON.stringify(makeEvt("auth.challenge.v2", challenge)));
+      ws.on("message", (data) => {
+        const frame = parseTunnelFrame(data.toString());
+        if (frame.kind === "req" && frame.method === "auth.identify.v2") {
+          const params = frame.params as {
+            agentPubKey: string;
+            proof: { payload: { challengeId: string; nonce: string }; key: string; sig: string };
+            ctx?: number;
+          };
+          if (
+            verifyEnvelope(params.proof) &&
+            params.proof.key === params.agentPubKey &&
+            params.proof.payload.challengeId === challenge.challengeId &&
+            params.proof.payload.nonce === challenge.nonce
+          ) {
+            ws.send(JSON.stringify(makeRes(frame.id, { ok: true, ctx: params.ctx })));
+            ws.send(
+              JSON.stringify({
+                il: 1,
+                id: "finish-reason-stream",
+                kind: "req",
+                method: "inference.stream",
+                params: { messages: [{ role: "user", content: "hello" }] },
+              }),
+            );
+          }
+          return;
+        }
+        if (frame.id === "finish-reason-stream" && (frame.kind === "res" || frame.kind === "err")) {
+          clearTimeout(timer);
+          resolve(frame);
+        }
+      });
+    });
+  });
+
+  const { TunnelClient } = await import("../tunnel/client.js");
+  const placement = makePlacement(port, agentKp.publicKey, networkKp);
+  const client = new TunnelClient(placement, "TestAgent", agentKp.privateKey, agentKp.publicKey);
+  client.start();
+  try {
+    return await terminal;
+  } finally {
+    client.destroy();
+    await new Promise<void>((resolve) => wss.close(() => resolve()));
+  }
 }
 
 describe("tunnel client inference.stream — usage token propagation", () => {
@@ -125,15 +206,21 @@ describe("tunnel client inference.stream — usage token propagation", () => {
     const agentKp = generateKeypair();
 
     const wss = new WebSocketServer({ port: 0 });
-    const port = await new Promise<number>((res) => wss.on("listening", () => res((wss.address() as AddressInfo).port)));
+    const port = await new Promise<number>((res) =>
+      wss.on("listening", () => res((wss.address() as AddressInfo).port)),
+    );
 
     const receivedFrames: TunnelFrame[] = [];
     let serverWs: WebSocket | undefined;
 
     wss.on("connection", (ws) => {
       serverWs = ws;
-      const nonce = crypto.randomUUID();
-      ws.send(JSON.stringify(makeEvt("auth.challenge", { nonce })));
+      const challenge = {
+        challengeId: crypto.randomUUID(),
+        nonce: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
+        issuedAt: Date.now(),
+      };
+      ws.send(JSON.stringify(makeEvt("auth.challenge.v2", challenge)));
       ws.on("message", (data) => {
         const raw = typeof data === "string" ? data : data.toString();
         let frame: TunnelFrame;
@@ -144,10 +231,19 @@ describe("tunnel client inference.stream — usage token propagation", () => {
         }
         receivedFrames.push(frame);
 
-        if (frame.kind === "req" && frame.method === "auth.identify") {
-          const params = frame.params as { agentPubKey: string; sig: string };
-          if (verify(nonce, params.sig, params.agentPubKey)) {
-            ws.send(JSON.stringify(makeRes(frame.id, { ok: true })));
+        if (frame.kind === "req" && frame.method === "auth.identify.v2") {
+          const params = frame.params as {
+            agentPubKey: string;
+            proof: { payload: { challengeId: string; nonce: string }; key: string; sig: string };
+            ctx?: number;
+          };
+          if (
+            verifyEnvelope(params.proof) &&
+            params.proof.key === params.agentPubKey &&
+            params.proof.payload.challengeId === challenge.challengeId &&
+            params.proof.payload.nonce === challenge.nonce
+          ) {
+            ws.send(JSON.stringify(makeRes(frame.id, { ok: true, ctx: params.ctx })));
             ws.send(
               JSON.stringify({
                 il: 1,
@@ -170,9 +266,8 @@ describe("tunnel client inference.stream — usage token propagation", () => {
     const resFrame = await new Promise<Extract<TunnelFrame, { kind: "res" }>>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("terminal res frame never arrived")), 5000);
       const check = setInterval(() => {
-        const found = receivedFrames.find(
-          (f) => f.kind === "res" && f.id === "stream-req-1",
-        ) as Extract<TunnelFrame, { kind: "res" }> | undefined;
+        const found = receivedFrames.find((f) => f.kind === "res" && f.id === "stream-req-1") as
+          Extract<TunnelFrame, { kind: "res" }> | undefined;
         if (found) {
           clearInterval(check);
           clearTimeout(timer);
@@ -181,21 +276,54 @@ describe("tunnel client inference.stream — usage token propagation", () => {
       }, 20);
     });
 
-    const result = resFrame.result as { usage?: { promptTokens: number; completionTokens: number; tokensPerSec: number } };
+    const result = resFrame.result as {
+      usage?: { promptTokens: number; completionTokens: number; tokensPerSec: number };
+    };
     expect(result.usage?.promptTokens).toBe(11);
     expect(result.usage?.completionTokens).toBe(7);
     expect(result.usage?.tokensPerSec).toBe(33);
 
     const streamCall = fetchCalls.find(
-      (c) => c.body !== undefined && typeof c.body === "object" && c.body !== null && "stream" in (c.body as Record<string, unknown>),
+      (c) =>
+        c.body !== undefined &&
+        typeof c.body === "object" &&
+        c.body !== null &&
+        "stream" in (c.body as Record<string, unknown>),
     );
     expect(streamCall).toBeDefined();
-    const sentBody = streamCall?.body as { stream?: boolean; stream_options?: { include_usage?: boolean } };
+    const sentBody = streamCall?.body as {
+      stream?: boolean;
+      stream_options?: { include_usage?: boolean };
+    };
     expect(sentBody.stream).toBe(true);
     expect(sentBody.stream_options).toEqual({ include_usage: true });
 
     client.destroy();
     await new Promise<void>((res) => wss.close(() => res()));
     void serverWs;
+  });
+
+  it.each([
+    [
+      "missing",
+      makeSseStream([
+        { choices: [{ delta: { content: "hi" } }] },
+        { choices: [{ delta: {} }], usage: { prompt_tokens: 1, completion_tokens: 1 } },
+      ]),
+      "inference stream omitted finish_reason",
+    ],
+    [
+      "unsupported",
+      makeSseStream([
+        { choices: [{ delta: { content: "hi" } }] },
+        { choices: [{ delta: {}, finish_reason: "content_filter" }] },
+      ]),
+      "inference stream returned an unsupported finish_reason",
+    ],
+  ])("fails closed on a %s streamed finish reason", async (_case, stream, message) => {
+    const frame = await runFinishReasonCase(stream);
+    expect(frame.kind).toBe("err");
+    if (frame.kind !== "err") throw new Error("expected err");
+    expect(frame.error).toMatchObject({ code: "E_INTERNAL", message });
   });
 });

@@ -57,6 +57,11 @@ function "tags" {
   result = DIGEST_PUSH == "1" ? [] : (VERSION == "dev" ? ["${DOCKER_ORG}/${image}:${TAG}"] : ["${DOCKER_ORG}/${image}:${TAG}", "${DOCKER_ORG}/${image}:${VERSION}"])
 }
 
+function "cuda_tags" {
+  params = []
+  result = DIGEST_PUSH == "1" ? [] : (VERSION == "dev" ? ["${DOCKER_ORG}/interloom-inference:${TAG}-cuda"] : ["${DOCKER_ORG}/interloom-inference:${TAG}-cuda", "${DOCKER_ORG}/interloom-inference:${VERSION}-cuda"])
+}
+
 # Digest-push output overrides the default tag-based exporter: no name-canonical
 # tag races between the two arch jobs writing the same ":latest" concurrently —
 # each pushes an untagged, digest-addressed image and the merge job tags once.
@@ -87,6 +92,7 @@ function "cache_to" {
 }
 
 target "_common" {
+  attest = ["type=provenance,mode=max", "type=sbom"]
   labels = {
     "org.opencontainers.image.version"  = VERSION
     "org.opencontainers.image.revision" = GIT_SHA
@@ -127,16 +133,17 @@ target "inference" {
   cache-to   = cache_to("interloom-inference")
 }
 
-# inference-cuda is excluded from the default group intentionally — it requires a CUDA-capable
-# builder and is amd64-only, so it is pushed manually and floats on latest-cuda
-# (the GPU compose override pins CUDA_TAG, not TAG). Push it separately:
-#   docker buildx bake -f docker/docker-bake.hcl inference-cuda --push
+# inference-cuda is amd64-only and therefore built by the amd64 release lane
+# separately from the multi-arch default group. It needs no GPU at build time.
 target "inference-cuda" {
   inherits   = ["_common"]
   context    = "docker/inference"
   dockerfile = "Dockerfile.cuda"
   platforms  = ["linux/amd64"]
-  tags       = ["${DOCKER_ORG}/interloom-inference:${TAG}-cuda"]
+  tags       = cuda_tags()
+  output     = output("interloom-inference")
+  cache-from = ["type=registry,ref=${DOCKER_ORG}/interloom-inference:buildcache-cuda-amd64"]
+  cache-to   = PUSH_CACHE != "1" ? [] : ["type=registry,ref=${DOCKER_ORG}/interloom-inference:buildcache-cuda-amd64,mode=max,image-manifest=true,oci-mediatypes=true"]
 }
 
 target "model-fetcher" {

@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Avatar, Button, CapabilityBadges, Flipper, Input, Modal, StatusPill, TextArea } from "@interloom/ui";
+import {
+  Avatar,
+  Button,
+  CapabilityBadges,
+  Flipper,
+  Input,
+  Modal,
+  StatusPill,
+  TextArea,
+} from "@interloom/ui";
 import type {
   AgentGender,
   FrontierProvider,
@@ -8,7 +17,12 @@ import type {
   LocalModel,
   PlacementStatus,
 } from "@interloom/protocol";
-import type { AgentDraft, CatalogModel, FrontierConfigBody, MaskedFrontierConfig } from "../../api/types.js";
+import type {
+  AgentDraft,
+  CatalogModel,
+  FrontierConfigBody,
+  MaskedFrontierConfig,
+} from "../../api/types.js";
 import { EMPTY_AGENT_DRAFT } from "../../api/types.js";
 import { FrontierLinkModal } from "./FrontierLinkModal.js";
 import {
@@ -53,7 +67,10 @@ interface AgentEditorProps {
    * is open, which provider is picked), not something the generic draft
    * save/publish calls should ever persist (that stays the dedicated
    * frontier-config endpoint's job, never the plain agent PATCH/POST). */
-  onRuntimeChange: (info: { runtime: "hosted" | "frontier"; frontierProvider: FrontierProvider }) => void;
+  onRuntimeChange: (info: {
+    runtime: "hosted" | "frontier";
+    frontierProvider: FrontierProvider;
+  }) => void;
 }
 
 type SyncState = "idle" | "saving" | "syncing" | "synced";
@@ -199,9 +216,12 @@ export function AgentEditor({
         avatar: { ...d.avatar, character: rerolled, bg: `#${rerolled.backgroundColor}` },
       }));
     }
-  }, [draft.name]);
+  }, [draft.name, draft.avatar.character, characterOverridden]);
 
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(toDraft(agent)), [draft, agent]);
+  const dirty = useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(toDraft(agent)),
+    [draft, agent],
+  );
   const registered = agent?.registered ?? false;
   const canSave = draft.name.trim().length > 0;
   const hasModel = !!draft.model;
@@ -221,7 +241,10 @@ export function AgentEditor({
     }
     const rolled = rollCharacter(draft.name.trim() || character?.seed || "agent", gender);
     setCharacterOverridden(false);
-    patch({ gender, avatar: { ...draft.avatar, character: rolled, bg: `#${rolled.backgroundColor}` } });
+    patch({
+      gender,
+      avatar: { ...draft.avatar, character: rolled, bg: `#${rolled.backgroundColor}` },
+    });
   };
 
   // Legacy agents saved before characters existed have none — give them one
@@ -279,7 +302,9 @@ export function AgentEditor({
     } catch (err) {
       setSyncState("idle");
       toasts.error(
-        err instanceof ApiError && err.isOffline ? "Daemon unreachable — save failed." : "Save failed.",
+        err instanceof ApiError && err.isOffline
+          ? "Daemon unreachable — save failed."
+          : "Save failed.",
       );
     }
   };
@@ -430,13 +455,20 @@ export function AgentEditor({
           />
         </Field>
 
-        <Field label="Character" hint="The name seeds the look — customize any piece, or shuffle within the pack.">
+        <Field
+          label="Character"
+          hint="The name seeds the look — customize any piece, or shuffle within the pack."
+        >
           <div className="il-avatar-field">
             <Avatar
               name={draft.name || "Agent"}
               isAgent
               emoji={draft.avatar.emoji}
-              bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+              bg={
+                draft.avatar.character
+                  ? `#${draft.avatar.character.backgroundColor}`
+                  : draft.avatar.bg
+              }
               imageUrl={draftAvatarImageUrl(draft.avatar)}
               size="lg"
               badge={runtimeTab === "frontier" ? "frontier" : undefined}
@@ -486,7 +518,10 @@ export function AgentEditor({
           />
         </Field>
 
-        <Field label="Runtime" hint="Offline runs a model on this machine. Frontier pulls work into a CLI agent (Claude Code, Codex) running on your own machine.">
+        <Field
+          label="Runtime"
+          hint="Offline runs a model on this machine. Frontier pulls work into a CLI agent (Claude Code, Codex) running on your own machine."
+        >
           <Flipper
             aria-label="Agent runtime"
             value={runtimeTab}
@@ -517,9 +552,7 @@ export function AgentEditor({
               loading={localModelsLoading}
               onChange={(m) =>
                 patch({
-                  model: m
-                    ? buildModelRef(m, catalogModels)
-                    : undefined,
+                  model: m ? buildModelRef(m, catalogModels) : undefined,
                 })
               }
             />
@@ -598,7 +631,11 @@ export function AgentEditor({
         <div className="il-editor__actions">
           <div className="il-editor__actions-left">
             {registered ? (
-              <Button variant="primary" onClick={save} disabled={!dirty || !canSave || syncState === "saving"}>
+              <Button
+                variant="primary"
+                onClick={save}
+                disabled={!dirty || !canSave || syncState === "saving"}
+              >
                 {syncState === "saving" || syncState === "syncing" ? "Saving…" : "Save & sync"}
               </Button>
             ) : (
@@ -632,7 +669,12 @@ export function AgentEditor({
             )}
           </div>
           {agent ? (
-            <Button variant="secondary" onClick={remove} disabled={deleting} className="il-editor__delete">
+            <Button
+              variant="secondary"
+              onClick={remove}
+              disabled={deleting}
+              className="il-editor__delete"
+            >
               {deleting ? "Deleting…" : "Delete"}
             </Button>
           ) : null}
@@ -786,7 +828,9 @@ function FrontierConfigFields({
         </div>
 
         {!ready ? (
-          <div className="il-field__note">Not linked yet — save the configuration to enable linking.</div>
+          <div className="il-field__note">
+            Not linked yet — save the configuration to enable linking.
+          </div>
         ) : null}
       </div>
     </Field>
@@ -915,7 +959,12 @@ function ModelStatusLine({
         ) : localEntry ? (
           <>
             <StatusPill tone="neutral">Not loaded</StatusPill>
-            <Button size="sm" variant="secondary" onClick={() => void quickLoad()} disabled={loading}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void quickLoad()}
+              disabled={loading}
+            >
               {loading ? "Loading…" : "Load model"}
             </Button>
           </>
@@ -948,7 +997,9 @@ function ContextBudgetField({
   patch: (p: Partial<AgentDraft>) => void;
 }) {
   const loadedEntry =
-    agentModelFilename != null ? loadedModels.find((m) => m.filename === agentModelFilename) : undefined;
+    agentModelFilename != null
+      ? loadedModels.find((m) => m.filename === agentModelFilename)
+      : undefined;
   const agentModelIsActive = !!loadedEntry;
   const loadedCtx = loadedEntry?.ctx ?? null;
 
@@ -960,9 +1011,10 @@ function ContextBudgetField({
     ? `Prompt budget (within the model's ${ctxLabel} window)`
     : "Prompt budget (within the model's context window)";
 
-  const cappedValue = loadedCtx != null
-    ? Math.min(draft.params.contextLength, loadedCtx)
-    : draft.params.contextLength;
+  const cappedValue =
+    loadedCtx != null
+      ? Math.min(draft.params.contextLength, loadedCtx)
+      : draft.params.contextLength;
 
   return (
     <Field label={fieldLabel}>

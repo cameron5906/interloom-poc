@@ -46,11 +46,8 @@ export async function networkAgentExists(agentId: string): Promise<boolean> {
   return true;
 }
 
-export async function networkHeartbeat(
-  agentId: string,
-  envelope: unknown,
-): Promise<unknown> {
-  const res = await fetch(`${NETWORK_URL}/api/agents/${agentId}/heartbeat`, {
+export async function networkHeartbeat(agentId: string, envelope: unknown): Promise<unknown> {
+  const res = await fetch(`${NETWORK_URL}/api/agents/${encodeURIComponent(agentId)}/heartbeat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(envelope),
@@ -114,7 +111,11 @@ export async function networkCreateLinkSession(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new NetworkApiError(`link session create failed: ${res.status} ${text}`, res.status, text);
+    throw new NetworkApiError(
+      `link session create failed: ${res.status} ${text}`,
+      res.status,
+      text,
+    );
   }
   return res.json() as Promise<{ linkId: string; expiresAt: number; kind?: string }>;
 }
@@ -127,7 +128,9 @@ export async function networkGetWellKnown(): Promise<{ name: string; pubKey: str
   return res.json() as Promise<{ name: string; pubKey: string }>;
 }
 
-export async function networkUploadAvatar(envelope: unknown): Promise<{ sha: string; url: string }> {
+export async function networkUploadAvatar(
+  envelope: unknown,
+): Promise<{ sha: string; url: string }> {
   const res = await fetch(`${NETWORK_URL}/api/assets/avatar`, {
     method: "POST",
     headers: { "content-type": "application/json" },

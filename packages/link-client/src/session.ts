@@ -8,7 +8,12 @@ import type {
   WsConstructorLike,
 } from "./adapters.js";
 import { WS_OPEN } from "./adapters.js";
-import { deriveLinkKeyV2, encryptLinkPayload, decryptLinkPayload, generateEcdhKeyPair } from "./crypto.js";
+import {
+  deriveLinkKeyV2,
+  encryptLinkPayload,
+  decryptLinkPayload,
+  generateEcdhKeyPair,
+} from "./crypto.js";
 
 /** Single const so an env override can wire a TURN-augmented list later (CONTRACTS §4). */
 export const DEFAULT_STUN_URLS = ["stun:stun.l.google.com:19302"];
@@ -116,11 +121,11 @@ export class LinkSession<T> {
     this.ws = ws;
 
     ws.addEventListener("open", () => {
-      void this.handleOpen();
+      void this.handleOpen().catch((error) => this.fail(this.errorMessage(error)));
     });
 
     ws.addEventListener("message", (event) => {
-      void this.onFrame(String(event.data));
+      void this.onFrame(String(event.data)).catch((error) => this.fail(this.errorMessage(error)));
     });
 
     ws.addEventListener("error", () => {
@@ -147,7 +152,7 @@ export class LinkSession<T> {
     if (this.opts.role !== "issuer") return;
     if (this.admittedCandidateId) return;
     if (!this.candidates.has(candidateId)) return;
-    void this.approveInternal(candidateId);
+    void this.approveInternal(candidateId).catch((error) => this.fail(this.errorMessage(error)));
   }
 
   /** Issuer only — bans a candidate from this pairing session and drops it from the queue. */
@@ -184,6 +189,10 @@ export class LinkSession<T> {
 
   private emitCandidates(): void {
     this.callbacks.onCandidates?.(Array.from(this.candidates.values()));
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : "link_session_error";
   }
 
   private send(frame: LinkSignalFrame): void {
@@ -232,10 +241,18 @@ export class LinkSession<T> {
         clearTimeout(this.fallbackTimer);
         this.fallbackTimer = null;
       }
-      if (this.opts.role === "issuer") void this.sendPayloadOverChannel(channel);
+      if (this.opts.role === "issuer") {
+        void this.sendPayloadOverChannel(channel).catch((error) =>
+          this.fail(this.errorMessage(error)),
+        );
+      }
     });
     channel.addEventListener("message", (e) => {
-      if (this.opts.role === "scanner") void this.onCiphertext(String(e.data));
+      if (this.opts.role === "scanner") {
+        void this.onCiphertext(String(e.data)).catch((error) =>
+          this.fail(this.errorMessage(error)),
+        );
+      }
     });
   }
 
@@ -317,7 +334,11 @@ export class LinkSession<T> {
     switch (frame.t) {
       case "candidate": {
         if (this.opts.role !== "issuer") break;
-        this.candidates.set(frame.candidateId, { candidateId: frame.candidateId, fp: frame.fp, ip: frame.ip });
+        this.candidates.set(frame.candidateId, {
+          candidateId: frame.candidateId,
+          fp: frame.fp,
+          ip: frame.ip,
+        });
         this.emitCandidates();
         if (!this.admittedCandidateId) this.callbacks.onStage("review");
         break;
@@ -382,7 +403,9 @@ export class LinkSession<T> {
         break;
       }
       case "blob": {
-        await this.onCiphertext(JSON.stringify({ ciphertextB64: frame.ciphertextB64, ivB64: frame.ivB64, v: frame.v }));
+        await this.onCiphertext(
+          JSON.stringify({ ciphertextB64: frame.ciphertextB64, ivB64: frame.ivB64, v: frame.v }),
+        );
         break;
       }
       case "done": {
@@ -409,7 +432,7 @@ export class LinkSession<T> {
     const channel = pc.createDataChannel("il-device-link");
     this.wireChannel(channel);
     this.fallbackTimer = setTimeout(() => {
-      void this.sendFallbackBlob();
+      void this.sendFallbackBlob().catch((error) => this.fail(this.errorMessage(error)));
     }, DATACHANNEL_FALLBACK_MS);
 
     const offer = await pc.createOffer();

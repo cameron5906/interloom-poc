@@ -17,9 +17,9 @@ export type AgentAvatar = z.infer<typeof AgentAvatar>;
  * The operator behind a published agent (CONTRACTS §4/§6). The host key
  * remains the machine key; `grant` (present when the operator identity is
  * bound via a host-operator grant) lets `operator.pubKey` be the NETWORK
- * identity rather than the host key — the network verifies the grant chain
- * (`verifyGrant`, §2) instead of `operator.pubKey === envelope.key` when it is
- * present. Absent `grant` keeps the old rule for backward compat.
+ * identity rather than the host key. `grant` stays schema-optional for
+ * additive wire parsing, but the post-cutover Network rejects registration
+ * without it and always verifies the grant chain (`verifyGrant`, §2).
  */
 export const AgentOperator = z.object({
   pubKey: z.string(),

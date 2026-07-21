@@ -1,6 +1,12 @@
 import { useMemo, useState } from "react";
 import { Badge, Button, Card, EmptyState } from "@interloom/ui";
-import type { GpuBudget, HostAgent, LoadedModel, LocalModel, ModelSettings } from "@interloom/protocol";
+import type {
+  GpuBudget,
+  HostAgent,
+  LoadedModel,
+  LocalModel,
+  ModelSettings,
+} from "@interloom/protocol";
 import { agents as agentsApi, models as modelsApi } from "../../../api/endpoints.js";
 import { usePoll } from "../../../hooks/usePoll.js";
 import { useAsync } from "../../../hooks/useAsync.js";
@@ -17,6 +23,10 @@ import { modelColor } from "./colors.js";
 import { segmentsForGpu } from "./segments.js";
 import "./planner.css";
 
+const EMPTY_GPUS: GpuBudget[] = [];
+const EMPTY_LOADED_MODELS: LoadedModel[] = [];
+const EMPTY_LOCAL_MODELS: LocalModel[] = [];
+
 export function GpuAllocationPlanner() {
   const toasts = useToasts();
   const allocationPoll = usePoll((s) => modelsApi.allocation(s), 2000, true);
@@ -29,9 +39,9 @@ export function GpuAllocationPlanner() {
   const [unloading, setUnloading] = useState(false);
 
   const allocation = allocationPoll.data;
-  const gpus: GpuBudget[] = allocation?.gpus ?? [];
-  const loaded: LoadedModel[] = allocation?.loaded ?? [];
-  const localModels: LocalModel[] = localModelsAsync.data ?? [];
+  const gpus: GpuBudget[] = allocation?.gpus ?? EMPTY_GPUS;
+  const loaded: LoadedModel[] = allocation?.loaded ?? EMPTY_LOADED_MODELS;
+  const localModels: LocalModel[] = localModelsAsync.data ?? EMPTY_LOCAL_MODELS;
   const allAgents: HostAgent[] = agentsAsync.data ?? [];
   const settingsList: ModelSettings[] = settingsAsync.data ?? [];
 
@@ -44,8 +54,9 @@ export function GpuAllocationPlanner() {
   const gpusSorted = useMemo(() => [...gpus].sort((a, b) => a.index - b.index), [gpus]);
 
   const bridgeFor = (gpuA: GpuBudget, gpuB: GpuBudget): LoadedModel | null =>
-    loaded.find((m) => m.gpus.length > 1 && m.gpus.includes(gpuA.index) && m.gpus.includes(gpuB.index)) ??
-    null;
+    loaded.find(
+      (m) => m.gpus.length > 1 && m.gpus.includes(gpuA.index) && m.gpus.includes(gpuB.index),
+    ) ?? null;
 
   const refreshAll = () => {
     allocationPoll.refresh();
@@ -70,7 +81,9 @@ export function GpuAllocationPlanner() {
         refreshAll();
       } else {
         toasts.error(
-          err instanceof ApiError && err.isOffline ? "Daemon unreachable — can't unload." : "Unload failed.",
+          err instanceof ApiError && err.isOffline
+            ? "Daemon unreachable — can't unload."
+            : "Unload failed.",
         );
       }
     } finally {
@@ -171,7 +184,8 @@ export function GpuAllocationPlanner() {
                         {fmtCtx(m.ctx)} ctx · port {m.port} · GPU{m.gpus.length > 1 ? "s" : ""}{" "}
                         {m.gpus.join(" + ")}
                         {" · "}
-                        {agentsOnModel.length} agent{agentsOnModel.length === 1 ? "" : "s"} on this model
+                        {agentsOnModel.length} agent{agentsOnModel.length === 1 ? "" : "s"} on this
+                        model
                       </div>
                       {thinkingCapable ? (
                         <ModelSettingsToggle

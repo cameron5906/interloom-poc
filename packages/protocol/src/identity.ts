@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { signedEnvelope } from "./envelope.js";
+import { BoundedId, WIRE_LIMITS, utf8ByteLength } from "./limits.js";
 
 /**
  * Identity grant — an identity key delegates bounded authority to a subject
@@ -84,7 +85,7 @@ export type ResolvedIdentity = z.infer<typeof ResolvedIdentity>;
  * frontier-agent link from an ordinary device link (CONTRACTS §14); absent ⇒ device.
  */
 export const LinkSession = z.object({
-  linkId: z.string(),
+  linkId: BoundedId,
   expiresAt: z.number(),
   kind: z.enum(["device", "frontier-agent"]).optional(),
 });
@@ -157,30 +158,48 @@ export const LinkSignalFrame = z.discriminatedUnion("t", [
     auth: signedEnvelope(FrontierLinkIssuerAuth).optional(),
   }),
   z.object({ t: z.literal("peer"), present: z.boolean() }),
-  z.object({ t: z.literal("hello"), candidateId: z.string(), fp: LinkCandidateFingerprint }),
+  z.object({ t: z.literal("hello"), candidateId: BoundedId, fp: LinkCandidateFingerprint }),
   z.object({
     t: z.literal("candidate"),
-    candidateId: z.string(),
+    candidateId: BoundedId,
     fp: LinkCandidateFingerprint,
     ip: z.string().optional(),
   }),
-  z.object({ t: z.literal("approve"), candidateId: z.string(), issuerEphPk: z.string() }),
+  z.object({
+    t: z.literal("approve"),
+    candidateId: BoundedId,
+    issuerEphPk: z.string().max(256),
+  }),
   z.object({
     t: z.literal("approved"),
-    issuerEphPk: z.string(),
-    issuerName: z.string().optional(),
+    issuerEphPk: z.string().max(256),
+    issuerName: z.string().max(256).optional(),
   }),
-  z.object({ t: z.literal("reject"), candidateId: z.string() }),
+  z.object({ t: z.literal("reject"), candidateId: BoundedId }),
   z.object({ t: z.literal("rejected") }),
   z.object({ t: z.literal("confirm") }),
-  z.object({ t: z.literal("candidate_gone"), candidateId: z.string() }),
-  z.object({ t: z.literal("offer"), sdp: z.string() }),
-  z.object({ t: z.literal("answer"), sdp: z.string() }),
-  z.object({ t: z.literal("ice"), candidate: z.unknown() }),
+  z.object({ t: z.literal("candidate_gone"), candidateId: BoundedId }),
+  z.object({ t: z.literal("offer"), sdp: z.string().max(WIRE_LIMITS.linkSdpChars) }),
+  z.object({ t: z.literal("answer"), sdp: z.string().max(WIRE_LIMITS.linkSdpChars) }),
+  z.object({
+    t: z.literal("ice"),
+    candidate: z.unknown().superRefine((value, ctx) => {
+      try {
+        if (utf8ByteLength(JSON.stringify(value)) > WIRE_LIMITS.linkIceChars) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "ICE candidate exceeds maximum size",
+          });
+        }
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "ICE candidate is not serializable" });
+      }
+    }),
+  }),
   z.object({
     t: z.literal("blob"),
-    ciphertextB64: z.string(),
-    ivB64: z.string(),
+    ciphertextB64: z.string().max(WIRE_LIMITS.linkBlobChars),
+    ivB64: z.string().max(64),
     v: z.literal(2).optional(),
   }),
   z.object({ t: z.literal("done") }),

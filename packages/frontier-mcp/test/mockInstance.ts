@@ -1,14 +1,24 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { WebSocket, WebSocketServer } from "ws";
-import { signEnvelope, verify, verifyEnvelope, type Keypair, type SignedEnvelope } from "@interloom/keys";
 import {
+  bytesToB64url,
+  canonicalSha256,
+  signEnvelope,
+  verifyEnvelope,
+  type Keypair,
+  type SignedEnvelope,
+} from "@interloom/keys";
+import {
+  canonicalOrigin,
+  HostTunnelProofV2Payload,
   makeErr,
   makeEvt,
   makeRes,
   parseTunnelFrame,
   type InviteVoucher,
   type Placement,
+  type TunnelAuthChallengeV2,
   type TunnelFrame,
 } from "@interloom/protocol";
 
@@ -26,7 +36,7 @@ interface AuthIdentifyMockParams {
   agentId: string;
   agentPubKey: string;
   voucher: SignedEnvelope<InviteVoucher>;
-  sig: string;
+  proof: SignedEnvelope<HostTunnelProofV2Payload>;
   features?: string[];
 }
 
@@ -45,31 +55,46 @@ function normalizeUrl(url: string): string {
  */
 function verifyMockIdentify(
   params: AuthIdentifyMockParams,
-  nonce: string,
+  challenge: TunnelAuthChallengeV2,
   networkPubKey: string,
   instanceUrl: string,
 ): { ok: true } | { ok: false; reason: string } {
-  const fail = (reason: string) => ({ ok: false as const, reason });
+  // Match the real Instance's non-oracular failure surface: callers can learn
+  // only that authentication failed, not which credential check was closest.
+  const fail = () => ({ ok: false as const, reason: "authentication failed" });
 
   const { voucher } = params;
   if (voucher.key !== networkPubKey || !verifyEnvelope(voucher)) {
-    return fail("invalid voucher signature");
+    return fail();
   }
 
   const payload = voucher.payload;
   const expMs = payload.exp < 1e12 ? payload.exp * 1000 : payload.exp;
-  if (expMs <= Date.now()) return fail("voucher expired");
+  if (expMs <= Date.now()) return fail();
 
-  if (payload.agentPubKey !== params.agentPubKey) return fail("voucher agentPubKey mismatch");
-  if (payload.agentId !== params.agentId) return fail("voucher agentId mismatch");
+  if (payload.agentPubKey !== params.agentPubKey) return fail();
+  if (payload.agentId !== params.agentId) return fail();
 
-  if (normalizeUrl(payload.instanceUrl) !== normalizeUrl(instanceUrl)) {
-    return fail("voucher instanceUrl mismatch");
+  if (normalizeUrl(payload.instanceUrl) !== normalizeUrl(instanceUrl)) return fail();
+
+  const parsedProof = HostTunnelProofV2Payload.safeParse(params.proof?.payload);
+  if (
+    !parsedProof.success ||
+    params.proof.key !== params.agentPubKey ||
+    !verifyEnvelope(params.proof) ||
+    parsedProof.data.purpose !== "interloom.tunnel-auth.v2" ||
+    parsedProof.data.challengeId !== challenge.challengeId ||
+    parsedProof.data.nonce !== challenge.nonce ||
+    parsedProof.data.issuedAt !== challenge.issuedAt ||
+    parsedProof.data.placementId !== voucher.payload.placementId ||
+    parsedProof.data.agentId !== params.agentId ||
+    parsedProof.data.instanceOrigin !== canonicalOrigin(instanceUrl) ||
+    parsedProof.data.voucherDigest !== canonicalSha256(voucher)
+  ) {
+    return fail();
   }
 
-  if (!verify(nonce, params.sig, params.agentPubKey)) return fail("invalid nonce signature");
-
-  if (!params.features?.includes("frontierQueue")) return fail("mock auth rejected");
+  if (!params.features?.includes("frontierQueue")) return fail();
 
   return { ok: true };
 }
@@ -113,8 +138,12 @@ export async function startMockInstance(
 
   wss.on("connection", (ws) => {
     connections.push(ws);
-    const nonce = randomUUID();
-    ws.send(JSON.stringify(makeEvt("auth.challenge", { nonce })));
+    const challenge: TunnelAuthChallengeV2 = {
+      challengeId: randomUUID(),
+      nonce: bytesToB64url(randomBytes(32)),
+      issuedAt: Date.now(),
+    };
+    ws.send(JSON.stringify(makeEvt("auth.challenge.v2", challenge)));
 
     ws.on("message", (data) => {
       const raw = typeof data === "string" ? data : data.toString();
@@ -125,9 +154,9 @@ export async function startMockInstance(
         return;
       }
 
-      if (frame.kind === "req" && frame.method === "auth.identify") {
+      if (frame.kind === "req" && frame.method === "auth.identify.v2") {
         const params = frame.params as AuthIdentifyMockParams;
-        const outcome = verifyMockIdentify(params, nonce, networkPubKey, instanceUrl);
+        const outcome = verifyMockIdentify(params, challenge, networkPubKey, instanceUrl);
         if (outcome.ok) {
           ws.send(JSON.stringify(makeRes(frame.id, { ok: true })));
         } else {
@@ -148,7 +177,9 @@ export async function startMockInstance(
         try {
           switch (frame.method) {
             case "work.pull": {
-              const result = handlers.onPull?.(params.agentId as string, params.max as number) ?? { items: [] };
+              const result = handlers.onPull?.(params.agentId as string, params.max as number) ?? {
+                items: [],
+              };
               ws.send(JSON.stringify(makeRes(frame.id, result)));
               return;
             }
@@ -176,7 +207,10 @@ export async function startMockInstance(
               return;
             }
             case "chat.post": {
-              const result = handlers.onChatPost?.(params.channelId as string, params.text as string) ?? {
+              const result = handlers.onChatPost?.(
+                params.channelId as string,
+                params.text as string,
+              ) ?? {
                 ok: true,
                 messageId: randomUUID(),
               };
@@ -184,7 +218,9 @@ export async function startMockInstance(
               return;
             }
             default:
-              ws.send(JSON.stringify(makeErr(frame.id, "E_METHOD", `unsupported: ${frame.method}`)));
+              ws.send(
+                JSON.stringify(makeErr(frame.id, "E_METHOD", `unsupported: ${frame.method}`)),
+              );
           }
         } catch (err) {
           // A handler throwing simulates the instance rejecting the call
@@ -226,7 +262,8 @@ export async function startMockInstance(
         ws?.send(JSON.stringify({ il: 1, id, kind: "req", method, params }));
       });
     },
-    cleanup: () => new Promise<void>((resolve, reject) => wss.close((err) => (err ? reject(err) : resolve()))),
+    cleanup: () =>
+      new Promise<void>((resolve, reject) => wss.close((err) => (err ? reject(err) : resolve()))),
   };
 }
 

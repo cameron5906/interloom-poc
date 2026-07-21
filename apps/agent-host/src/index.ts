@@ -11,7 +11,7 @@ import { startUpdateCheckLoop } from "./update/checker.js";
 import { startRegistryLoop } from "./models/registry.js";
 import { backfillCapabilities } from "./agents/register.js";
 import { startNetworkRegistryReconciliation } from "./agents/reconcile.js";
-import { registerOperatorRoutes, publishOperatorIdentity } from "./operator.js";
+import { registerOperatorRoutes } from "./operator.js";
 import { registerOperatorBindRoutes, isOperatorBound } from "./operatorBind.js";
 import { registerPortalAuthGate } from "./portalAuth.js";
 import { registerTelemetryWs } from "./telemetry/ws.js";
@@ -22,6 +22,9 @@ import { signEnvelope } from "@interloom/keys";
 import { getLastPlacements } from "./heartbeat.js";
 import { networkRevokePlacement } from "./network/client.js";
 import { getKeypair } from "./keys.js";
+import { WIRE_LIMITS } from "@interloom/protocol";
+import { registerHostSecurity } from "./httpSecurity.js";
+import { registerHealthRoutes } from "./health.js";
 
 async function main(): Promise<void> {
   loadOrCreateKeypair();
@@ -29,7 +32,11 @@ async function main(): Promise<void> {
   const app = Fastify({ logger: true });
 
   await app.register(fastifyCookie);
-  await app.register(fastifyWebsocket);
+  await app.register(fastifyWebsocket, {
+    options: { maxPayload: WIRE_LIMITS.hostTelemetryFrameBytes, perMessageDeflate: false },
+  });
+  registerHostSecurity(app);
+  registerHealthRoutes(app);
 
   registerPortalAuthGate(app, isOperatorBound);
 
@@ -74,7 +81,7 @@ async function main(): Promise<void> {
 
   registerTelemetryWs(app, () => tunnelManager.getTunnelInfos());
 
-  registerStatic(app);
+  await registerStatic(app);
 
   startHeartbeatLoop(tunnelManager);
   const stopRegistryReconciliation = startNetworkRegistryReconciliation((msg) => app.log.info(msg));
@@ -83,10 +90,6 @@ async function main(): Promise<void> {
 
   void backfillCapabilities((msg) => app.log.info(msg)).catch((err) =>
     app.log.warn({ err }, "capability backfill failed"),
-  );
-
-  void publishOperatorIdentity().catch((err) =>
-    app.log.warn({ err }, "operator identity publish failed at boot"),
   );
 
   app.addHook("onClose", async () => {
@@ -102,4 +105,7 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+void main().catch((error) => {
+  console.error("agent-host failed to start:", error);
+  process.exitCode = 1;
+});

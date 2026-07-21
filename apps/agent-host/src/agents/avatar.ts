@@ -34,8 +34,7 @@ export function parseAvatarDataUrl(dataUrl: string): ParsedAvatarImage | null {
 
 export type AvatarUploadError = "bad_image" | "image_too_large" | "network_unreachable";
 export type AvatarUploadResult =
-  | { ok: true; imageUrl: string }
-  | { ok: false; error: AvatarUploadError };
+  { ok: true; imageUrl: string } | { ok: false; error: AvatarUploadError };
 
 /**
  * Uploads an agent's avatar image to the network (CONTRACTS §6): decode +
@@ -44,7 +43,10 @@ export type AvatarUploadResult =
  * registered agents — re-register so the persona sync carries it. Saves
  * nothing on failure.
  */
-export async function uploadAgentAvatar(agent: Agent, dataUrl: string): Promise<AvatarUploadResult> {
+export async function uploadAgentAvatar(
+  agent: Agent,
+  dataUrl: string,
+): Promise<AvatarUploadResult> {
   const parsed = parseAvatarDataUrl(dataUrl);
   if (!parsed) return { ok: false, error: "bad_image" };
   if (parsed.bytes.length > MAX_AVATAR_BYTES) return { ok: false, error: "image_too_large" };
@@ -65,18 +67,20 @@ export async function uploadAgentAvatar(agent: Agent, dataUrl: string): Promise<
     return { ok: false, error: "network_unreachable" };
   }
 
-  let updated = updateAgent(agent.agentId, {
-    avatar: { ...agent.avatar, imageUrl: result.url },
-  });
+  const avatar = { ...agent.avatar, imageUrl: result.url };
 
-  if (agent.registered && updated) {
+  if (agent.registered) {
     try {
-      await registerAgentOnNetwork(updated);
-      updated = updateAgent(agent.agentId, { syncedAt: new Date().toISOString() }) ?? updated;
+      await registerAgentOnNetwork({ ...agent, avatar });
     } catch {
-      // best-effort re-register — the imageUrl is already saved either way
+      return { ok: false, error: "network_unreachable" };
     }
   }
+
+  updateAgent(agent.agentId, {
+    avatar,
+    ...(agent.registered ? { syncedAt: new Date().toISOString() } : {}),
+  });
 
   return { ok: true, imageUrl: result.url };
 }

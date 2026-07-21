@@ -3,7 +3,11 @@ import { Button, Modal } from "@interloom/ui";
 import type { GpuBudget, HostAgent, LoadedModel, LocalModel } from "@interloom/protocol";
 import type { ContextOptions } from "../../../api/types.js";
 import { models as modelsApi } from "../../../api/endpoints.js";
-import { ContextSizePicker, FitBadge, fmtCtx } from "../../../components/ModelLoadFlow/ContextSizePicker.js";
+import {
+  ContextSizePicker,
+  FitBadge,
+  fmtCtx,
+} from "../../../components/ModelLoadFlow/ContextSizePicker.js";
 import {
   PlacementPicker,
   estimatePlacementFit,
@@ -136,7 +140,8 @@ export function LoadModelWizard({
 
   if (!open) return null;
 
-  const options = ctxData?.options ?? (ctxUnavailable ? [{ ctx: 8192, kvBytes: 0, fit: "fast" as const }] : null);
+  const options =
+    ctxData?.options ?? (ctxUnavailable ? [{ ctx: 8192, kvBytes: 0, fit: "fast" as const }] : null);
   const selectedOption = options?.find((o) => o.ctx === selectedCtx) ?? null;
 
   const requiredMB = model
@@ -160,7 +165,9 @@ export function LoadModelWizard({
   };
 
   const confirmSpill = () => {
-    const spillModel = spillConfirm ? (candidates.find((m) => m.path === spillConfirm.path) ?? model) : null;
+    const spillModel = spillConfirm
+      ? (candidates.find((m) => m.path === spillConfirm.path) ?? model)
+      : null;
     if (spillConfirm && spillModel) {
       setSubmitted({
         model: spillModel,
@@ -172,7 +179,9 @@ export function LoadModelWizard({
   };
 
   const displayFilename = submitted?.model.filename ?? model?.filename;
-  const inFlightInstance = submitted ? loaded.find((m) => m.path === submitted.model.path) : undefined;
+  const inFlightInstance = submitted
+    ? loaded.find((m) => m.path === submitted.model.path)
+    : undefined;
   const progressMessage = !submitted
     ? ""
     : !inFlightInstance
@@ -211,7 +220,8 @@ export function LoadModelWizard({
                 <div className="il-load-progress__text">
                   <div className="il-load-progress__title">{progressMessage}</div>
                   <div className="il-meta il-mono">
-                    {submitted.model.filename} · {fmtCtx(submitted.ctx)} ctx · {elapsedTick}s elapsed
+                    {submitted.model.filename} · {fmtCtx(submitted.ctx)} ctx · {elapsedTick}s
+                    elapsed
                   </div>
                 </div>
               </div>
@@ -220,8 +230,8 @@ export function LoadModelWizard({
               </div>
               {progressAgents.length > 0 ? (
                 <p className="il-meta il-load-progress__agents">
-                  {progressAgents.length} agent{progressAgents.length === 1 ? "" : "s"} will come online
-                  once this finishes.
+                  {progressAgents.length} agent{progressAgents.length === 1 ? "" : "s"} will come
+                  online once this finishes.
                 </p>
               ) : null}
             </div>
@@ -247,8 +257,8 @@ export function LoadModelWizard({
                   </select>
                   {candidates.length === 0 ? (
                     <div className="il-field__note">
-                      Every installed model is already loaded. Download another from the tabs below, or
-                      unload one first.
+                      Every installed model is already loaded. Download another from the tabs below,
+                      or unload one first.
                     </div>
                   ) : null}
                 </div>
@@ -273,13 +283,17 @@ export function LoadModelWizard({
                     {options === null ? (
                       <div className="il-ctx-picker__loading il-meta">Loading context options…</div>
                     ) : (
-                      <ContextSizePicker options={options} selected={selectedCtx} onSelect={setSelectedCtx} />
+                      <ContextSizePicker
+                        options={options}
+                        selected={selectedCtx}
+                        onSelect={setSelectedCtx}
+                      />
                     )}
                   </div>
 
                   {gpus.length > 1 ? (
                     <div className="il-field">
-                      <label className="il-field__label">Placement</label>
+                      <div className="il-field__label">Placement</div>
                       <PlacementPicker
                         gpus={gpus}
                         choice={placement}
@@ -293,12 +307,14 @@ export function LoadModelWizard({
                     <span className="il-field__label">Fit preview</span>
                     <span className="il-load-wizard__preview-badge">
                       <FitBadge fit={effectiveFit} />
-                      {placement.kind !== "auto" ? <span className="il-meta"> estimated</span> : null}
+                      {placement.kind !== "auto" ? (
+                        <span className="il-meta"> estimated</span>
+                      ) : null}
                     </span>
                     {effectiveFit === "no" ? (
                       <p className="il-ctx-picker__spill-note il-ctx-picker__spill-note--no">
-                        won&apos;t fit — try a smaller context, a different placement, or free VRAM by
-                        unloading a model
+                        won&apos;t fit — try a smaller context, a different placement, or free VRAM
+                        by unloading a model
                       </p>
                     ) : null}
                   </div>
@@ -317,7 +333,8 @@ export function LoadModelWizard({
                   {onlineAgents.length > 0 ? (
                     <div className="il-impact-modal__section">
                       <div className="il-impact-modal__label il-impact-modal__label--online">
-                        {onlineAgents.length} agent{onlineAgents.length === 1 ? "" : "s"} will come online
+                        {onlineAgents.length} agent{onlineAgents.length === 1 ? "" : "s"} will come
+                        online
                       </div>
                       <ul className="il-impact-modal__list">
                         {onlineAgents.map((a) => (
@@ -329,7 +346,9 @@ export function LoadModelWizard({
                       </ul>
                     </div>
                   ) : (
-                    <p className="il-meta il-impact-modal__none">No agents are assigned to this model yet.</p>
+                    <p className="il-meta il-impact-modal__none">
+                      No agents are assigned to this model yet.
+                    </p>
                   )}
                 </>
               ) : null}

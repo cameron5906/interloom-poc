@@ -18,6 +18,9 @@
 }
 
 .il-toast {
+  border: 0;
+  font-family: inherit;
+  text-align: left;
   pointer-events: auto;
   display: flex;
   align-items: center;

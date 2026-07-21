@@ -14,7 +14,7 @@ interface OperatorStaleGrantBannerProps {
  * reconnects, so this stays visible rather than a one-off toast.
  */
 export function OperatorStaleGrantBanner({ onReconnected }: OperatorStaleGrantBannerProps) {
-  const { phase, error, start } = useOperatorBindFlow(onReconnected);
+  const { phase, error, codes, start } = useOperatorBindFlow(onReconnected);
 
   if (phase === "success") return null;
 
@@ -29,6 +29,11 @@ export function OperatorStaleGrantBanner({ onReconnected }: OperatorStaleGrantBa
             Your identity connection needs a refresh — reconnect to keep publishing agents.
           </div>
           {error ? <div className="il-stale-banner__error">{error}</div> : null}
+          {codes ? (
+            <div className="il-stale-banner__codes">
+              Compare {codes.userCode} · {codes.subjectFp}
+            </div>
+          ) : null}
         </div>
       </div>
       {busy ? (

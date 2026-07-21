@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { FrontierWorkItem } from "./frontier.js";
+import { signedEnvelope } from "./envelope.js";
+import { Base64Url32, BoundedId, BoundedMethod, WIRE_LIMITS, utf8ByteLength } from "./limits.js";
 
 /** Wire protocol version for tunnel frames. Unknown versions are rejected. */
 export const TUNNEL_VERSION = 1 as const;
@@ -16,8 +18,8 @@ export const TunnelErrorCode = z.enum([
 export type TunnelErrorCode = z.infer<typeof TunnelErrorCode>;
 
 export const TunnelError = z.object({
-  code: z.string(),
-  message: z.string(),
+  code: z.string().min(1).max(64),
+  message: z.string().max(WIRE_LIMITS.errorMessageChars),
 });
 export type TunnelError = z.infer<typeof TunnelError>;
 
@@ -28,28 +30,28 @@ export type TunnelError = z.infer<typeof TunnelError>;
 export const TunnelFrame = z.discriminatedUnion("kind", [
   z.object({
     il: z.literal(TUNNEL_VERSION),
-    id: z.string(),
+    id: BoundedId,
     kind: z.literal("req"),
-    method: z.string(),
+    method: BoundedMethod,
     params: z.unknown().optional(),
   }),
   z.object({
     il: z.literal(TUNNEL_VERSION),
-    id: z.string(),
+    id: BoundedId,
     kind: z.literal("res"),
     result: z.unknown().optional(),
   }),
   z.object({
     il: z.literal(TUNNEL_VERSION),
-    id: z.string(),
+    id: BoundedId,
     kind: z.literal("err"),
     error: TunnelError,
   }),
   z.object({
     il: z.literal(TUNNEL_VERSION),
-    id: z.string(),
+    id: BoundedId,
     kind: z.literal("evt"),
-    method: z.string(),
+    method: BoundedMethod,
     params: z.unknown().optional(),
   }),
 ]);
@@ -83,20 +85,60 @@ export const AuthIdentifyParams = z.object({
 });
 export type AuthIdentifyParams = z.infer<typeof AuthIdentifyParams>;
 
+/** One-shot, socket-bound tunnel challenge (CONTRACTS §3.0). */
+export const TunnelAuthChallengeV2 = z
+  .object({
+    challengeId: z.string().uuid(),
+    nonce: Base64Url32,
+    issuedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+export type TunnelAuthChallengeV2 = z.infer<typeof TunnelAuthChallengeV2>;
+
+/** The only object an Agent Host may sign in response to a tunnel challenge. */
+export const HostTunnelProofV2Payload = z
+  .object({
+    purpose: z.literal("interloom.tunnel-auth.v2"),
+    challengeId: z.string().uuid(),
+    nonce: Base64Url32,
+    placementId: BoundedId,
+    agentId: BoundedId,
+    instanceOrigin: z.string().url().max(2048),
+    voucherDigest: Base64Url32,
+    issuedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+export type HostTunnelProofV2Payload = z.infer<typeof HostTunnelProofV2Payload>;
+
+/** Additive v2 identify request. Voucher semantics are checked with InviteVoucher at the receiver. */
+export const AuthIdentifyV2Params = z
+  .object({
+    agentId: BoundedId,
+    agentPubKey: Base64Url32,
+    voucher: signedEnvelope(z.unknown()),
+    proof: signedEnvelope(HostTunnelProofV2Payload),
+    ctx: z.number().int().positive().max(10_000_000).optional(),
+    features: z.array(z.string().min(1).max(64)).max(32).optional(),
+  })
+  .strict();
+export type AuthIdentifyV2Params = z.infer<typeof AuthIdentifyV2Params>;
+
 /** Auth success result. `ctx` advertises the loaded model's context window so
  *  workspaces can size prompt assembly to fit (shared across all agents on the model). */
-export const AuthOkResult = z.object({
-  ok: z.literal(true),
-  ctx: z.number().optional(),
-});
+export const AuthOkResult = z
+  .object({
+    ok: z.literal(true),
+    ctx: z.number().int().positive().max(10_000_000).optional(),
+  })
+  .strict();
 export type AuthOkResult = z.infer<typeof AuthOkResult>;
 
 // --- Inference methods (§3) ---
 
 /** A tool the instance offers the model for one inference call (CONTRACTS §3). */
 export const ToolDef = z.object({
-  name: z.string(),
-  description: z.string(),
+  name: z.string().min(1).max(128),
+  description: z.string().max(8192),
   /** JSON Schema for the arguments object. */
   parameters: z.record(z.unknown()),
 });
@@ -104,16 +146,19 @@ export type ToolDef = z.infer<typeof ToolDef>;
 
 /** A tool invocation the model emitted. `arguments` is the raw JSON string. */
 export const ToolCall = z.object({
-  id: z.string(),
-  name: z.string(),
-  arguments: z.string(),
+  id: BoundedId,
+  name: z.string().min(1).max(128),
+  arguments: z.string().max(1024 * 1024),
 });
 export type ToolCall = z.infer<typeof ToolCall>;
 
 /** A single content part in a multi-part message (CONTRACTS §3 image attachments). */
 export const ContentPart = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("text"), text: z.string() }),
-  z.object({ type: z.literal("image_url"), image_url: z.object({ url: z.string() }) }),
+  z.object({ type: z.literal("text"), text: z.string().max(WIRE_LIMITS.chatTextChars) }),
+  z.object({
+    type: z.literal("image_url"),
+    image_url: z.object({ url: z.string().min(1).max(WIRE_LIMITS.tunnelFrameBytes) }),
+  }),
 ]);
 export type ContentPart = z.infer<typeof ContentPart>;
 
@@ -126,25 +171,25 @@ export type ContentPart = z.infer<typeof ContentPart>;
  */
 export const InferenceMessage = z.object({
   role: z.enum(["system", "user", "assistant", "tool"]),
-  content: z.string(),
-  toolCalls: z.array(ToolCall).optional(),
-  toolCallId: z.string().optional(),
-  contentParts: z.array(ContentPart).optional(),
+  content: z.string().max(1024 * 1024),
+  toolCalls: z.array(ToolCall).max(WIRE_LIMITS.tunnelToolCalls).optional(),
+  toolCallId: BoundedId.optional(),
+  contentParts: z.array(ContentPart).max(WIRE_LIMITS.tunnelContentParts).optional(),
 });
 export type InferenceMessage = z.infer<typeof InferenceMessage>;
 
 export const InferenceParams = z.object({
   temperature: z.number().optional(),
-  maxTokens: z.number().optional(),
+  maxTokens: z.number().int().positive().max(1_000_000).optional(),
   /** Traffic class on the shared model: interactive replies outrank maintenance (compaction etc.). */
   priority: z.enum(["interactive", "maintenance", "background"]).optional(),
-  tools: z.array(ToolDef).optional(),
+  tools: z.array(ToolDef).max(WIRE_LIMITS.tunnelTools).optional(),
   toolChoice: z.enum(["auto", "none"]).optional(),
 });
 export type InferenceParams = z.infer<typeof InferenceParams>;
 
 export const InferenceCompleteParams = z.object({
-  messages: z.array(InferenceMessage),
+  messages: z.array(InferenceMessage).max(WIRE_LIMITS.tunnelMessages),
   params: InferenceParams.optional(),
 });
 export type InferenceCompleteParams = z.infer<typeof InferenceCompleteParams>;
@@ -160,13 +205,7 @@ export type InferenceUsage = z.infer<typeof InferenceUsage>;
  * a rolling deploy can keep text-only inference working with older hosts;
  * negotiated hosts fail closed when it is absent, while legacy `tools` hosts
  * retain their fully-parsed pre-negotiation tool-call behavior. */
-export const InferenceFinishReason = z.enum([
-  "stop",
-  "length",
-  "tool_calls",
-  "cancelled",
-  "error",
-]);
+export const InferenceFinishReason = z.enum(["stop", "length", "tool_calls", "cancelled", "error"]);
 export type InferenceFinishReason = z.infer<typeof InferenceFinishReason>;
 
 export const InferenceCompleteResult = z.object({
@@ -184,7 +223,7 @@ export type InferenceChunkEvent = z.infer<typeof InferenceChunkEvent>;
 /** Stream terminal result. `toolCalls` present when the model called tools this round. */
 export const InferenceStreamResult = z.object({
   usage: InferenceUsage,
-  toolCalls: z.array(ToolCall).optional(),
+  toolCalls: z.array(ToolCall).max(WIRE_LIMITS.tunnelToolCalls).optional(),
   finishReason: InferenceFinishReason.optional(),
 });
 export type InferenceStreamResult = z.infer<typeof InferenceStreamResult>;
@@ -307,6 +346,9 @@ export class TunnelFrameError extends Error {
  * `E_INTERNAL` on malformed JSON or structure.
  */
 export function parseTunnelFrame(raw: string): TunnelFrame {
+  if (utf8ByteLength(raw) > WIRE_LIMITS.tunnelFrameBytes) {
+    throw new TunnelFrameError("E_INTERNAL", "tunnel frame exceeds maximum size");
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);

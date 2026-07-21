@@ -56,8 +56,11 @@ export function startNetworkRegistryReconciliation(
     }
   };
 
-  void run();
-  const timer = setInterval(() => void run(), intervalMs);
+  const guardedRun = () => {
+    void run().catch((error) => log(`registry reconciliation tick failed: ${String(error)}`));
+  };
+  guardedRun();
+  const timer = setInterval(guardedRun, intervalMs);
   timer.unref?.();
 
   return () => {

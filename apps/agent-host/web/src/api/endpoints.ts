@@ -19,8 +19,8 @@ import { api } from "./client.js";
 import type {
   HostKeys,
   OperatorState,
-  OperatorIdentity,
   OperatorLinkStart,
+  OperatorLinkComplete,
   ModelRegistryResponse,
   HfSearchResult,
   HfRepoDetail,
@@ -48,8 +48,8 @@ export const keys = {
 export const operatorBind = {
   get: (signal?: AbortSignal) => api.get<OperatorState>("/api/operator", signal),
   linkStart: () => api.post<OperatorLinkStart>("/api/operator/link/start"),
-  linkComplete: (grant: unknown) =>
-    api.post<{ bound: true; operator: OperatorIdentity }>("/api/operator/link/complete", { grant }),
+  linkComplete: (handoffId: string) =>
+    api.post<OperatorLinkComplete>("/api/operator/link/complete", { handoffId }),
   signout: () => api.post<Record<string, never>>("/api/operator/signout"),
 };
 
@@ -81,12 +81,10 @@ export const models = {
 
   // --- Multi-instance model loading (CONTRACTS §6) ---
   loaded: (signal?: AbortSignal) => api.get<LoadedModel[]>("/api/models/loaded", signal),
-  allocation: (signal?: AbortSignal) =>
-    api.get<AllocationView>("/api/models/allocation", signal),
+  allocation: (signal?: AbortSignal) => api.get<AllocationView>("/api/models/allocation", signal),
   load: (body: LoadModelBody) => api.post<LoadedModel>("/api/models/load", body),
   unload: (path: string) => api.post<void>("/api/models/unload", { path }),
-  settingsList: (signal?: AbortSignal) =>
-    api.get<ModelSettings[]>("/api/models/settings", signal),
+  settingsList: (signal?: AbortSignal) => api.get<ModelSettings[]>("/api/models/settings", signal),
   patchSettings: (body: ModelSettingsPatch) =>
     api.patch<ModelSettings>("/api/models/settings", body),
 };

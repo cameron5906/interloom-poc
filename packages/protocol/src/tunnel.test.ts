@@ -69,7 +69,10 @@ describe("tunnel frame constructors", () => {
 
 describe("attention tunnel additions (CONTRACTS §18)", () => {
   it("accepts background inference priority", () => {
-    const parsed = InferenceCompleteParams.parse({ messages: [], params: { priority: "background" } });
+    const parsed = InferenceCompleteParams.parse({
+      messages: [],
+      params: { priority: "background" },
+    });
     expect(parsed.params?.priority).toBe("background");
   });
 
@@ -79,7 +82,10 @@ describe("attention tunnel additions (CONTRACTS §18)", () => {
       leaseToken: "lease-1",
     });
     expect(WorkPassResult.parse({ ok: true })).toEqual({ ok: true });
-    expect(WorkCompleteResult.parse({ ok: true, posted: false })).toEqual({ ok: true, posted: false });
+    expect(WorkCompleteResult.parse({ ok: true, posted: false })).toEqual({
+      ok: true,
+      posted: false,
+    });
   });
 });
 
@@ -180,6 +186,20 @@ describe("TunnelFrame discriminated union narrowing", () => {
 });
 
 describe("tool-calling wire shapes (additive, CONTRACTS §3)", () => {
+  it("bounds maxTokens before the Host's model/window clamp", () => {
+    expect(
+      InferenceCompleteParams.safeParse({
+        messages: [],
+        params: { maxTokens: 1_000_000 },
+      }).success,
+    ).toBe(true);
+    for (const maxTokens of [0, -1, 1.5, 1_000_001]) {
+      expect(
+        InferenceCompleteParams.safeParse({ messages: [], params: { maxTokens } }).success,
+      ).toBe(false);
+    }
+  });
+
   it("InferenceParams accepts tools + toolChoice", () => {
     const p = InferenceCompleteParams.parse({
       messages: [{ role: "user", content: "hi" }],
@@ -226,8 +246,9 @@ describe("tool-calling wire shapes (additive, CONTRACTS §3)", () => {
       InferenceCompleteParams.parse({ messages: [{ role: "user", content: "hi" }] }).params,
     ).toBeUndefined();
     expect(
-      InferenceStreamResult.parse({ usage: { promptTokens: 0, completionTokens: 0, tokensPerSec: 0 } })
-        .toolCalls,
+      InferenceStreamResult.parse({
+        usage: { promptTokens: 0, completionTokens: 0, tokensPerSec: 0 },
+      }).toolCalls,
     ).toBeUndefined();
   });
 

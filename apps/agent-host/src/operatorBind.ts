@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { bytesToB64url, verifyGrant, type SignedEnvelope } from "@interloom/keys";
 import { signedEnvelope, IdentityGrant } from "@interloom/protocol";
@@ -8,6 +8,7 @@ import { DATA_DIR, NETWORK_URL } from "./config.js";
 import { getKeypair } from "./keys.js";
 import { getOperatorDisplayName } from "./settings.js";
 import { createPortalSession, wipeAllSessions, PORTAL_COOKIE } from "./portalAuth.js";
+import { PORTAL_COOKIE_BASE } from "./httpSecurity.js";
 
 const NONCE_TTL_MS = 5 * 60 * 1000;
 
@@ -72,7 +73,7 @@ export function isOperatorGrantStale(): boolean {
   return staleGrant;
 }
 
-/** Wipes the binding — the host reverts to legacy (host-key) operator stamping. */
+/** Wipes the binding — the Host returns to bootstrap-only, registration-disabled state. */
 export function wipeOperatorBinding(): void {
   const p = bindingFilePath();
   if (fs.existsSync(p)) fs.unlinkSync(p);
@@ -80,13 +81,85 @@ export function wipeOperatorBinding(): void {
 
 // One-shot, 5-min TTL link-start nonces (in-memory — a lost daemon restart
 // mid-flow just means the operator restarts the bind, same as any nonce flow).
-const pendingNonces = new Map<string, { hostPubKey: string; expiresAt: number }>();
+interface PendingOperatorHandoff {
+  handoffId: string;
+  hostPubKey: string;
+  nonce: string;
+  verifier: string;
+  challenge: string;
+  expiresAt: number;
+  userCode: string;
+  subjectFp: string;
+  exchanging: boolean;
+}
+
+const pendingHandoffs = new Map<string, PendingOperatorHandoff>();
 
 function pruneNonces(): void {
   const now = Date.now();
-  for (const [nonce, entry] of pendingNonces) {
-    if (entry.expiresAt <= now) pendingNonces.delete(nonce);
+  for (const [handoffId, entry] of pendingHandoffs) {
+    if (entry.expiresAt <= now) pendingHandoffs.delete(handoffId);
   }
+}
+
+function base32(value: Buffer): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0;
+  let buffer = 0;
+  let output = "";
+  for (const byte of value) {
+    buffer = (buffer << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      output += alphabet[(buffer >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) output += alphabet[(buffer << (5 - bits)) & 31];
+  return output;
+}
+
+function displayCode(value: string): string {
+  const raw = base32(createHash("sha256").update(value, "utf8").digest()).slice(0, 8);
+  return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+}
+
+async function boundedJson(response: Response, maxBytes = 64 * 1024): Promise<unknown> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("network response omitted a body");
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) throw new Error("network response exceeded limit");
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const merged = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder().decode(merged)) as unknown;
+}
+
+async function networkRequest(
+  pathname: string,
+  init?: RequestInit,
+): Promise<{ response: Response; body: unknown }> {
+  const networkOrigin = new URL(NETWORK_URL).origin;
+  const response = await fetch(`${networkOrigin}${pathname}`, {
+    ...init,
+    signal: AbortSignal.timeout(10_000),
+  });
+  const body = await boundedJson(response);
+  return { response, body };
 }
 
 /**
@@ -138,26 +211,114 @@ export function registerOperatorBindRoutes(app: FastifyInstance): void {
     pruneNonces();
     const hostPubKey = getKeypair().publicKey;
     const nonce = bytesToB64url(randomBytes(24));
-    pendingNonces.set(nonce, { hostPubKey, expiresAt: Date.now() + NONCE_TTL_MS });
-    return reply.send({ networkUrl: NETWORK_URL, hostPubKey, nonce });
+    const verifier = bytesToB64url(randomBytes(32));
+    const challenge = bytesToB64url(createHash("sha256").update(verifier, "utf8").digest());
+    const { response, body } = await networkRequest("/api/handoff/grant/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        codeChallenge: challenge,
+        subjectKey: hostPubKey,
+        scope: "host-operator",
+        nonce,
+      }),
+    });
+    const started = body as { handoffId?: unknown; expiresAt?: unknown; error?: unknown };
+    const expiresAt = typeof started.expiresAt === "string" ? Date.parse(started.expiresAt) : NaN;
+    if (
+      !response.ok ||
+      typeof started.handoffId !== "string" ||
+      !started.handoffId ||
+      !Number.isFinite(expiresAt) ||
+      expiresAt <= Date.now() ||
+      expiresAt > Date.now() + NONCE_TTL_MS + 30_000
+    ) {
+      return reply.status(502).send({ error: "network_handoff_unavailable" });
+    }
+    const pending: PendingOperatorHandoff = {
+      handoffId: started.handoffId,
+      hostPubKey,
+      nonce,
+      verifier,
+      challenge,
+      expiresAt,
+      userCode: displayCode(challenge),
+      subjectFp: displayCode(hostPubKey),
+      exchanging: false,
+    };
+    pendingHandoffs.set(pending.handoffId, pending);
+    const networkOrigin = new URL(NETWORK_URL).origin;
+    return reply.send({
+      handoffId: pending.handoffId,
+      expiresAt: new Date(pending.expiresAt).toISOString(),
+      authorizeUrl: `${networkOrigin}/authorize?grantHandoffId=${encodeURIComponent(pending.handoffId)}`,
+      userCode: pending.userCode,
+      subjectFp: pending.subjectFp,
+    });
   });
 
-  app.post<{ Body: { grant?: unknown } }>("/api/operator/link/complete", async (req, reply) => {
+  app.post<{ Body: { handoffId?: unknown } }>("/api/operator/link/complete", async (req, reply) => {
+    pruneNonces();
+    const handoffId = req.body?.handoffId;
+    if (typeof handoffId !== "string" || !handoffId || handoffId.length > 256) {
+      return reply.status(400).send({ error: "invalid_handoff" });
+    }
+    const pending = pendingHandoffs.get(handoffId);
+    if (!pending || pending.expiresAt <= Date.now()) {
+      pendingHandoffs.delete(handoffId);
+      return reply.status(410).send({ error: "handoff_expired" });
+    }
+    if (pending.exchanging) return reply.send({ pending: true });
+
+    const statusResult = await networkRequest(
+      `/api/handoff/grant/${encodeURIComponent(handoffId)}`,
+    );
+    const status = statusResult.body as Record<string, unknown>;
+    if (
+      !statusResult.response.ok ||
+      status["subjectKey"] !== pending.hostPubKey ||
+      status["scope"] !== "host-operator" ||
+      status["audience"] !== undefined ||
+      status["nonce"] !== pending.nonce ||
+      status["userCode"] !== pending.userCode ||
+      status["subjectFp"] !== pending.subjectFp
+    ) {
+      pendingHandoffs.delete(handoffId);
+      return reply.status(502).send({ error: "network_handoff_mismatch" });
+    }
+    if (status["consumed"] === true) {
+      pendingHandoffs.delete(handoffId);
+      return reply.status(409).send({ error: "handoff_already_consumed" });
+    }
+    if (status["completed"] !== true) return reply.send({ pending: true });
+
+    pending.exchanging = true;
+    let exchanged: { response: Response; body: unknown };
+    try {
+      exchanged = await networkRequest("/api/handoff/grant/exchange", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handoffId, codeVerifier: pending.verifier }),
+      });
+    } finally {
+      pending.exchanging = false;
+    }
+    if (!exchanged.response.ok) {
+      pendingHandoffs.delete(handoffId);
+      return reply.status(502).send({ error: "network_handoff_exchange_failed" });
+    }
+    const grantBody = exchanged.body as { grant?: unknown };
     const bodySchema = signedEnvelope(IdentityGrant);
-    const parsed = bodySchema.safeParse(req.body?.grant);
+    const parsed = bodySchema.safeParse(grantBody.grant);
     if (!parsed.success) {
+      pendingHandoffs.delete(handoffId);
       return reply.status(400).send({ error: "invalid_grant" });
     }
     const envelope = parsed.data;
 
-    const nonceEntry = pendingNonces.get(envelope.payload.nonce);
-    pendingNonces.delete(envelope.payload.nonce); // one-shot regardless of outcome
-    if (!nonceEntry || nonceEntry.expiresAt <= Date.now()) {
-      return reply.status(400).send({ error: "nonce_expired" });
-    }
-
     const hostPubKey = getKeypair().publicKey;
-    if (nonceEntry.hostPubKey !== hostPubKey) {
+    if (pending.hostPubKey !== hostPubKey || envelope.payload.nonce !== pending.nonce) {
+      pendingHandoffs.delete(handoffId);
       return reply.status(400).send({ error: "invalid_grant" });
     }
 
@@ -171,8 +332,10 @@ export function registerOperatorBindRoutes(app: FastifyInstance): void {
       audience: undefined,
     });
     if (!valid) {
+      pendingHandoffs.delete(handoffId);
       return reply.status(400).send({ error: "invalid_grant" });
     }
+    pendingHandoffs.delete(handoffId);
 
     const identityKey = envelope.payload.identityKey;
     const { displayName, avatarUrl } = await resolveIdentityDisplay(identityKey);
@@ -192,9 +355,7 @@ export function registerOperatorBindRoutes(app: FastifyInstance): void {
 
     const session = createPortalSession();
     reply.setCookie(PORTAL_COOKIE, session.token, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
+      ...PORTAL_COOKIE_BASE,
       expires: new Date(session.expiresAt),
     });
 
@@ -213,7 +374,7 @@ export function registerOperatorBindRoutes(app: FastifyInstance): void {
     wipeOperatorBinding();
     setOperatorGrantStale(false);
     wipeAllSessions();
-    reply.clearCookie(PORTAL_COOKIE, { path: "/" });
+    reply.clearCookie(PORTAL_COOKIE, PORTAL_COOKIE_BASE);
     return reply.send({});
   });
 }

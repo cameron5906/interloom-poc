@@ -11,6 +11,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 
 let networkErrorLogged = false;
 let currentPlacements: Placement[] = [];
+const placementsByAgent = new Map<string, Placement[]>();
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 export function getLastPlacements(): Placement[] {
@@ -22,7 +23,9 @@ let heartbeatRunFn: (() => Promise<void>) | null = null;
 /** Trigger an immediate heartbeat cycle (e.g. after model activation). */
 export function triggerHeartbeat(): void {
   if (heartbeatRunFn) {
-    void heartbeatRunFn();
+    void heartbeatRunFn().catch((error) => {
+      console.warn("[heartbeat] immediate run failed:", error);
+    });
   }
 }
 
@@ -39,17 +42,25 @@ export function startHeartbeatLoop(tunnelManager: TunnelManager): void {
     // connects; that's expected, not a bug.
     const agents = listAgents().filter(
       (a) =>
-        a.registered && a.runtime !== "frontier" && a.model !== undefined && loaded.has(a.model.filename),
+        a.registered &&
+        a.runtime !== "frontier" &&
+        a.model !== undefined &&
+        loaded.has(a.model.filename),
     );
 
     if (agents.length === 0) {
       // Still apply placements diff to close any stale tunnels
+      placementsByAgent.clear();
+      currentPlacements = [];
       tunnelManager.applyPlacements([], loaded);
       return;
     }
 
     const keypair = getKeypair();
-    const allPlacements: Placement[] = [];
+    const activeAgentIds = new Set(agents.map((agent) => agent.agentId));
+    for (const agentId of placementsByAgent.keys()) {
+      if (!activeAgentIds.has(agentId)) placementsByAgent.delete(agentId);
+    }
 
     for (const agent of agents) {
       const payload = {
@@ -63,7 +74,7 @@ export function startHeartbeatLoop(tunnelManager: TunnelManager): void {
         const raw = await networkHeartbeat(agent.agentId, envelope);
         const parsed = HeartbeatResponseSchema.safeParse(raw);
         if (parsed.success) {
-          allPlacements.push(...parsed.data.placements);
+          placementsByAgent.set(agent.agentId, parsed.data.placements);
         }
         networkErrorLogged = false;
       } catch (err) {
@@ -74,13 +85,21 @@ export function startHeartbeatLoop(tunnelManager: TunnelManager): void {
       }
     }
 
-    currentPlacements = allPlacements;
-    tunnelManager.applyPlacements(allPlacements, loaded);
+    // A transient failure is not an authoritative empty placement set. Keep
+    // the last verified response for that agent so one Network outage does
+    // not tear down otherwise healthy tunnels.
+    currentPlacements = [...placementsByAgent.values()].flat();
+    tunnelManager.applyPlacements(currentPlacements, loaded);
   };
 
   heartbeatRunFn = run;
-  void run();
-  heartbeatTimer = setInterval(() => void run(), HEARTBEAT_INTERVAL_MS);
+  const guardedRun = () => {
+    void run().catch((error) => {
+      console.warn("[heartbeat] run failed:", error);
+    });
+  };
+  guardedRun();
+  heartbeatTimer = setInterval(guardedRun, HEARTBEAT_INTERVAL_MS);
 }
 
 export function stopHeartbeatLoop(): void {
@@ -89,4 +108,6 @@ export function stopHeartbeatLoop(): void {
     heartbeatTimer = null;
   }
   heartbeatRunFn = null;
+  placementsByAgent.clear();
+  currentPlacements = [];
 }

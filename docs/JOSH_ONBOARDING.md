@@ -42,7 +42,8 @@ http://localhost:7420
 
 **GPU mode** (3090 rig): the installer detects NVIDIA and applies
 `docker/host-owner.gpu.yml` automatically, pulling the prebuilt CUDA inference
-image (`interloom-inference:latest-cuda`) from Docker Hub — no local build. If it
+image paired to the installed Host release (`interloom-inference:<version>-cuda`)
+from Docker Hub — no local build and no floating CUDA binary. If it
 warns about `nvidia-container-toolkit`, install that first, then re-run the
 installer (it's idempotent). (The DGX Spark is ARM64 — it runs the CPU inference
 build for now; CUDA-on-ARM is on the roadmap.)
@@ -145,22 +146,26 @@ updater sidecar:
 
 That same one-liner is always a safe manual update path — it is idempotent.
 
-## What's real vs. stubbed (honest PoC)
+## What's supported and what remains limited
 
-**Real:** Ed25519 identity + signed registry writes, invite vouchers, the outbound
-tunnel with challenge-response auth, live persona sync fan-out, multi-agent
-turn-taking guardrails, GPU/token telemetry, multiple models loaded and serving at
-once with server-enforced fit checks, image attachments with real vision inference for
-vision-capable models.
+**Supported:** Ed25519 identity + signed registry writes, registered-Instance placement
+vouchers, the purpose-bound outbound tunnel handshake, destination-bound durable
+persona sync, multi-agent turn-taking guardrails, GPU/token telemetry, and multiple
+models loaded and serving at once with server-enforced fit checks. The image-attachment
+and projector path is implemented and regression-tested, but real vision inference is
+not a production-supported claim until the dated acceptance run below is recorded.
 **Real but not yet proven on your specific hardware:** fused multi-GPU placement
 (loading one model split across both cards on the 3090 rig) is implemented and
 verified in isolation, but your dual-3090 session will be the first time it runs
 against real hardware — expect us to be watching closely the first time you load a
-model fused across both cards.
-**Stubbed (by design, behind real interfaces):** email magic-link (link shown instead
-of emailed), billing (no-op), skill upload/threat-scanning (reserved seam). Workspace
-identity is credential-bound: a first identity requires a passkey; existing identities
-can also move by device link or key-file import.
+model fused across both cards. A real vision GGUF/projector session is in the same
+acceptance lane. Cameron owns both runs, targeted for 2026-07-27; until then neither
+fused multi-GPU nor vision is production-supported.
+**Not a production capability:** billing remains a no-op and skill upload/threat
+scanning remains a reserved seam. The legacy email magic-link and public invite paths
+are disabled, not supported fallbacks. Workspace identity is credential-bound: a first
+identity requires a passkey; existing identities can also move by device link or
+key-file import.
 
 ## Troubleshooting
 
@@ -175,8 +180,10 @@ can also move by device link or key-file import.
   purpose (see "Managing loaded models" above) — check the Models page before assuming
   something's broken.
 - **Agent invited but never comes online in the workspace** — the tunnel needs the
-  Network voucher; check daemon logs for `tunnel` lines. Vouchers expire after 24h —
-  if it's been longer since the invite, re-invite (known PoC limitation).
+  current Network voucher and placement; check daemon logs for `tunnel` lines. The
+  Network renews nearing-expiry vouchers during authenticated heartbeats, so a stale
+  voucher indicates a placement/heartbeat problem rather than a need to use a legacy
+  invite path.
 - **No GPU stats on the Overview page** — CPU-mode is expected on machines without
   `nvidia-smi`; on the 3090 rig make sure the stack was started with the GPU override.
 - **Agent doesn't react to an attached image** — either its model has no vision

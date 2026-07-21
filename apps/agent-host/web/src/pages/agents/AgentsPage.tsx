@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Avatar, Badge, Button, StatusPill } from "@interloom/ui";
 import type { FrontierProvider, HostAgent, LoadedModel, LocalModel } from "@interloom/protocol";
@@ -31,7 +31,7 @@ export function AgentsPage() {
     frontierProvider: FrontierProvider;
   }>({ runtime: "hosted", frontierProvider: "anthropic" });
 
-  const agents = list.data ?? [];
+  const agents = useMemo(() => list.data ?? [], [list.data]);
   const loadedModels = loadedPoll.data ?? [];
   const localModels = localModelsAsync.data ?? [];
 
@@ -120,7 +120,9 @@ export function AgentsPage() {
               </li>
             ) : null}
             {agents.map((a) => {
-              const isOnline = !!(a.model && loadedModels.some((m) => m.filename === a.model!.filename));
+              const isOnline = !!(
+                a.model && loadedModels.some((m) => m.filename === a.model!.filename)
+              );
               return (
                 <li key={a.agentId}>
                   <button
@@ -136,7 +138,9 @@ export function AgentsPage() {
                       name={a.name}
                       isAgent
                       emoji={a.avatar.emoji}
-                      bg={a.avatar.character ? `#${a.avatar.character.backgroundColor}` : a.avatar.bg}
+                      bg={
+                        a.avatar.character ? `#${a.avatar.character.backgroundColor}` : a.avatar.bg
+                      }
                       imageUrl={draftAvatarImageUrl(a.avatar)}
                       size="md"
                       presence={a.model ? (isOnline ? "online" : "offline") : undefined}

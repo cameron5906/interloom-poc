@@ -6,7 +6,13 @@ import type { FrontierLinkPayload, HeartbeatResponse } from "@interloom/protocol
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { credentialsFilePath } from "../src/credentials.js";
 import { FrontierService } from "../src/service.js";
-import { makePlacement, makeVoucher, MockStaleLeaseError, startMockInstance, type MockInstance } from "./mockInstance.js";
+import {
+  makePlacement,
+  makeVoucher,
+  MockStaleLeaseError,
+  startMockInstance,
+  type MockInstance,
+} from "./mockInstance.js";
 
 async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
   const start = Date.now();
@@ -18,6 +24,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void
 
 let tmpHome: string;
 let previousHome: string | undefined;
+let previousLoopbackSetting: string | undefined;
 let instance: MockInstance | undefined;
 
 const networkKeys = generateKeypair();
@@ -26,12 +33,16 @@ const agentKeys = generateKeypair();
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "frontier-mcp-service-"));
   previousHome = process.env.INTERLOOM_HOME;
+  previousLoopbackSetting = process.env.ALLOW_LOOPBACK_INSTANCE_ORIGINS;
   process.env.INTERLOOM_HOME = tmpHome;
+  process.env.ALLOW_LOOPBACK_INSTANCE_ORIGINS = "true";
 });
 
 afterEach(async () => {
   if (previousHome === undefined) delete process.env.INTERLOOM_HOME;
   else process.env.INTERLOOM_HOME = previousHome;
+  if (previousLoopbackSetting === undefined) delete process.env.ALLOW_LOOPBACK_INSTANCE_ORIGINS;
+  else process.env.ALLOW_LOOPBACK_INSTANCE_ORIGINS = previousLoopbackSetting;
   fs.rmSync(tmpHome, { recursive: true, force: true });
   await instance?.cleanup();
   instance = undefined;
@@ -80,7 +91,8 @@ describe("FrontierService facade wiring (fake network + real tunnel round trip)"
     let completeCalled: { workId: string; text: string } | undefined;
 
     instance = await startMockInstance(networkKeys.publicKey, {
-      onPull: (pulledAgentId) => (pulledAgentId === agentId ? { items: [workItemFixture] } : { items: [] }),
+      onPull: (pulledAgentId) =>
+        pulledAgentId === agentId ? { items: [workItemFixture] } : { items: [] },
       onBegin: (workId) => {
         beginCalled = workId;
         return { ok: true };
@@ -118,7 +130,9 @@ describe("FrontierService facade wiring (fake network + real tunnel round trip)"
     expect(linkResult).toEqual({ agentName: "Wired Agent" });
 
     // Credentials persisted to disk (pinned-interfaces §E).
-    const onDisk = JSON.parse(fs.readFileSync(credentialsFilePath(), "utf8")) as { agents: FrontierLinkPayload[] };
+    const onDisk = JSON.parse(fs.readFileSync(credentialsFilePath(), "utf8")) as {
+      agents: FrontierLinkPayload[];
+    };
     expect(onDisk.agents.map((a) => a.agentId)).toEqual([agentId]);
 
     service.start();
@@ -187,7 +201,10 @@ describe("FrontierService facade wiring (fake network + real tunnel round trip)"
     const placement = makePlacement(instance.instanceUrl, voucher);
 
     const heartbeatFetch = (async () =>
-      ({ ok: true, json: async () => ({ placements: [placement] }) }) as unknown as Response) as unknown as typeof fetch;
+      ({
+        ok: true,
+        json: async () => ({ placements: [placement] }),
+      }) as unknown as Response) as unknown as typeof fetch;
 
     const service = new FrontierService({
       scanLinkFn: async () => cred,
@@ -250,7 +267,10 @@ describe("FrontierService facade wiring (fake network + real tunnel round trip)"
     });
     const placement = makePlacement(instance.instanceUrl, voucher);
     const heartbeatFetch = (async () =>
-      ({ ok: true, json: async () => ({ placements: [placement] }) }) as unknown as Response) as unknown as typeof fetch;
+      ({
+        ok: true,
+        json: async () => ({ placements: [placement] }),
+      }) as unknown as Response) as unknown as typeof fetch;
 
     const service = new FrontierService({
       scanLinkFn: async () => cred,
@@ -305,7 +325,9 @@ describe("FrontierService facade wiring (fake network + real tunnel round trip)"
       onComplete: () => {
         // Mirrors the instance's non-stale E_INTERNAL rejection when the
         // post-claim send fails and the item is reverted to queued.
-        throw new Error("failed to post the agent's reply — the item was requeued for redelivery via work.pull, do not resubmit it");
+        throw new Error(
+          "failed to post the agent's reply — the item was requeued for redelivery via work.pull, do not resubmit it",
+        );
       },
     });
 
@@ -317,7 +339,10 @@ describe("FrontierService facade wiring (fake network + real tunnel round trip)"
     });
     const placement = makePlacement(instance.instanceUrl, voucher);
     const heartbeatFetch = (async () =>
-      ({ ok: true, json: async () => ({ placements: [placement] }) }) as unknown as Response) as unknown as typeof fetch;
+      ({
+        ok: true,
+        json: async () => ({ placements: [placement] }),
+      }) as unknown as Response) as unknown as typeof fetch;
 
     const service = new FrontierService({
       scanLinkFn: async () => cred,
@@ -381,7 +406,10 @@ describe("FrontierService facade wiring (fake network + real tunnel round trip)"
     });
     const placement = makePlacement(instance.instanceUrl, voucher);
     const heartbeatFetch = (async () =>
-      ({ ok: true, json: async () => ({ placements: [placement] }) }) as unknown as Response) as unknown as typeof fetch;
+      ({
+        ok: true,
+        json: async () => ({ placements: [placement] }),
+      }) as unknown as Response) as unknown as typeof fetch;
 
     const service = new FrontierService({
       scanLinkFn: async () => cred,

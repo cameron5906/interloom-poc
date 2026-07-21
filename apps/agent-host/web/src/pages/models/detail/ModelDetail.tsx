@@ -1,10 +1,6 @@
 import { useEffect } from "react";
 import type { DownloadJob, LoadedModel, LocalModel, SystemInfo } from "@interloom/protocol";
-import type {
-  CatalogModel,
-  CatalogTaxonomy,
-  RegistryFit,
-} from "../../../api/types.js";
+import type { CatalogModel, CatalogTaxonomy, RegistryFit } from "../../../api/types.js";
 import { CatalogCapabilityChips } from "../catalog/CatalogCapabilityChips.js";
 import { CatalogFitBadge } from "../catalog/CatalogFitBadge.js";
 import { ModalityIcons } from "../catalog/ModalityIcons.js";
@@ -55,10 +51,20 @@ export function ModelDetail({
 
   return (
     <div className="il-detail-overlay" role="dialog" aria-modal="true" aria-label={model.name}>
-      <div className="il-detail-scrim" onClick={onClose} />
+      <button
+        type="button"
+        className="il-detail-scrim"
+        aria-label="Close model details"
+        onClick={onClose}
+      />
       <div className="il-detail-panel il-scroll-fade">
         <header className="il-detail__topbar">
-          <button type="button" className="il-detail__back" onClick={onClose} aria-label="Back to catalog">
+          <button
+            type="button"
+            className="il-detail__back"
+            onClick={onClose}
+            aria-label="Back to catalog"
+          >
             <BackChevron />
             <span className="il-detail__back-label">Catalog</span>
           </button>
@@ -132,7 +138,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function BackChevron() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M10 3 5 8l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M10 3 5 8l5 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

@@ -79,7 +79,7 @@ export function streamPreview(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    let doneSignalled = false;
+    let terminalSignalled = false;
 
     try {
       for (;;) {
@@ -92,14 +92,23 @@ export function streamPreview(
         while ((sep = buffer.indexOf("\n\n")) !== -1) {
           const frame = buffer.slice(0, sep);
           buffer = buffer.slice(sep + 2);
-          doneSignalled = handleFrame(frame, handlers) || doneSignalled;
+          const outcome = handleFrame(frame, handlers);
+          terminalSignalled = outcome !== "none" || terminalSignalled;
+          if (outcome === "error") {
+            await reader.cancel();
+            return;
+          }
         }
       }
       // Flush any trailing frame.
-      if (buffer.trim()) doneSignalled = handleFrame(buffer, handlers) || doneSignalled;
+      if (buffer.trim()) {
+        const outcome = handleFrame(buffer, handlers);
+        terminalSignalled = outcome !== "none" || terminalSignalled;
+        if (outcome === "error") return;
+      }
       // The terminal frame reports onDone with usage; only fall back here if the
       // stream ended without one, so onDone fires exactly once either way.
-      if (!doneSignalled) handlers.onDone();
+      if (!terminalSignalled) handlers.onDone();
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       handlers.onError(err instanceof Error ? err : new Error("Preview stream failed."));
@@ -109,9 +118,10 @@ export function streamPreview(
   return () => controller.abort();
 }
 
-/** Returns true if the frame contained the terminal `{done:true}` payload. */
-function handleFrame(frame: string, handlers: PreviewHandlers): boolean {
-  let done = false;
+type FrameOutcome = "none" | "done" | "error";
+
+/** Reports whether the frame contained a terminal success or error payload. */
+function handleFrame(frame: string, handlers: PreviewHandlers): FrameOutcome {
   for (const line of frame.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("data:")) continue;
@@ -121,16 +131,21 @@ function handleFrame(frame: string, handlers: PreviewHandlers): boolean {
       const obj = JSON.parse(payload) as {
         delta?: string;
         done?: boolean;
+        error?: string;
         usage?: PreviewUsage;
       };
       if (typeof obj.delta === "string") handlers.onDelta(obj.delta);
+      if (typeof obj.error === "string") {
+        handlers.onError(new Error(obj.error || "Preview stream failed."));
+        return "error";
+      }
       if (obj.done) {
         handlers.onDone(obj.usage);
-        done = true;
+        return "done";
       }
     } catch {
       /* ignore malformed frame */
     }
   }
-  return done;
+  return "none";
 }

@@ -3,11 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "@fastify/websocket";
 import type { TelemetryFrame, ModelRef } from "@interloom/protocol";
 import { listAgents } from "../agents/store.js";
-import {
-  collectTelemetryGpus,
-  getRollingTokensPerSec,
-  getRequestLog,
-} from "./collector.js";
+import { collectTelemetryGpus, getRollingTokensPerSec, getRequestLog } from "./collector.js";
 import { readInstances, type InstanceRecord } from "../models/loaded.js";
 import { modelRefForFilename } from "../models/routes.js";
 import { getServingLane, getQueueDepth } from "../inference/gate.js";
@@ -55,7 +51,10 @@ async function buildFrame(getTunnelInfos: GetTunnelInfosFn): Promise<TelemetryFr
   const firstFilename = first ? path.basename(first.modelPath) : null;
   const activeModel: ModelRef | null =
     first && firstFilename
-      ? modelRefForFilename(firstFilename) ?? { filename: firstFilename, displayName: firstFilename }
+      ? (modelRefForFilename(firstFilename) ?? {
+          filename: firstFilename,
+          displayName: firstFilename,
+        })
       : null;
 
   const tunnelInfos = getTunnelInfos();
@@ -88,10 +87,7 @@ async function buildFrame(getTunnelInfos: GetTunnelInfosFn): Promise<TelemetryFr
   };
 }
 
-export function registerTelemetryWs(
-  app: FastifyInstance,
-  getTunnelInfos: GetTunnelInfosFn,
-): void {
+export function registerTelemetryWs(app: FastifyInstance, getTunnelInfos: GetTunnelInfosFn): void {
   app.get("/ws/telemetry", { websocket: true }, (socket: WebSocket) => {
     connectedClients.add(socket);
 
@@ -107,16 +103,20 @@ export function registerTelemetryWs(
   if (!broadcastTimer) {
     broadcastTimer = setInterval(() => {
       if (connectedClients.size === 0) return;
-      void buildFrame(getTunnelInfos).then((frame) => {
-        const json = JSON.stringify(frame);
-        for (const client of connectedClients) {
-          try {
-            client.send(json);
-          } catch {
-            connectedClients.delete(client);
+      void buildFrame(getTunnelInfos)
+        .then((frame) => {
+          const json = JSON.stringify(frame);
+          for (const client of connectedClients) {
+            try {
+              client.send(json);
+            } catch {
+              connectedClients.delete(client);
+            }
           }
-        }
-      });
+        })
+        .catch(() => {
+          // A failed sample is skipped; the next interval remains live.
+        });
     }, 1000);
   }
 }

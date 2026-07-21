@@ -39,6 +39,13 @@
   color: var(--il-accent-deep);
 }
 
+.il-stale-banner__codes {
+  margin-top: 3px;
+  font-family: var(--il-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.025em;
+}
+
 .il-stale-banner__busy {
   display: flex;
   align-items: center;

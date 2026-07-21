@@ -2,7 +2,7 @@
 # Build context: repo root
 
 # ── Stage 1: base with pnpm ───────────────────────────────────────────────────
-FROM node:22-alpine AS base
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS base
 RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
 
 # ── Stage 2: fetch deps ───────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ RUN pnpm --filter @interloom/protocol build && \
 # Ubuntu restricted pool. NVML is backward compatible: this binary loads the
 # newer injected driver library at runtime. amd64 only — arm64 hosts run CPU
 # inference today and WSL hosts are probed at /usr/lib/wsl/lib/nvidia-smi.
-FROM ubuntu:22.04 AS nvidia-smi
+FROM ubuntu:22.04@sha256:0e0a0fc6d18feda9db1590da249ac93e8d5abfea8f4c3c0c849ce512b5ef8982 AS nvidia-smi
 ARG TARGETARCH
 RUN mkdir -p /out && \
     if [ "$TARGETARCH" = "amd64" ]; then \
@@ -51,7 +51,7 @@ RUN mkdir -p /out && \
 # ── Stage 5: runtime ──────────────────────────────────────────────────────────
 # glibc base (not alpine): GPU telemetry needs a glibc-linked nvidia-smi and the
 # NVIDIA runtime's injected driver libraries, neither of which runs on musl.
-FROM node:22-slim AS runner
+FROM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS runner
 RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
 WORKDIR /repo
 

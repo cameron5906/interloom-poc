@@ -9,6 +9,8 @@
 .il-detail-scrim {
   position: absolute;
   inset: 0;
+  border: 0;
+  padding: 0;
   background: rgba(55, 41, 26, 0.28);
   animation: il-detail-fade 150ms ease;
 }
@@ -234,7 +236,8 @@
 }
 .il-ctxsection__num--rec {
   border-color: var(--il-accent);
-  background: linear-gradient(0deg, var(--il-accent-tint), var(--il-accent-tint)), var(--il-bg-card);
+  background:
+    linear-gradient(0deg, var(--il-accent-tint), var(--il-accent-tint)), var(--il-bg-card);
 }
 .il-ctxsection__num-value {
   font-size: 22px;
@@ -488,7 +491,8 @@
 }
 .il-getmodel__file--rec {
   border-color: var(--il-accent);
-  background: linear-gradient(0deg, var(--il-accent-tint), var(--il-accent-tint)), var(--il-bg-card);
+  background:
+    linear-gradient(0deg, var(--il-accent-tint), var(--il-accent-tint)), var(--il-bg-card);
 }
 .il-getmodel__file-main {
   display: flex;

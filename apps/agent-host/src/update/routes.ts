@@ -71,7 +71,9 @@ export function registerUpdateRoutes(
       const slug = body?.error;
       if (slug === "version_moved") {
         // Manifest moved between our check and the updater's CAS — refresh ours.
-        void checkForUpdate();
+        void checkForUpdate().catch((error) =>
+          app.log.warn({ error }, "release manifest refresh failed"),
+        );
         return reply.status(409).send({ error: "version_moved" });
       }
       return reply.status(409).send({ error: slug ?? "updater_conflict" });

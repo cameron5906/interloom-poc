@@ -11,10 +11,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { verifyEnvelope } from "@interloom/keys";
+import { generateKeypair, signEnvelope, verifyEnvelope } from "@interloom/keys";
 import type { Agent } from "../agents/store.js";
 
-const state = vi.hoisted(() => ({ dataDir: "" }));
+const state = vi.hoisted(() => ({
+  dataDir: "",
+  hostKeypair: { publicKey: "", privateKey: "" },
+}));
 
 vi.mock("../config.js", () => ({
   PORT: 7420,
@@ -28,8 +31,34 @@ vi.mock("../config.js", () => ({
 }));
 
 vi.mock("../keys.js", () => ({
-  getKeypair: () => ({ privateKey: "host-priv", publicKey: "HOST_PUBKEY" }),
+  getKeypair: () => state.hostKeypair,
 }));
+
+function writeOperatorBinding(): void {
+  const identity = generateKeypair();
+  const grant = signEnvelope(
+    {
+      v: 1 as const,
+      identityKey: identity.publicKey,
+      subjectKey: state.hostKeypair.publicKey,
+      scope: "host-operator" as const,
+      issuedAt: Date.now(),
+      epoch: 0,
+      nonce: crypto.randomUUID(),
+    },
+    identity.privateKey,
+    identity.publicKey,
+  );
+  fs.writeFileSync(
+    path.join(state.dataDir, "operator.json"),
+    JSON.stringify({
+      identityKey: identity.publicKey,
+      displayName: "Test Operator",
+      grant,
+      boundAt: new Date().toISOString(),
+    }),
+  );
+}
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -92,7 +121,9 @@ describe("buildAgentManifest — frontier runtime (CONTRACTS §14)", () => {
   it("never requires the ignored lookup/model fields hosted agents need", async () => {
     const { buildAgentManifest } = await import("../agents/register.js");
     // No `model` on the agent at all — must not throw for a frontier runtime.
-    expect(() => buildAgentManifest(baseFrontierAgent, "AGENT_PUBKEY", () => undefined)).not.toThrow();
+    expect(() =>
+      buildAgentManifest(baseFrontierAgent, "AGENT_PUBKEY", () => undefined),
+    ).not.toThrow();
   });
 });
 
@@ -101,6 +132,8 @@ describe("registerAgentOnNetwork — frontier runtime (CONTRACTS §14)", () => {
 
   beforeEach(() => {
     state.dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "il-frontier-register-net-"));
+    state.hostKeypair = generateKeypair();
+    writeOperatorBinding();
     fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { agentId: "a-frontier-1" }));
     vi.stubGlobal("fetch", fetchMock);
     vi.resetModules();
@@ -114,6 +147,19 @@ describe("registerAgentOnNetwork — frontier runtime (CONTRACTS §14)", () => {
   it("throws when the agent has no stored frontier keypair yet", async () => {
     const { registerAgentOnNetwork } = await import("../agents/register.js");
     await expect(registerAgentOnNetwork(baseFrontierAgent)).rejects.toThrow(/keypair/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses Network registration while the Host is unbound", async () => {
+    const { setFrontierConfig } = await import("../agents/frontierKeys.js");
+    setFrontierConfig(baseFrontierAgent.agentId, {
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+    });
+    fs.unlinkSync(path.join(state.dataDir, "operator.json"));
+
+    const { registerAgentOnNetwork } = await import("../agents/register.js");
+    await expect(registerAgentOnNetwork(baseFrontierAgent)).rejects.toThrow(/operator binding/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -136,7 +182,11 @@ describe("registerAgentOnNetwork — frontier runtime (CONTRACTS §14)", () => {
     };
     expect(envelope.key).toBe(keyEntry.agentPubKey);
     expect(envelope.payload.pubKey).toBe(keyEntry.agentPubKey);
-    expect(envelope.key).not.toBe("HOST_PUBKEY");
+    expect(envelope.key).not.toBe(state.hostKeypair.publicKey);
+    expect((envelope.payload as { operator?: { grant?: unknown } }).operator?.grant).toBeDefined();
+    expect((envelope.payload as { hostAttestation?: { key: string } }).hostAttestation?.key).toBe(
+      state.hostKeypair.publicKey,
+    );
     expect(verifyEnvelope(envelope)).toBe(true);
   });
 
@@ -149,7 +199,10 @@ describe("registerAgentOnNetwork — frontier runtime (CONTRACTS §14)", () => {
     vi.resetModules();
 
     const { setFrontierConfig } = await import("../agents/frontierKeys.js");
-    setFrontierConfig(baseFrontierAgent.agentId, { provider: "anthropic", model: "claude-sonnet-5" });
+    setFrontierConfig(baseFrontierAgent.agentId, {
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+    });
     const { registerAgentOnNetwork } = await import("../agents/register.js");
 
     await registerAgentOnNetwork(baseFrontierAgent);

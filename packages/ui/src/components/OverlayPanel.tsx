@@ -183,7 +183,13 @@ export function OverlayPanel({
   return createPortal(
     <div
       className="il-overlay__scrim"
-      onClick={closeOnScrim ? onClose : undefined}
+      onClick={
+        closeOnScrim
+          ? (event) => {
+              if (event.target === event.currentTarget) onClose();
+            }
+          : undefined
+      }
       role="presentation"
     >
       <div
@@ -193,7 +199,6 @@ export function OverlayPanel({
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
-        onClick={(e) => e.stopPropagation()}
       >
         {children}
       </div>

@@ -6,9 +6,12 @@
  * degrades the message to its plain `content` string, never the request.
  */
 
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import http from "http";
 import type { AddressInfo } from "net";
+
+const ASSET_SHA = "a".repeat(64);
+const PNG_PATH = `/api/assets/av/${ASSET_SHA}.png`;
 
 vi.mock("../config.js", () => ({
   PORT: 7420,
@@ -35,6 +38,12 @@ function startServer(
 }
 
 describe("inlineImageUrl", () => {
+  beforeEach(() => {
+    // Explicit test-only policy switch: production never infers this exception
+    // from NODE_ENV.
+    vi.stubEnv("ALLOW_LOOPBACK_INSTANCE_ORIGINS", "true");
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -43,7 +52,7 @@ describe("inlineImageUrl", () => {
   it("passes data: URLs through untouched", async () => {
     const { inlineImageUrl } = await import("../tunnel/client.js");
     const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
-    expect(await inlineImageUrl(dataUrl)).toBe(dataUrl);
+    expect(await inlineImageUrl(dataUrl, "https://instance.example")).toBe(dataUrl);
   });
 
   it("inlines a successful http(s) fetch as a data URL", async () => {
@@ -54,7 +63,7 @@ describe("inlineImageUrl", () => {
     });
 
     const { inlineImageUrl } = await import("../tunnel/client.js");
-    const result = await inlineImageUrl(`${url}/image.png`);
+    const result = await inlineImageUrl(`${url}${PNG_PATH}`, url);
     await close();
 
     expect(result).toBe(`data:image/png;base64,${png.toString("base64")}`);
@@ -70,7 +79,7 @@ describe("inlineImageUrl", () => {
     });
 
     const { inlineImageUrl } = await import("../tunnel/client.js");
-    const result = await inlineImageUrl(`${url}/big.png`);
+    const result = await inlineImageUrl(`${url}${PNG_PATH}`, url);
     await close();
 
     expect(result).toBeNull();
@@ -84,7 +93,7 @@ describe("inlineImageUrl", () => {
     });
 
     const { inlineImageUrl } = await import("../tunnel/client.js");
-    const result = await inlineImageUrl(`${url}/big-chunked.png`);
+    const result = await inlineImageUrl(`${url}${PNG_PATH}`, url);
     await close();
 
     expect(result).toBeNull();
@@ -97,46 +106,70 @@ describe("inlineImageUrl", () => {
     });
 
     const { inlineImageUrl } = await import("../tunnel/client.js");
-    const result = await inlineImageUrl(`${url}/not-an-image`);
+    const result = await inlineImageUrl(`${url}${PNG_PATH}`, url);
     await close();
 
     expect(result).toBeNull();
   });
 
   it("degrades (returns null) on timeout", async () => {
-    // Force the 10s AbortSignal.timeout() used internally to behave as an
-    // already-aborted signal so the test doesn't have to wait 10 real
-    // seconds — this exercises the exact timeout code path deterministically.
-    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
-    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
-      void ms;
-      const ac = new AbortController();
-      ac.abort();
-      return ac.signal;
-    });
-
     const { url, close } = await startServer((_req, res) => {
-      res.writeHead(200, { "content-type": "image/png" });
-      res.end(Buffer.from([1, 2, 3]));
+      // Accept the connection but never send headers. The test-only timeout
+      // argument exercises the same request destruction path without waiting
+      // ten real seconds.
+      void res;
     });
 
     const { inlineImageUrl } = await import("../tunnel/client.js");
-    const result = await inlineImageUrl(`${url}/slow.png`);
+    const result = await inlineImageUrl(`${url}${PNG_PATH}`, url, 25);
     await close();
 
     expect(result).toBeNull();
-    void realTimeout;
   });
 
   it("degrades (returns null) on network error (connection refused)", async () => {
     const { inlineImageUrl } = await import("../tunnel/client.js");
     // Nothing listens on this port.
-    const result = await inlineImageUrl("http://127.0.0.1:1/unreachable.png");
+    const result = await inlineImageUrl(`http://127.0.0.1:1${PNG_PATH}`, "http://127.0.0.1:1");
     expect(result).toBeNull();
+  });
+
+  it("rejects a same-origin URL outside the approved content-addressed asset path", async () => {
+    let requested = false;
+    const { url, close } = await startServer((_req, res) => {
+      requested = true;
+      res.end();
+    });
+
+    const { inlineImageUrl } = await import("../tunnel/client.js");
+    expect(await inlineImageUrl(`${url}/admin/export.png`, url)).toBeNull();
+    expect(requested).toBe(false);
+    await close();
+  });
+
+  it("rejects bytes whose magic does not match an allowed image content-type", async () => {
+    const { url, close } = await startServer((_req, res) => {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end("<script>alert(1)</script>");
+    });
+
+    const { inlineImageUrl } = await import("../tunnel/client.js");
+    expect(await inlineImageUrl(`${url}${PNG_PATH}`, url)).toBeNull();
+    await close();
+  });
+
+  it("rejects a forged inline image data URL", async () => {
+    const { inlineImageUrl } = await import("../tunnel/client.js");
+    const forged = `data:image/png;base64,${Buffer.from("not an image").toString("base64")}`;
+    expect(await inlineImageUrl(forged, "https://instance.example")).toBeNull();
   });
 });
 
 describe("resolveWireContent (per-message degrade)", () => {
+  beforeEach(() => {
+    vi.stubEnv("ALLOW_LOOPBACK_INSTANCE_ORIGINS", "true");
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -150,13 +183,14 @@ describe("resolveWireContent (per-message degrade)", () => {
         contentParts: [{ type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } }],
       },
       false,
+      "https://instance.example",
     );
     expect(result).toBe("[image attached]");
   });
 
   it("resolves contentParts (with data URL passthrough) when vision-capable", async () => {
     const { resolveWireContent } = await import("../tunnel/client.js");
-    const dataUrl = "data:image/png;base64,AAAA";
+    const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
     const result = await resolveWireContent(
       {
         role: "user",
@@ -167,6 +201,7 @@ describe("resolveWireContent (per-message degrade)", () => {
         ],
       },
       true,
+      "https://instance.example",
     );
     expect(result).toEqual([
       { type: "text", text: "what is this?" },
@@ -182,10 +217,11 @@ describe("resolveWireContent (per-message degrade)", () => {
         content: "[image attached]",
         contentParts: [
           { type: "text", text: "what is this?" },
-          { type: "image_url", image_url: { url: "http://127.0.0.1:1/unreachable.png" } },
+          { type: "image_url", image_url: { url: `http://127.0.0.1:1${PNG_PATH}` } },
         ],
       },
       true,
+      "http://127.0.0.1:1",
     );
     expect(result).toBe("[image attached]");
   });

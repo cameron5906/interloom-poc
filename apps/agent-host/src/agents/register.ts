@@ -17,8 +17,7 @@ import { listAgents, updateAgent, type Agent } from "./store.js";
 
 type CapabilityLookup = (filename: string) => ModelCapabilities | undefined;
 
-const localLookup: CapabilityLookup = (filename) =>
-  capabilitiesForFilename(MODELS_DIR, filename);
+const localLookup: CapabilityLookup = (filename) => capabilitiesForFilename(MODELS_DIR, filename);
 
 /**
  * The ModelRef a frontier agent's manifest declares in place of a local GGUF
@@ -56,8 +55,9 @@ function requireFrontierKeypair(agent: Agent): Keypair {
  * `operator` reflects the bound network identity when this host has
  * completed operator binding (`operator: { pubKey: identityKey, displayName,
  * grant }`, `operator.pubKey ≠` the manifest-signing host key — the network
- * verifies the grant chain instead). An unbound host keeps the legacy rule
- * (`operator.pubKey === envelope.key`, no grant) so old hosts keep working.
+ * verifies the grant chain instead). The production registration path refuses
+ * to publish until that binding exists; the legacy shape remains constructible
+ * here only for additive protocol fixtures and local rendering tests.
  *
  * `hostAttestation` (CONTRACTS §6/§14) extends that grant chain one hop
  * further to operator→host→agent: a frontier agent's manifest is signed
@@ -66,10 +66,8 @@ function requireFrontierKeypair(agent: Agent): Keypair {
  * Stamped only when both `isFrontier` and `operatorBinding` hold — a
  * host-key-signed envelope over `{agentId, agentPubKey: pubKey, iat}` the
  * network verifies before treating `hostKeypair.publicKey` as the grant's
- * subject in place of `envelope.key`. Absent for hosted agents (their
- * envelope key already IS the host key) and for unbound hosts (their
- * frontier agents already self-stamp `operator.pubKey` as `pubKey`,
- * matching the legacy equality rule with no attestation needed).
+ * subject in place of `envelope.key`. Absent only for hosted manifests and
+ * additive legacy fixtures.
  */
 export function buildAgentManifest(
   agent: Agent,
@@ -118,7 +116,9 @@ export function buildAgentManifest(
     model,
     ...(agent.title ? { title: agent.title } : {}),
     ...(agent.gender ? { gender: agent.gender } : {}),
-    ...(agent.specialties && agent.specialties.length > 0 ? { specialties: agent.specialties } : {}),
+    ...(agent.specialties && agent.specialties.length > 0
+      ? { specialties: agent.specialties }
+      : {}),
     ...(isFrontier ? { runtime: "frontier" as const, frontier: agent.frontier } : {}),
     ...(hostAttestation ? { hostAttestation } : {}),
     operator: operatorBinding
@@ -131,10 +131,20 @@ export function buildAgentManifest(
   };
 }
 
-export async function registerAgentOnNetwork(agent: Agent): Promise<void> {
+export async function registerAgentOnNetwork(agent: Agent): Promise<AgentManifest> {
   const isFrontier = agent.runtime === "frontier";
   const keypair = isFrontier ? requireFrontierKeypair(agent) : getKeypair();
-  const manifest = buildAgentManifest(agent, keypair.publicKey);
+  const operatorBinding = getOperatorBinding();
+  if (!operatorBinding) {
+    throw new Error("operator binding is required before agent registration");
+  }
+  const manifest = buildAgentManifest(
+    agent,
+    keypair.publicKey,
+    localLookup,
+    operatorBinding.displayName,
+    operatorBinding,
+  );
   const envelope = signEnvelope(manifest, keypair.privateKey, keypair.publicKey);
   try {
     await networkRegisterAgent(envelope);
@@ -143,7 +153,11 @@ export async function registerAgentOnNetwork(agent: Agent): Promise<void> {
     // all grants for this identity since it was issued) on the binding state
     // instead of letting it disappear into a per-call catch/log — this is
     // the ONE place every register/re-register path funnels through.
-    if (err instanceof NetworkApiError && err.status === 403 && err.body.includes("operator grant epoch stale")) {
+    if (
+      err instanceof NetworkApiError &&
+      err.status === 403 &&
+      err.body.includes("operator grant epoch stale")
+    ) {
       setOperatorGrantStale(true);
     }
     throw err;
@@ -152,7 +166,7 @@ export async function registerAgentOnNetwork(agent: Agent): Promise<void> {
 
   // Frontier agents have no local GGUF to detect capabilities from — the
   // manifest's synthesized model ref is derived, not stored, on `agent`.
-  if (isFrontier) return;
+  if (isFrontier) return manifest;
 
   if (
     manifest.model.capabilities &&
@@ -160,6 +174,7 @@ export async function registerAgentOnNetwork(agent: Agent): Promise<void> {
   ) {
     updateAgent(agent.agentId, { model: manifest.model });
   }
+  return manifest;
 }
 
 export function capabilitiesNeedRefresh(

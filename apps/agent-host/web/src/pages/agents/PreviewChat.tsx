@@ -99,23 +99,35 @@ export function PreviewChat({
   const introKeyRef = useRef<string | null>(null);
   const introTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cannedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftRef = useRef(draft);
+  const startStreamRef = useRef<(messages: PreviewMessage[], options?: StartStreamOptions) => void>(
+    () => {},
+  );
+  draftRef.current = draft;
 
-  const loadedEntry = draft.model ? loadedModels.find((m) => m.filename === draft.model!.filename) : undefined;
+  const loadedEntry = draft.model
+    ? loadedModels.find((m) => m.filename === draft.model!.filename)
+    : undefined;
   const noModel = !draft.model;
   const modelLoaded = !!loadedEntry;
   const disabled = noModel || !modelLoaded || agentId === null;
 
-  const { loading: loadFlowLoading, spillConfirm, attemptLoad, confirmSpillAndRetry, cancelSpillConfirm } =
-    useGuardedModelLoad(
-      () => {
-        onModelLoaded();
-        setPendingMessages((pending) => {
-          if (pending) startStream(pending);
-          return null;
-        });
-      },
-      () => setPendingMessages(null),
-    );
+  const {
+    loading: loadFlowLoading,
+    spillConfirm,
+    attemptLoad,
+    confirmSpillAndRetry,
+    cancelSpillConfirm,
+  } = useGuardedModelLoad(
+    () => {
+      onModelLoaded();
+      setPendingMessages((pending) => {
+        if (pending) startStream(pending);
+        return null;
+      });
+    },
+    () => setPendingMessages(null),
+  );
 
   // Reset the conversation when switching agents.
   useEffect(() => {
@@ -203,7 +215,8 @@ export function PreviewChat({
           setAwaitingFirst(false);
 
           const apiErr = err as ApiError & { status?: number; body?: unknown };
-          const body = apiErr.body as { error?: string; model?: { filename?: string }; path?: string | null } | undefined;
+          const body = apiErr.body as
+            { error?: string; model?: { filename?: string }; path?: string | null } | undefined;
 
           if (apiErr.status === 400 && body?.error === "model_required") {
             setError("This agent has no model assigned. Select a model in the editor first.");
@@ -234,6 +247,7 @@ export function PreviewChat({
       },
     );
   };
+  startStreamRef.current = startStream;
 
   // Intro re-ping: a debounced self-introduction whenever name/title/gender/
   // specialties/persona change — visual-only tweaks don't trigger it.
@@ -268,10 +282,11 @@ export function PreviewChat({
         ...prev.filter((t) => t.origin !== "auto-intro"),
         { role: "user", content: INTRO_USER_PROMPT, origin: "auto-intro" },
       ]);
-      startStream(
-        [{ role: "user", content: INTRO_USER_PROMPT }],
-        { origin: "auto-intro", personaOverride: buildIntroPersona(draft) },
-      );
+      const currentDraft = draftRef.current;
+      startStreamRef.current([{ role: "user", content: INTRO_USER_PROMPT }], {
+        origin: "auto-intro",
+        personaOverride: buildIntroPersona(currentDraft),
+      });
     }, INTRO_DEBOUNCE_MS);
 
     return () => {
@@ -307,7 +322,14 @@ export function PreviewChat({
 
   const send = () => {
     const text = input.trim();
-    if ((!text && attachments.length === 0) || pendingAttach > 0 || streaming || disabled || !agentId) return;
+    if (
+      (!text && attachments.length === 0) ||
+      pendingAttach > 0 ||
+      streaming ||
+      disabled ||
+      !agentId
+    )
+      return;
 
     const nextTurns: ChatTurn[] = [
       ...turns,
@@ -330,7 +352,9 @@ export function PreviewChat({
     if (!draft.model) return;
     const local = localModels.find((m) => m.filename === draft.model!.filename);
     if (!local) {
-      toasts.error("That model isn't installed on this host — download it from the Models page first.");
+      toasts.error(
+        "That model isn't installed on this host — download it from the Models page first.",
+      );
       return;
     }
     void attemptLoad(local.path, local.filename);
@@ -353,7 +377,11 @@ export function PreviewChat({
             name={draft.name || "Agent"}
             isAgent
             emoji={draft.avatar.emoji}
-            bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+            bg={
+              draft.avatar.character
+                ? `#${draft.avatar.character.backgroundColor}`
+                : draft.avatar.bg
+            }
             imageUrl={headerAvatarUrl}
             size="sm"
             badge={runtime === "frontier" ? "frontier" : undefined}
@@ -374,7 +402,11 @@ export function PreviewChat({
                     name={draft.name || "Agent"}
                     isAgent
                     emoji={draft.avatar.emoji}
-                    bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+                    bg={
+                      draft.avatar.character
+                        ? `#${draft.avatar.character.backgroundColor}`
+                        : draft.avatar.bg
+                    }
                     imageUrl={headerAvatarUrl}
                     size="sm"
                     badge={runtime === "frontier" ? "frontier" : undefined}
@@ -408,7 +440,10 @@ export function PreviewChat({
             ) : (
               <div className="il-preview__empty">
                 <div className="il-preview__empty-title">Try your persona</div>
-                <p>Send a message to see how {draft.name || "your agent"} responds — live, on your GPU.</p>
+                <p>
+                  Send a message to see how {draft.name || "your agent"} responds — live, on your
+                  GPU.
+                </p>
               </div>
             )
           ) : (
@@ -431,7 +466,11 @@ export function PreviewChat({
                       name={draft.name || "Agent"}
                       isAgent
                       emoji={draft.avatar.emoji}
-                      bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+                      bg={
+                        draft.avatar.character
+                          ? `#${draft.avatar.character.backgroundColor}`
+                          : draft.avatar.bg
+                      }
                       imageUrl={headerAvatarUrl}
                       size="sm"
                       badge={runtime === "frontier" ? "frontier" : undefined}
@@ -454,7 +493,11 @@ export function PreviewChat({
                     name={draft.name || "Agent"}
                     isAgent
                     emoji={draft.avatar.emoji}
-                    bg={draft.avatar.character ? `#${draft.avatar.character.backgroundColor}` : draft.avatar.bg}
+                    bg={
+                      draft.avatar.character
+                        ? `#${draft.avatar.character.backgroundColor}`
+                        : draft.avatar.bg
+                    }
                     imageUrl={headerAvatarUrl}
                     size="sm"
                     badge={runtime === "frontier" ? "frontier" : undefined}

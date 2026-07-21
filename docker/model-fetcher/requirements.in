@@ -1,0 +1,8 @@
+huggingface_hub==0.34.4
+# Explicit cross-platform transitives keep one hashed lock installable in both
+# the Linux image/CI and Windows developer environments.
+hf-xet==1.5.2
+colorama==0.4.6
+requests==2.34.2
+fastapi==0.139.2
+uvicorn==0.35.0

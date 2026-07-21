@@ -39,7 +39,13 @@ export function Modal({
   return (
     <div
       className="il-modal__overlay"
-      onClick={closeOnOverlay ? onClose : undefined}
+      onClick={
+        closeOnOverlay
+          ? (event) => {
+              if (event.target === event.currentTarget) onClose();
+            }
+          : undefined
+      }
       role="presentation"
     >
       <div
@@ -47,7 +53,6 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
-        onClick={(e) => e.stopPropagation()}
       >
         {title ? (
           <div className="il-modal__header" id={titleId}>

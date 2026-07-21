@@ -57,9 +57,9 @@ export class QueueManager {
   /** Registers a placement and pulls it immediately — plus on every reconnect or `work.available` nudge thereafter. */
   addPlacement(handle: PlacementHandle): void {
     this.placements.set(handle.placementId, handle);
-    handle.onWorkAvailable(() => void this.pullFrom(handle));
-    handle.onConnected(() => void this.pullFrom(handle));
-    void this.pullFrom(handle);
+    handle.onWorkAvailable(() => this.startPull(handle));
+    handle.onConnected(() => this.startPull(handle));
+    this.startPull(handle);
   }
 
   removePlacement(placementId: string): void {
@@ -70,7 +70,7 @@ export class QueueManager {
   start(): void {
     if (this.pollTimer) return;
     this.pollTimer = setInterval(() => {
-      for (const handle of this.placements.values()) void this.pullFrom(handle);
+      for (const handle of this.placements.values()) this.startPull(handle);
     }, this.pollMs);
     this.pollTimer.unref?.();
   }
@@ -88,6 +88,15 @@ export class QueueManager {
 
   depthForAgent(agentId: string): number {
     return this.buffer.filter((entry) => entry.agentId === agentId).length;
+  }
+
+  private startPull(handle: PlacementHandle): void {
+    void this.pullFrom(handle).catch((error) => {
+      log.warn("frontier queue tick failed", {
+        placementId: handle.placementId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   private async pullFrom(handle: PlacementHandle): Promise<void> {
@@ -121,7 +130,11 @@ export class QueueManager {
   private takeNext(): { item: FrontierWorkItem; placementRef: string } | null {
     if (this.buffer.length === 0) return null;
     const ordered = orderWork(
-      this.buffer.map((entry, index) => ({ workId: entry.item.workId, enqueuedAt: entry.item.enqueuedAt, index })),
+      this.buffer.map((entry, index) => ({
+        workId: entry.item.workId,
+        enqueuedAt: entry.item.enqueuedAt,
+        index,
+      })),
     );
     const first = ordered[0];
     if (!first) return null;
