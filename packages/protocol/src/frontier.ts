@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ChatMessage } from "./chat.js";
+import { AgentBehaviorEnvelopeV2 } from "./behavior.js";
 
 /** Frontier agent LLM provider (CONTRACTS §14). */
 export const FrontierProvider = z.enum(["anthropic", "openai"]);
@@ -31,12 +32,16 @@ export const FrontierWorkItem = z.object({
     name: z.string(),
     title: z.string().optional(),
     persona: z.string().optional(),
+    specialties: z.array(z.string().min(1).max(120)).max(32).optional(),
   }),
   enqueuedAt: z.string(),
   kind: z.enum(["direct", "attention"]).optional(),
   threadRootId: z.string().optional(),
   attentionTurnId: z.string().optional(),
   engagement: z.enum(["discovery", "thread"]).optional(),
+  channelKind: z.enum(["channel", "dm"]).optional(),
+  /** Optional negotiated v2 behavior context. Absent means behavior v1. */
+  behavior: AgentBehaviorEnvelopeV2.optional(),
   /**
    * Opaque token bound to this specific lease (CONTRACTS §14 "Lease
    * ownership"). Additive — absent only if delivered by a not-yet-upgraded

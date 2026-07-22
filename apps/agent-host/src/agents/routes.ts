@@ -17,7 +17,7 @@ import { findInstanceByFilename, instanceBaseUrl } from "../models/loaded.js";
 import { capabilitiesForFilename } from "../models/scan.js";
 import { isThinkingDisabled } from "../models/settingsStore.js";
 import { enqueueInference } from "../inference/gate.js";
-import { clampMaxTokens } from "../inference/limits.js";
+import { allocateMaxTokens } from "../inference/limits.js";
 import { ThinkStripper } from "../inference/thinkStripper.js";
 import { registerAgentOnNetwork } from "./register.js";
 import { uploadAgentAvatar } from "./avatar.js";
@@ -163,7 +163,7 @@ export function registerAgentRoutes(app: FastifyInstance): void {
                 stream: true,
                 stream_options: { include_usage: true },
                 temperature,
-                max_tokens: clampMaxTokens(undefined, instance.ctx, thinkingActive),
+                max_tokens: allocateMaxTokens(undefined, instance.ctx),
                 ...(thinkingDisabled ? { chat_template_kwargs: { enable_thinking: false } } : {}),
               }),
               signal,

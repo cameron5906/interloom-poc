@@ -1,6 +1,7 @@
 import type { Placement } from "@interloom/protocol";
 import { getKeypair } from "../keys.js";
 import { getAgent } from "../agents/store.js";
+import { buildRuntimeProfile } from "../models/runtimeProfile.js";
 import { TunnelClient, type TunnelInfo } from "./client.js";
 
 export interface PlacementsDiff {
@@ -115,6 +116,7 @@ export class TunnelManager {
         agentName,
         keypair.privateKey,
         keypair.publicKey,
+        buildRuntimeProfile,
       );
       this.tunnels.set(placement.placementId, client);
       client.start();

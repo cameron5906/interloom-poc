@@ -13,7 +13,10 @@ interface FileEntry {
 }
 
 /** Header parses are expensive (≤32 MB read) — cache per path+mtime. */
-const capCache = new Map<string, { mtimeMs: number; capabilities: ModelCapabilities | undefined }>();
+const capCache = new Map<
+  string,
+  { mtimeMs: number; capabilities: ModelCapabilities | undefined }
+>();
 
 function walkGguf(dir: string): FileEntry[] {
   const out: FileEntry[] = [];
@@ -39,7 +42,10 @@ function walkGguf(dir: string): FileEntry[] {
   return out;
 }
 
-function cachedCapabilities(entry: FileEntry, siblingFilenames: string[]): ModelCapabilities | undefined {
+function cachedCapabilities(
+  entry: FileEntry,
+  siblingFilenames: string[],
+): ModelCapabilities | undefined {
   const hit = capCache.get(entry.path);
   if (hit && hit.mtimeMs === entry.mtimeMs) return hit.capabilities;
   const repoId = path.basename(entry.dir).replace("__", "/");
@@ -66,10 +72,13 @@ export function scanLocalModels(dir: string): LocalModel[] {
   const models: LocalModel[] = [];
   for (const [, entries] of byDir) {
     const siblingFilenames = entries.map((e) => e.filename);
-    const mmproj = pickMmproj(entries.map((e) => ({ filename: e.filename, sizeBytes: e.sizeBytes })));
+    const mmproj = pickMmproj(
+      entries.map((e) => ({ filename: e.filename, sizeBytes: e.sizeBytes })),
+    );
     const mmprojEntry = mmproj ? entries.find((e) => e.filename === mmproj.filename) : undefined;
     for (const entry of entries) {
       if (isMmprojFilename(entry.filename)) continue;
+      const repoId = path.basename(entry.dir).replace("__", "/");
       const caps = cachedCapabilities(entry, siblingFilenames);
       const capabilities =
         mmprojEntry && caps && caps.vision === false ? { ...caps, vision: true } : caps;
@@ -77,6 +86,7 @@ export function scanLocalModels(dir: string): LocalModel[] {
         path: entry.path,
         filename: entry.filename,
         sizeBytes: entry.sizeBytes,
+        ...(repoId.includes("/") ? { repoId } : {}),
         capabilities,
         ...(mmprojEntry
           ? { mmprojPath: mmprojEntry.path, mmprojBytes: mmprojEntry.sizeBytes }

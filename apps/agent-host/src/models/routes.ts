@@ -5,7 +5,13 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { MODELS_DIR, FETCHER_URL } from "../config.js";
 import type { GpuInfo, ModelRef, LoadedModel, AllocationView } from "@interloom/protocol";
-import { ContextOptions, LoadModelBody, UnloadModelBody, ModelSettingsPatch } from "@interloom/protocol";
+import {
+  ContextOptions,
+  LoadModelBody,
+  UnloadModelBody,
+  ModelSettingsPatch,
+  catalogGgufRepoIds,
+} from "@interloom/protocol";
 import { getActiveModel } from "./active.js";
 import { parseGgufMeta } from "./gguf.js";
 import { scanLocalModels } from "./scan.js";
@@ -39,12 +45,7 @@ import {
 } from "./loaded.js";
 import { listModelSettings, patchModelSettings, isThinkingDisabled } from "./settingsStore.js";
 import { drainInstance } from "../inference/gate.js";
-import {
-  getHfStatus,
-  connectHfToken,
-  disconnectHfToken,
-  getHfToken,
-} from "../settings.js";
+import { getHfStatus, connectHfToken, disconnectHfToken, getHfToken } from "../settings.js";
 
 export { computeAvailableVramMB, kvBytes, fitTier, type FitTierInput } from "./fit.js";
 export { loadedFilenames } from "./loaded.js";
@@ -101,7 +102,15 @@ function instanceToFootprint(inst: InstanceRecord): InstanceFootprint {
 export function modelRefForFilename(filename: string): ModelRef | undefined {
   const local = scanLocalModels(MODELS_DIR).find((m) => m.filename === filename);
   if (!local) return undefined;
+  const targetRepo = local.repoId?.toLowerCase();
+  const catalog = targetRepo
+    ? getRegistry()?.doc.catalog.models.find((model) =>
+        catalogGgufRepoIds(model).some((candidate) => candidate.toLowerCase() === targetRepo),
+      )
+    : undefined;
   return {
+    ...(local.repoId ? { repoId: local.repoId } : {}),
+    ...(catalog ? { catalogId: catalog.id } : {}),
     filename: local.filename,
     displayName: local.filename,
     sizeBytes: local.sizeBytes,
@@ -293,9 +302,8 @@ export function buildContextOptions(
     });
 
     const fastOptions = options.filter((o) => o.fit === "fast");
-    const recommendedCtx = fastOptions.length > 0
-      ? Math.max(...fastOptions.map((o) => o.ctx))
-      : 4096;
+    const recommendedCtx =
+      fastOptions.length > 0 ? Math.max(...fastOptions.map((o) => o.ctx)) : 4096;
 
     return ContextOptions.parse({
       trainedMax,
@@ -316,7 +324,10 @@ export function buildContextOptions(
     c *= 2;
   }
   // Always include trainedMax itself if it's not already a power-of-two in the list
-  if (candidates.length === 0 || candidates[candidates.length - 1] !== Math.min(trainedMax, CAP_CTX)) {
+  if (
+    candidates.length === 0 ||
+    candidates[candidates.length - 1] !== Math.min(trainedMax, CAP_CTX)
+  ) {
     const capped = Math.min(trainedMax, CAP_CTX);
     if (!candidates.includes(capped)) {
       candidates.push(capped);
@@ -338,9 +349,7 @@ export function buildContextOptions(
   });
 
   const fastOptions = options.filter((o) => o.fit === "fast");
-  const recommendedCtx = fastOptions.length > 0
-    ? Math.max(...fastOptions.map((o) => o.ctx))
-    : 4096;
+  const recommendedCtx = fastOptions.length > 0 ? Math.max(...fastOptions.map((o) => o.ctx)) : 4096;
 
   const { plans, recommendedPlan } = buildContextPlans(
     candidates,
@@ -462,53 +471,50 @@ export function registerModelsRoutes(
 
   // --- Download management ---
 
-  app.post<{ Body: unknown }>(
-    "/api/models/download",
-    async (req, reply) => {
-      const parsed = DownloadBody.safeParse(req.body);
-      if (!parsed.success) {
-        return reply.status(400).send({ error: parsed.error.message });
+  app.post<{ Body: unknown }>("/api/models/download", async (req, reply) => {
+    const parsed = DownloadBody.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
+    const { repoId, filename, mmprojFilename } = parsed.data;
+    const hfToken = getHfToken();
+    const fetcherBody: Record<string, unknown> = { repoId, filename };
+    if (hfToken) fetcherBody["hfToken"] = hfToken;
+    try {
+      const res = await fetch(`${FETCHER_URL}/downloads`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(fetcherBody),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        return reply.status(502).send({ error: text });
       }
-      const { repoId, filename, mmprojFilename } = parsed.data;
-      const hfToken = getHfToken();
-      const fetcherBody: Record<string, unknown> = { repoId, filename };
-      if (hfToken) fetcherBody["hfToken"] = hfToken;
-      try {
-        const res = await fetch(`${FETCHER_URL}/downloads`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(fetcherBody),
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          return reply.status(502).send({ error: text });
-        }
-        const job = await res.json();
-        if (mmprojFilename) {
-          const mmprojBody: Record<string, unknown> = { repoId, filename: mmprojFilename };
-          if (hfToken) mmprojBody["hfToken"] = hfToken;
-          try {
-            const mmprojRes = await fetch(`${FETCHER_URL}/downloads`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(mmprojBody),
-            });
-            if (!mmprojRes.ok) {
-              app.log.warn(
-                `mmproj download enqueue failed for ${repoId}/${mmprojFilename}: ${await mmprojRes.text()}`,
-              );
-            }
-          } catch {
-            app.log.warn(`mmproj download enqueue failed for ${repoId}/${mmprojFilename}`);
+      const job = await res.json();
+      if (mmprojFilename) {
+        const mmprojBody: Record<string, unknown> = { repoId, filename: mmprojFilename };
+        if (hfToken) mmprojBody["hfToken"] = hfToken;
+        try {
+          const mmprojRes = await fetch(`${FETCHER_URL}/downloads`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(mmprojBody),
+          });
+          if (!mmprojRes.ok) {
+            app.log.warn(
+              `mmproj download enqueue failed for ${repoId}/${mmprojFilename}: ${await mmprojRes.text()}`,
+            );
           }
+        } catch {
+          app.log.warn(`mmproj download enqueue failed for ${repoId}/${mmprojFilename}`);
         }
-        return reply.send(job);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return reply.status(502).send({ error: `fetcher unavailable: ${message}` });
       }
-    },
-  );
+      return reply.send(job);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(502).send({ error: `fetcher unavailable: ${message}` });
+    }
+  });
 
   app.get("/api/models/downloads", async (_req, reply) => {
     try {
@@ -692,57 +698,52 @@ export function registerModelsRoutes(
     const instance = findInstanceByFilename(filename, existing);
     if (instance) {
       const reasoningBudget = updated.disableThinking === true ? 0 : null;
-      writeInstances(
-        existing.map((i) => (i.id === instance.id ? { ...i, reasoningBudget } : i)),
-      );
+      writeInstances(existing.map((i) => (i.id === instance.id ? { ...i, reasoningBudget } : i)));
       triggerHeartbeat?.();
     }
 
     return reply.send(updated);
   });
 
-  app.post<{ Body: unknown }>(
-    "/api/models/activate",
-    async (req, reply) => {
-      const parsed = ActivateBody.safeParse(req.body);
-      if (!parsed.success) {
-        return reply.status(400).send({ error: parsed.error.message });
-      }
+  app.post<{ Body: unknown }>("/api/models/activate", async (req, reply) => {
+    const parsed = ActivateBody.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.message });
+    }
 
-      let resolvedPath: string;
-      try {
-        resolvedPath = assertInsideModelsDir(parsed.data.path);
-      } catch {
-        return reply.status(400).send({ error: "invalid path" });
-      }
-      if (!fs.existsSync(resolvedPath)) {
-        return reply.status(404).send({ error: "model file not found" });
-      }
+    let resolvedPath: string;
+    try {
+      resolvedPath = assertInsideModelsDir(parsed.data.path);
+    } catch {
+      return reply.status(400).send({ error: "invalid path" });
+    }
+    if (!fs.existsSync(resolvedPath)) {
+      return reply.status(404).send({ error: "model file not found" });
+    }
 
-      // "Load this as the sole model" — unload every currently loaded
-      // instance first (CONTRACTS §6), then load fresh onto 8080 (the only
-      // port `nextPort([])` can assign once every instance is gone). The
-      // rig-optimizer plan flags (kvCache/nCpuMoe) ride the load onto the
-      // instance record — the direct v1 inference.json write is gone (the
-      // supervisor is v2 multi-instance).
-      for (const inst of readInstances()) {
-        drainInstance(inst.port);
-      }
+    // "Load this as the sole model" — unload every currently loaded
+    // instance first (CONTRACTS §6), then load fresh onto 8080 (the only
+    // port `nextPort([])` can assign once every instance is gone). The
+    // rig-optimizer plan flags (kvCache/nCpuMoe) ride the load onto the
+    // instance record — the direct v1 inference.json write is gone (the
+    // supervisor is v2 multi-instance).
+    for (const inst of readInstances()) {
+      drainInstance(inst.port);
+    }
 
-      const outcome = await loadModelInstance({
-        resolvedPath,
-        ctx: parsed.data.ctx,
-        kvCache: parsed.data.kvCache,
-        nCpuMoe: parsed.data.nCpuMoe,
-        othersOverride: [],
-        getSystemInfo,
-      });
+    const outcome = await loadModelInstance({
+      resolvedPath,
+      ctx: parsed.data.ctx,
+      kvCache: parsed.data.kvCache,
+      nCpuMoe: parsed.data.nCpuMoe,
+      othersOverride: [],
+      getSystemInfo,
+    });
 
-      if (outcome.kind === "ok") {
-        triggerHeartbeat?.();
-        return reply.send({ status: "ready" });
-      }
-      return sendLoadOutcome(reply, outcome);
-    },
-  );
+    if (outcome.kind === "ok") {
+      triggerHeartbeat?.();
+      return reply.send({ status: "ready" });
+    }
+    return sendLoadOutcome(reply, outcome);
+  });
 }

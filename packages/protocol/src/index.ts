@@ -4,6 +4,8 @@ export * from "./origin.js";
 export * from "./model.js";
 export * from "./avatar.js";
 export * from "./identity.js";
+export * from "./behavior.js";
+export * from "./behaviorPolicy.js";
 export * from "./frontier.js";
 export * from "./tunnel.js";
 export * from "./registry.js";

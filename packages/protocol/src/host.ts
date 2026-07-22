@@ -48,6 +48,8 @@ export const LocalModel = z.object({
   path: z.string(),
   filename: z.string(),
   sizeBytes: z.number(),
+  repoId: z.string().optional(),
+  catalogId: z.string().optional(),
   capabilities: ModelCapabilities.optional(),
   /** Paired vision projector in the same directory, when present. */
   mmprojPath: z.string().optional(),

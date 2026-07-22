@@ -36,6 +36,9 @@ const CatalogCapabilityDetail = z
     level: z.string(),
     notes: z.string(),
     formats: z.array(z.string()).optional(),
+    /** Optional machine-readable runtime floor for enabling the capability.
+     * Catalog entries omit it when the publisher has not stated one. */
+    minimum_context_tokens: z.number().int().positive().optional(),
   })
   .passthrough();
 export type CatalogCapabilityDetail = z.infer<typeof CatalogCapabilityDetail>;

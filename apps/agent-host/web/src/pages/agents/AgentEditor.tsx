@@ -31,7 +31,6 @@ import {
   models as modelsApi,
 } from "../../api/endpoints.js";
 import { useAsync } from "../../hooks/useAsync.js";
-import { CONTEXT_PRESETS } from "../../lib/constants.js";
 import { useToasts } from "../../components/Toasts.js";
 import { CharacterCustomizer } from "./CharacterCustomizer/index.js";
 import { SpecialtiesInput } from "./SpecialtiesInput.js";
@@ -616,13 +615,6 @@ export function AgentEditor({
                 <span>creative</span>
               </div>
             </Field>
-
-            <ContextBudgetField
-              draft={draft}
-              loadedModels={loadedModels}
-              agentModelFilename={draft.model?.filename ?? null}
-              patch={patch}
-            />
           </div>
         ) : null}
 
@@ -854,13 +846,14 @@ function buildModelRef(
   catalogModels: CatalogModel[],
 ): import("@interloom/protocol").ModelRef {
   const catalog = catalogModelForPath(catalogModels, m.path);
-  const repoId = repoIdFromLocalPath(m.path) ?? undefined;
+  const repoId = m.repoId ?? repoIdFromLocalPath(m.path) ?? undefined;
   return {
     filename: m.filename,
     displayName: catalog?.name ?? m.filename,
     sizeBytes: m.sizeBytes,
     capabilities: m.capabilities,
     ...(repoId ? { repoId } : {}),
+    ...(catalog ? { catalogId: catalog.id } : {}),
   };
 }
 
@@ -982,63 +975,6 @@ function ModelStatusLine({
         />
       ) : null}
     </>
-  );
-}
-
-function ContextBudgetField({
-  draft,
-  loadedModels,
-  agentModelFilename,
-  patch,
-}: {
-  draft: AgentDraft;
-  loadedModels: LoadedModel[];
-  agentModelFilename: string | null;
-  patch: (p: Partial<AgentDraft>) => void;
-}) {
-  const loadedEntry =
-    agentModelFilename != null
-      ? loadedModels.find((m) => m.filename === agentModelFilename)
-      : undefined;
-  const agentModelIsActive = !!loadedEntry;
-  const loadedCtx = loadedEntry?.ctx ?? null;
-
-  const presets = CONTEXT_PRESETS.filter((p) => loadedCtx == null || p.value <= loadedCtx);
-
-  const ctxLabel = loadedCtx != null ? fmtCtxLabel(loadedCtx) : null;
-
-  const fieldLabel = ctxLabel
-    ? `Prompt budget (within the model's ${ctxLabel} window)`
-    : "Prompt budget (within the model's context window)";
-
-  const cappedValue =
-    loadedCtx != null
-      ? Math.min(draft.params.contextLength, loadedCtx)
-      : draft.params.contextLength;
-
-  return (
-    <Field label={fieldLabel}>
-      <div className="il-segmented" role="group" aria-label="Prompt budget">
-        {presets.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            className={`il-segmented__btn${
-              cappedValue === opt.value ? " il-segmented__btn--sel" : ""
-            }`}
-            onClick={() => patch({ params: { ...draft.params, contextLength: opt.value } })}
-            aria-pressed={cappedValue === opt.value}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-      {!agentModelIsActive ? (
-        <div className="il-field__hint" style={{ marginTop: 6 }}>
-          Capped by the context size chosen at activation.
-        </div>
-      ) : null}
-    </Field>
   );
 }
 

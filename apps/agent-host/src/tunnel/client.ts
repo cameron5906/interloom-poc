@@ -13,6 +13,7 @@ import {
   makeErr,
   makeEvt,
   type InferenceFinishReason,
+  type ModelRuntimeProfile,
   type TunnelFrame,
 } from "@interloom/protocol";
 import type { Placement } from "@interloom/protocol";
@@ -25,10 +26,11 @@ import { readInferenceCtx } from "../models/active.js";
 import { findInstanceByFilename, instanceBaseUrl, type InstanceRecord } from "../models/loaded.js";
 import { capabilitiesForFilename } from "../models/scan.js";
 import { isThinkingDisabled } from "../models/settingsStore.js";
-import { clampMaxTokens } from "../inference/limits.js";
+import { allocateMaxTokens } from "../inference/limits.js";
 import { ThinkStripper, stripThinkTags } from "../inference/thinkStripper.js";
 import { toLlamaTools } from "../inference/toolSchema.js";
 import { getAgent } from "../agents/store.js";
+import { buildRuntimeProfile, tunnelFeaturesForRuntime } from "../models/runtimeProfile.js";
 import {
   newToolCallAccumulator,
   aggregateToolCallDelta,
@@ -219,6 +221,68 @@ interface ResolvedInstance {
   visionCapable: boolean;
 }
 
+type InferenceRequest = import("@interloom/protocol").InferenceCompleteParams;
+
+async function buildLlamaChatBody(
+  params: InferenceRequest,
+  resolved: ResolvedInstance,
+  instanceOrigin: string,
+): Promise<Record<string, unknown>> {
+  const wireMessages = await Promise.all(
+    (params.messages ?? []).map(async (message) => ({
+      role: message.role,
+      content: await resolveWireContent(message, resolved.visionCapable, instanceOrigin),
+      ...(message.toolCalls ? { toolCalls: message.toolCalls } : {}),
+      ...(message.toolCallId !== undefined ? { toolCallId: message.toolCallId } : {}),
+    })),
+  );
+  const thinkingDisabled = !resolved.thinkingActive;
+  // Schema-action requests must be grammar-only. Several reasoning templates
+  // emit an unconstrained thinking prefix before the JSON grammar, so disable
+  // thinking for this individual request without changing the model setting.
+  const schemaConstrained = params.params?.responseFormat === "json_schema";
+  const responseFormat =
+    params.params?.responseFormat === "json_schema"
+      ? { type: "json_schema", schema: params.params.responseSchema }
+      : params.params?.responseFormat === "json_object"
+        ? { type: "json_object" }
+        : undefined;
+  return {
+    messages: toLlamaMessages(normalizeMessages(wireMessages)),
+    temperature: params.params?.temperature,
+    ...(responseFormat ? { response_format: responseFormat } : {}),
+    ...(thinkingDisabled || schemaConstrained
+      ? { chat_template_kwargs: { enable_thinking: false } }
+      : {}),
+    ...(params.params?.tools && params.params.tools.length > 0
+      ? {
+          tools: toLlamaTools(params.params.tools),
+          tool_choice: params.params.toolChoice ?? "auto",
+        }
+      : {}),
+  };
+}
+
+async function countLlamaInputTokens(
+  port: number,
+  body: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<number | null> {
+  try {
+    const response = await fetch(`${instanceBaseUrl(port)}/v1/chat/completions/input_tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { input_tokens?: unknown };
+    return typeof payload.input_tokens === "number" ? payload.input_tokens : null;
+  } catch {
+    return null;
+  }
+}
+
 export class TunnelClient {
   private ws: WebSocket | null = null;
   private status: TunnelStatus = "connecting";
@@ -231,6 +295,7 @@ export class TunnelClient {
   private inflight = new Map<string, AbortController>();
   private authReqId: string | null = null;
   private authCtx: number | undefined;
+  private modelRuntimeProfile: ModelRuntimeProfile | undefined;
   private _authFailed = false;
 
   constructor(
@@ -238,6 +303,7 @@ export class TunnelClient {
     private readonly agentName: string,
     private readonly agentPrivKey: string,
     private readonly agentPubKey: string,
+    private readonly runtimeProfiler?: typeof buildRuntimeProfile,
   ) {}
 
   get info(): TunnelInfo {
@@ -290,7 +356,8 @@ export class TunnelClient {
     if (!instance) return null;
     const capabilities = capabilitiesForFilename(MODELS_DIR, agent.model.filename);
     const thinkingActive =
-      capabilities?.thinking === true && !isThinkingDisabled(agent.model.filename);
+      this.modelRuntimeProfile?.reasoning.active ??
+      (capabilities?.thinking === true && !isThinkingDisabled(agent.model.filename));
     const visionCapable = Boolean(instance.mmprojPath);
     return { instance, thinkingActive, visionCapable };
   }
@@ -391,7 +458,8 @@ export class TunnelClient {
 
   private handleFrame(frame: TunnelFrame): void {
     if (frame.kind === "evt" && frame.method === "auth.challenge.v2") {
-      void this.handleAuthChallenge(frame).catch(() => {
+      void this.handleAuthChallenge(frame).catch((error) => {
+        console.warn(`[tunnel] authentication profile/proof preparation failed: ${String(error)}`);
         this._authFailed = true;
         this.status = "down";
         this.ws?.close(4403, "authentication failed");
@@ -519,7 +587,14 @@ export class TunnelClient {
     // This agent's model's instance ctx when resolvable; falls back to the
     // first-loaded-instance ctx (back-compat) if the model isn't loaded yet —
     // the tunnel will error future requests until it is.
-    const ctx = this.resolveInstance()?.instance.ctx ?? readInferenceCtx();
+    const resolved = this.resolveInstance();
+    const ctx = resolved?.instance.ctx ?? readInferenceCtx();
+    const agent = getAgent(this.placement.voucher.payload.agentId);
+    const runtimeProfile =
+      resolved && this.runtimeProfiler
+        ? await this.runtimeProfiler(resolved.instance, agent?.model)
+        : undefined;
+    this.modelRuntimeProfile = runtimeProfile;
     const reqId = crypto.randomUUID();
     this.authReqId = reqId;
     this.authCtx = ctx;
@@ -535,7 +610,8 @@ export class TunnelClient {
         voucher: this.placement.voucher,
         proof,
         ctx,
-        features: ["tools", "finish_reason_v1"],
+        features: tunnelFeaturesForRuntime(runtimeProfile),
+        ...(runtimeProfile ? { runtimeProfile } : {}),
       },
     });
   }
@@ -555,12 +631,61 @@ export class TunnelClient {
       return;
     }
 
+    if (frame.method === "inference.input_tokens") {
+      await this.handleInferenceInputTokens(frame);
+      return;
+    }
+
     if (frame.method === "inference.stream") {
       await this.handleInferenceStream(frame);
       return;
     }
 
     this.send(makeErr(frame.id, "E_METHOD", `unknown method: ${frame.method}`));
+  }
+
+  private async handleInferenceInputTokens(
+    frame: Extract<TunnelFrame, { kind: "req" }>,
+  ): Promise<void> {
+    const parsedParams = InferenceCompleteParams.safeParse(frame.params);
+    if (!parsedParams.success) {
+      this.send(makeErr(frame.id, "E_INTERNAL", "malformed inference params"));
+      return;
+    }
+    const resolved = this.resolveInstance();
+    if (!resolved) {
+      this.send(makeErr(frame.id, "E_INTERNAL", "agent's model is not currently loaded"));
+      return;
+    }
+    try {
+      const body = await buildLlamaChatBody(
+        parsedParams.data,
+        resolved,
+        this.placement.instanceUrl,
+      );
+      const inputTokens = await countLlamaInputTokens(
+        resolved.instance.port,
+        body,
+        AbortSignal.timeout(10_000),
+      );
+      if (inputTokens === null) {
+        this.send(makeErr(frame.id, "E_INTERNAL", "input token count unavailable"));
+        return;
+      }
+      this.send(
+        makeRes(frame.id, {
+          inputTokens,
+          contextWindow: resolved.instance.ctx,
+          ...(this.modelRuntimeProfile?.maxOutputTokens
+            ? { maxOutputTokens: this.modelRuntimeProfile.maxOutputTokens }
+            : {}),
+        }),
+      );
+    } catch (error) {
+      this.send(
+        makeErr(frame.id, "E_INTERNAL", error instanceof Error ? error.message : String(error)),
+      );
+    }
   }
 
   private async handleInferenceComplete(
@@ -578,8 +703,7 @@ export class TunnelClient {
       this.send(makeErr(frame.id, "E_INTERNAL", "agent's model is not currently loaded"));
       return;
     }
-    const { instance, thinkingActive, visionCapable } = resolved;
-    const thinkingDisabled = isThinkingDisabled(path.basename(instance.modelPath));
+    const { instance } = resolved;
 
     const agentId = this.placement.voucher.payload.agentId;
     const priority = params.params?.priority ?? "interactive";
@@ -589,30 +713,21 @@ export class TunnelClient {
       agentId,
       async (signal) => {
         try {
-          const wireMessages = await Promise.all(
-            (params.messages ?? []).map(async (m) => ({
-              role: m.role,
-              content: await resolveWireContent(m, visionCapable, this.placement.instanceUrl),
-              ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
-              ...(m.toolCallId !== undefined ? { toolCallId: m.toolCallId } : {}),
-            })),
-          );
+          const body = await buildLlamaChatBody(params, resolved, this.placement.instanceUrl);
+          const inputTokens = await countLlamaInputTokens(instance.port, body, signal);
 
           const res = await fetch(`${instanceBaseUrl(instance.port)}/v1/chat/completions`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-              messages: toLlamaMessages(normalizeMessages(wireMessages)),
+              ...body,
               stream: false,
-              temperature: params.params?.temperature,
-              max_tokens: clampMaxTokens(params.params?.maxTokens, instance.ctx, thinkingActive),
-              ...(thinkingDisabled ? { chat_template_kwargs: { enable_thinking: false } } : {}),
-              ...(params.params?.tools && params.params.tools.length > 0
-                ? {
-                    tools: toLlamaTools(params.params.tools),
-                    tool_choice: params.params?.toolChoice ?? "auto",
-                  }
-                : {}),
+              max_tokens: allocateMaxTokens(
+                params.params?.maxTokens,
+                instance.ctx,
+                inputTokens ?? undefined,
+                this.modelRuntimeProfile?.maxOutputTokens,
+              ),
             }),
             signal,
           });
@@ -726,8 +841,7 @@ export class TunnelClient {
       this.send(makeErr(frame.id, "E_INTERNAL", "agent's model is not currently loaded"));
       return;
     }
-    const { instance, thinkingActive, visionCapable } = resolved;
-    const thinkingDisabled = isThinkingDisabled(path.basename(instance.modelPath));
+    const { instance } = resolved;
 
     const agentId = this.placement.voucher.payload.agentId;
     const priority = params.params?.priority ?? "interactive";
@@ -741,31 +855,22 @@ export class TunnelClient {
         const signal = AbortSignal.any([closeAc.signal, watchdogSignal]);
         let inferenceRes: Response;
         try {
-          const wireMessages = await Promise.all(
-            (params.messages ?? []).map(async (m) => ({
-              role: m.role,
-              content: await resolveWireContent(m, visionCapable, this.placement.instanceUrl),
-              ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
-              ...(m.toolCallId !== undefined ? { toolCallId: m.toolCallId } : {}),
-            })),
-          );
+          const body = await buildLlamaChatBody(params, resolved, this.placement.instanceUrl);
+          const inputTokens = await countLlamaInputTokens(instance.port, body, signal);
 
           inferenceRes = await fetch(`${instanceBaseUrl(instance.port)}/v1/chat/completions`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-              messages: toLlamaMessages(normalizeMessages(wireMessages)),
+              ...body,
               stream: true,
               stream_options: { include_usage: true },
-              temperature: params.params?.temperature,
-              max_tokens: clampMaxTokens(params.params?.maxTokens, instance.ctx, thinkingActive),
-              ...(thinkingDisabled ? { chat_template_kwargs: { enable_thinking: false } } : {}),
-              ...(params.params?.tools && params.params.tools.length > 0
-                ? {
-                    tools: toLlamaTools(params.params.tools),
-                    tool_choice: params.params?.toolChoice ?? "auto",
-                  }
-                : {}),
+              max_tokens: allocateMaxTokens(
+                params.params?.maxTokens,
+                instance.ctx,
+                inputTokens ?? undefined,
+                this.modelRuntimeProfile?.maxOutputTokens,
+              ),
             }),
             signal,
           });

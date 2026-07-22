@@ -2,6 +2,7 @@ import { z } from "zod";
 import { FrontierWorkItem } from "./frontier.js";
 import { signedEnvelope } from "./envelope.js";
 import { Base64Url32, BoundedId, BoundedMethod, WIRE_LIMITS, utf8ByteLength } from "./limits.js";
+import { ModelRuntimeProfile } from "./model.js";
 
 /** Wire protocol version for tunnel frames. Unknown versions are rejected. */
 export const TUNNEL_VERSION = 1 as const;
@@ -76,7 +77,7 @@ export const AuthIdentifyParams = z.object({
   }),
   sig: z.string(),
   /** Loaded model context window (tokens). The host sends this so the instance
-   *  can cap prompt assembly to fit (chars/4 heuristic, reserving reply budget). */
+   *  can fit prompt assembly within the loaded physical request window. */
   ctx: z.number().optional(),
   /** Host feature advertisement (e.g. "tools", "frontierQueue"). Instances never
    *  offer tools over a tunnel that did not advertise them. A tunnel advertising
@@ -119,8 +120,22 @@ export const AuthIdentifyV2Params = z
     proof: signedEnvelope(HostTunnelProofV2Payload),
     ctx: z.number().int().positive().max(10_000_000).optional(),
     features: z.array(z.string().min(1).max(64)).max(32).optional(),
+    runtimeProfile: ModelRuntimeProfile.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      value.ctx !== undefined &&
+      value.runtimeProfile !== undefined &&
+      value.ctx !== value.runtimeProfile.contextWindow
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["runtimeProfile", "contextWindow"],
+        message: "runtime profile contextWindow must match ctx",
+      });
+    }
+  });
 export type AuthIdentifyV2Params = z.infer<typeof AuthIdentifyV2Params>;
 
 /** Auth success result. `ctx` advertises the loaded model's context window so
@@ -178,14 +193,27 @@ export const InferenceMessage = z.object({
 });
 export type InferenceMessage = z.infer<typeof InferenceMessage>;
 
-export const InferenceParams = z.object({
-  temperature: z.number().optional(),
-  maxTokens: z.number().int().positive().max(1_000_000).optional(),
-  /** Traffic class on the shared model: interactive replies outrank maintenance (compaction etc.). */
-  priority: z.enum(["interactive", "maintenance", "background"]).optional(),
-  tools: z.array(ToolDef).max(WIRE_LIMITS.tunnelTools).optional(),
-  toolChoice: z.enum(["auto", "none"]).optional(),
-});
+export const InferenceParams = z
+  .object({
+    temperature: z.number().optional(),
+    maxTokens: z.number().int().positive().max(1_000_000).optional(),
+    /** Traffic class on the shared model: interactive replies outrank maintenance (compaction etc.). */
+    priority: z.enum(["interactive", "maintenance", "background"]).optional(),
+    tools: z.array(ToolDef).max(WIRE_LIMITS.tunnelTools).optional(),
+    toolChoice: z.enum(["auto", "none"]).optional(),
+    /** Ask the Host's engine for JSON; json_schema requires `responseSchema`. */
+    responseFormat: z.enum(["json_object", "json_schema"]).optional(),
+    responseSchema: z.record(z.unknown()).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.responseFormat === "json_schema" && value.responseSchema === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["responseSchema"],
+        message: "responseSchema is required for json_schema",
+      });
+    }
+  });
 export type InferenceParams = z.infer<typeof InferenceParams>;
 
 export const InferenceCompleteParams = z.object({
@@ -214,6 +242,14 @@ export const InferenceCompleteResult = z.object({
   finishReason: InferenceFinishReason.optional(),
 });
 export type InferenceCompleteResult = z.infer<typeof InferenceCompleteResult>;
+
+/** Exact count for the fully templated request served by the loaded runtime. */
+export const InferenceInputTokensResult = z.object({
+  inputTokens: z.number().int().nonnegative(),
+  contextWindow: z.number().int().positive().max(10_000_000),
+  maxOutputTokens: z.number().int().positive().max(10_000_000).optional(),
+});
+export type InferenceInputTokensResult = z.infer<typeof InferenceInputTokensResult>;
 
 export const InferenceChunkEvent = z.object({
   delta: z.string(),
@@ -288,8 +324,8 @@ export const WorkCompleteResult = z.object({
 export type WorkCompleteResult = z.infer<typeof WorkCompleteResult>;
 
 /**
- * `work.fail` req params (host→instance). Requeues up to 3 attempts, then
- * dead. `leaseToken` (additive) must match the token handed out by
+ * `work.fail` req params (host→instance). Records attempt telemetry and
+ * requeues durably without an attempt cap. `leaseToken` (additive) must match the token handed out by
  * `work.pull` — a missing/stale token is rejected with `E_STALE_LEASE`
  * rather than mutating the row, so a late fail can never resurrect an
  * already-`done` item back to `queued` (CONTRACTS §14 "Lease ownership").

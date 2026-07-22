@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AuthIdentifyParams,
+  AuthIdentifyV2Params,
   AuthOkResult,
   InferenceCompleteParams,
   InferenceMessage,
@@ -217,6 +218,32 @@ describe("tool-calling wire shapes (additive, CONTRACTS §3)", () => {
     expect(p.params?.tools?.[0]?.name).toBe("platform.read_history");
   });
 
+  it("InferenceParams requires a schema for the additive JSON-Schema response format", () => {
+    const parsed = InferenceCompleteParams.parse({
+      messages: [{ role: "user", content: "decide" }],
+      params: { responseFormat: "json_object" },
+    });
+    expect(parsed.params?.responseFormat).toBe("json_object");
+    expect(
+      InferenceCompleteParams.safeParse({
+        messages: [{ role: "user", content: "decide" }],
+        params: { responseFormat: "json_schema" },
+      }).success,
+    ).toBe(false);
+    const schemaRequest = InferenceCompleteParams.parse({
+      messages: [{ role: "user", content: "decide" }],
+      params: {
+        responseFormat: "json_schema",
+        responseSchema: {
+          type: "object",
+          properties: { answer: { type: "string" } },
+          required: ["answer"],
+        },
+      },
+    });
+    expect(schemaRequest.params?.responseFormat).toBe("json_schema");
+  });
+
   it("assistant message carries toolCalls; tool role carries toolCallId", () => {
     const call = ToolCall.parse({ id: "c1", name: "platform.list_members", arguments: "{}" });
     const assistant = InferenceMessage.parse({
@@ -273,6 +300,54 @@ describe("tool-calling wire shapes (additive, CONTRACTS §3)", () => {
       features: ["tools"],
     });
     expect(p.features).toEqual(["tools"]);
+  });
+
+  it("auth.identify carries the verified loaded-model runtime profile", () => {
+    const b64 = "A".repeat(43);
+    const p = AuthIdentifyV2Params.parse({
+      agentId: "a",
+      agentPubKey: b64,
+      voucher: { payload: {}, key: "k", sig: "s" },
+      ctx: 32768,
+      features: ["tools", "input_tokens_v1", "json_schema_v1"],
+      proof: {
+        payload: {
+          purpose: "interloom.tunnel-auth.v2",
+          challengeId: "00000000-0000-4000-8000-000000000000",
+          nonce: b64,
+          placementId: "p",
+          agentId: "a",
+          instanceOrigin: "https://workspace.example",
+          voucherDigest: b64,
+          issuedAt: 1,
+        },
+        key: b64,
+        sig: "s",
+      },
+      runtimeProfile: {
+        version: 1,
+        catalogId: "qwen-test",
+        contextWindow: 32768,
+        maxOutputTokens: null,
+        chatFormat: "chatml",
+        templateHash: "0123456789abcdef",
+        runtimeBuild: "llama-test",
+        probeStatus: "verified",
+        adapter: "schema_actions",
+        toolFormat: null,
+        reasoning: { control: "none", active: false, minimumContextTokens: null },
+        features: {
+          tools: true,
+          structuredOutput: true,
+          exactInputTokens: true,
+          jsonSchema: true,
+          vision: false,
+          audio: false,
+        },
+      },
+    });
+    expect(p.runtimeProfile?.adapter).toBe("schema_actions");
+    expect(AuthIdentifyV2Params.safeParse({ ...p, ctx: 8192 }).success).toBe(false);
   });
 
   it("auth.identify accepts the frontierQueue feature flag (CONTRACTS §14)", () => {

@@ -3,6 +3,7 @@ import { ModelRef } from "./model.js";
 import { AgentGender } from "./avatar.js";
 import { AgentManifest, AgentOperator } from "./registry.js";
 import { BoundedId, WIRE_LIMITS } from "./limits.js";
+import { AgentBehaviorVersion } from "./behavior.js";
 
 /** An image attachment persisted on a chat message (CONTRACTS §5). */
 export const Attachment = z.object({
@@ -176,6 +177,7 @@ export type AgentRunRuntime = z.infer<typeof AgentRunRuntime>;
 export const AgentRunStatus = z.enum([
   "queued",
   "running",
+  "waiting",
   "stopping",
   "succeeded",
   "partial",
@@ -188,10 +190,13 @@ export type AgentRunStatus = z.infer<typeof AgentRunStatus>;
 export const AgentRunStage = z.enum([
   "queued",
   "preparing_context",
+  "rehydrating",
+  "counting_context",
   "compacting",
   "waiting_model",
   "using_tool",
   "waiting_slot",
+  "waiting_retry",
   "verifying",
   "posting",
   "stopping",
@@ -219,6 +224,8 @@ export const AgentRunSummary = z.object({
   lastSeq: z.number(),
   threadRootId: z.string().optional(),
   wakeReason: z.enum(["ambient", "thread", "mention", "dm"]).optional(),
+  /** Snapshotted when the run is admitted. Absent means behavior v1. */
+  behaviorVersion: AgentBehaviorVersion.optional(),
 });
 export type AgentRunSummary = z.infer<typeof AgentRunSummary>;
 

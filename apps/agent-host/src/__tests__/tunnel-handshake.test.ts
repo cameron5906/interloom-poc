@@ -147,6 +147,7 @@ async function startMockInstance(
               method: "inference.complete",
               params: {
                 messages: [{ role: "user", content: "hello" }],
+                params: { responseFormat: "json_object" },
               },
             };
             ws.send(JSON.stringify(reqFrame));
@@ -522,6 +523,15 @@ describe("tunnel handshake", () => {
       }, 50);
       checkInterval.unref?.();
     });
+
+    const inferenceCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) => String(url).endsWith("/v1/chat/completions"));
+    expect(inferenceCall).toBeDefined();
+    const body = JSON.parse(String(inferenceCall?.[1]?.body)) as {
+      response_format?: { type?: string };
+    };
+    expect(body.response_format).toEqual({ type: "json_object" });
 
     const [ws] = wss.clients;
     expect(ws).toBeDefined();

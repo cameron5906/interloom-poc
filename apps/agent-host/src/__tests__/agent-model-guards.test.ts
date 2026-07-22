@@ -2,7 +2,7 @@
  * Tests for agent model guards (CONTRACTS §6):
  * - POST /api/agents/:id/preview  → 400 model_required / 409 model_not_active
  * - POST /api/agents/:id/register → 400 model_required
- * - max_tokens clamp: preview sends max_tokens = min(4096, 512) = 512
+ * Request-local output allocation is covered by limits.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -280,7 +280,7 @@ describe("agent model guards", () => {
     expect("path" in body).toBe(true);
   });
 
-  it("preview succeeds and sends clamped max_tokens = min(4096, 512) = 512", async () => {
+  it("preview succeeds and allocates half the loaded window when exact counting is unavailable", async () => {
     mockAgents.set("a1", {
       agentId: "a1",
       name: "Ada",
@@ -312,7 +312,7 @@ describe("agent model guards", () => {
     );
     expect(inferenceCall).toBeDefined();
     const body = inferenceCall?.body as { max_tokens?: number; messages?: unknown[] };
-    expect(body.max_tokens).toBe(512); // min(4096, 512) = 512
+    expect(body.max_tokens).toBe(2048);
     expect(body.max_tokens).not.toBe(32768); // NOT contextLength
   });
 
@@ -494,34 +494,5 @@ describe("agent model guards", () => {
 
     expect(res.statusCode).toBe(400);
     expect(mockAgents.get("a1")).toMatchObject({ registered: false });
-  });
-});
-
-describe("max_tokens clamp (unit)", () => {
-  it("clamps to 512 when no maxTokens provided (default)", () => {
-    // Inline the pure clamp logic to verify it directly
-    const clampMaxTokens = (requested?: number): number => Math.min(4096, requested ?? 512);
-    expect(clampMaxTokens()).toBe(512);
-  });
-
-  it("clamps to 4096 when maxTokens > 4096", () => {
-    const clampMaxTokens = (requested?: number): number => Math.min(4096, requested ?? 512);
-    expect(clampMaxTokens(32768)).toBe(4096);
-    expect(clampMaxTokens(8192)).toBe(4096);
-  });
-
-  it("passes through maxTokens <= 4096 unchanged", () => {
-    const clampMaxTokens = (requested?: number): number => Math.min(4096, requested ?? 512);
-    expect(clampMaxTokens(256)).toBe(256);
-    expect(clampMaxTokens(4096)).toBe(4096);
-  });
-
-  it("never uses contextLength as max_tokens", () => {
-    // The bug: previously max_tokens: agent.params.contextLength (e.g. 32768)
-    // Now: max_tokens = min(4096, params.maxTokens ?? 512)
-    const contextLength = 32768;
-    const clampMaxTokens = (requested?: number): number => Math.min(4096, requested ?? 512);
-    expect(clampMaxTokens(contextLength)).toBe(4096); // clamped, not 32768
-    expect(clampMaxTokens()).toBe(512); // default when no maxTokens provided
   });
 });
